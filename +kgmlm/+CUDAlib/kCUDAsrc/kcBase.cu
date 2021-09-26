@@ -793,12 +793,13 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     }
     else if(cols_op_B == 1) {
        //GEMV is sometimes way faster then GEMM (even on the same problem size) - call it if it's all that's needed
+        size_t op_B_stride = (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->ld_gpu;
         for(int dd = 0; dd < depth && ce == CUBLAS_STATUS_SUCCESS; dd++) {
             ce = cublasGEMV(handle, op_A,
                           rows_A, cols_A,
                           &alpha,
                           getData_gpu() + dd*inc_gpu, ld_gpu,
-                          B->getData_gpu() + dd*B->inc_gpu, (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->ld_gpu,
+                          B->getData_gpu() + dd*B->inc_gpu, op_B_stride,
                           &beta,
                           C->getData_gpu() + dd*C->inc_gpu, 1);
         }
