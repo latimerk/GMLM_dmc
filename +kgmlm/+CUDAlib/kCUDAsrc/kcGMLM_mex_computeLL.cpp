@@ -1,10 +1,10 @@
 /*
- * kcGNLM_mex_computeLL.cu
- * Mex function to call the log likelihood function in a GNLM object.
- *  Takes 4-5 arguments: ptr (in long int form) to GNLM object
+ * kcGMLM_mex_computeLL.cu
+ * Mex function to call the log likelihood function in a GMLM object.
+ *  Takes 4-5 arguments: ptr (in long int form) to GMLM object
  *                       boolean (is double) for if the object is double precision (or single)
- *                       params struct (from GNLM class)
- *                       results struct (from GNLM class) - empty results 
+ *                       params struct (from GMLM class)
+ *                       results struct (from GMLM class) - empty results 
  *                                matrices mean do not compute certain parts (like derivatives)
  *                       trial weights (optional) - a vector of weights for each trial
  *
