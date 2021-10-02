@@ -67,6 +67,8 @@ classdef GMLM < handle
         gpus       uint32 % array for which GPUs are in use
         gpuDoublePrecision logical %if current GPU loading is double precision (if false, then single)
         
+        populationData logical % if data is structured as a simultaneously recorded population
+        
         temp_storage_file
     end
     
@@ -106,6 +108,7 @@ classdef GMLM < handle
                     ~isfield(GMLMstructure.Groups, "name"))
                 error("GMLM constructor: GMLMstructure must contain non-empty struct array 'Groups' with field 'dim_T', 'dim_R_max', 'dim_A', 'dim_names', and 'name'");
             end
+            
             
             %if contains a prior, should be empty or a function
             if(isfield(GMLMstructure, "prior"))
@@ -176,11 +179,20 @@ classdef GMLM < handle
                 end
                 for ff = 1:dim_D
                     if(~isempty(X_shared{ff}))
+                        if(ndims(X_shared{ff}) > 2) %#ok<ISMAT>
+                            tts = size(X_shared{ff}, 1 + (1:sum(fidxs == ff)));
+                            dts = dim_T(fidxs == ff);
+                            if(~all(tts(:) == dts(:),'all'))
+                                error("GMLM constructor: GMLMstructure.Groups().X_shared{ff} dims does not match dim_Ts");
+                            end
+                            X_shared{ff} = reshape(X_shared{ff}, size(X_shared{ff},1), []);
+                        end
                         if(size(X_shared{ff},2) ~= dim_F(ff) || ~isnumeric(X_shared{ff}) || ~ismatrix(X_shared{ff}))
                             error("GMLM constructor: GMLMstructure.Groups().X_shared{ff} must have dim_F(ff) columns where dim_F(ff) = prod(dim_T(factor_idx == ff)).");
                         end
                     end
                 end
+                GMLMstructure.Groups(jj).X_shared = X_shared;
                 
                 %if contains a prior, should be empty or a function
                 if(isfield(GMLMstructure.Groups, "prior"))
@@ -237,13 +249,25 @@ classdef GMLM < handle
             end
             
             %% check each trial to see if it matches the structure
-            if(~isstruct(trials) || isempty(trials))
-                error("GMLM constructor: input trials must be non-empty struct array");
+            if(~isstruct(trials) || isempty(trials) || ~isfield(trials, "Y"))
+                error("GMLM constructor: input trials must be non-empty struct array with a Y field (spike counts).");
             end
+            
+            N_neurons_per_trial = 1;
+            if(~isfield(trials, "neuron") || all(arrayfun(@(aa) isempty(aa.neuron), trials), 'all'))
+                N_neurons_per_trial = size(trials(1).Y, 2);
+                obj.populationData = true;
+                if(N_neurons_per_trial == 1)
+                    warning('Only 1 neuron found!');
+                end
+            else
+                obj.populationData = false;
+            end
+            
             % check for spike observations
                %exists                      for each trial     vector           numbers        contains obs.     is integers (spike counts -> this could be relaxed for more general models)
-            if(~isfield(trials, "Y") || ~all(arrayfun(@(aa) isvector(aa.Y) & isnumeric(aa.Y) & ~all(aa.Y < 0, 'all') & all(fix(aa.Y) == aa.Y, 'all'), trials), 'all'))
-                error("GMLM constructor: trials must have spike count vector Y, which contains only integers (may contain negatives to indicate censored bins, but each trial needs at least one observation!)");
+            if(~all(arrayfun(@(aa) size(aa.Y, 2) == N_neurons_per_trial & isnumeric(aa.Y) & ~isempty(aa.Y), trials), 'all'))
+                error("GMLM constructor: trials must have spike count vector/matrix Y (for Poisson likelihood, may contain negatives to indicate censored bins, but each trial needs at least one observation!)");
             end
             
             %check for linear terms
@@ -257,15 +281,26 @@ classdef GMLM < handle
                 if(~isfield(trials, "X_lin"))
                     error("GMLM constructor: trials requires field X_lin!");
                 end
+                
+                X_lin_size = 1;
+                if(obj.populationData)
+                    X_lin_size = size(trials(1).X_lin, 3);
+                    if(X_lin_size ~= N_neurons_per_trial && X_lin_size ~= 1)
+                        error("GMLM constructor: X_lin is not a valid size!");
+                    end
+                end
+                
                 %X_lin size must be correct
-                if(~all(arrayfun(@(aa) isnumeric(aa.X_lin) & ismatrix(aa.X_lin) & size(aa.X_lin,1) == numel(aa.Y) & size(aa.X_lin, 2) == GMLMstructure.dim_B, trials), 'all'))
+                if(~all(arrayfun(@(aa) isnumeric(aa.X_lin) &  size(aa.X_lin,1) == size(aa.Y,1) & size(aa.X_lin, 2) == GMLMstructure.dim_B & size(aa.X_lin, 3) == X_lin_size, trials), 'all'))
                     error("GMLM constructor: each trials(jj).X_lin should be a matrix of size numel(trials(jj).Y) x GMLMstructure.dim_B");
                 end
             end
             
             %checks neuron number
-            if(~all(arrayfun(@(aa) isnumeric(aa.neuron), trials), 'all') && ~all(arrayfun(@(aa) ischar(aa.neuron) | isstring(aa.neuron), trials), 'all'))
-                error("GMLM constructor: invalid neuron indentifiers for trials (must be all numeric or all strings)");
+            if(~obj.populationData)
+                if(~all(arrayfun(@(aa) isnumeric(aa.neuron), trials), 'all') && ~all(arrayfun(@(aa) ischar(aa.neuron) | isstring(aa.neuron), trials), 'all'))
+                    error("GMLM constructor: invalid neuron indentifiers for trials (must be all numeric or all strings)");
+                end
             end
             
             %checks each group
@@ -298,17 +333,34 @@ classdef GMLM < handle
                     if(~isempty(GMLMstructure.Groups(jj).X_shared{ff}))
                         %check to see if iX is correct size
                         if(~all(arrayfun(@(aa) isnumeric(aa.Groups(jj).iX_shared{ff}) && ismatrix(aa.Groups(jj).iX_shared{ff}) && ...
-                                               size(aa.Groups(jj).iX_shared{ff},1) == numel(aa.Y) && ... 
+                                               size(aa.Groups(jj).iX_shared{ff},1) == size(aa.Y,1) && ... 
                                                size(aa.Groups(jj).iX_shared{ff},2) == GMLMstructure.Groups(jj).dim_A && ...
                                                all(aa.Groups(jj).iX_shared{ff} == fix(aa.Groups(jj).iX_shared{ff}), 'all') ...
                                                , trials), 'all'))
                             error("GMLM constructor: trials.Groups(jj).iX_shared{ff} must be matrix of integers of size (numel(trials.Y) x GMLMstructure.Groups(jj).dim_A) when GMLMstructure.Groups(jj).X_shared{ss} is populated.");
                         end
                     else
+                        
                         %when X_shared is empty
                         %check to see if X_local is correct size
+                        for tt = 1:numel(trials)
+                            if(ndims(trials(tt).Groups(jj).X_local{ff}) > 2) %#ok<ISMAT>
+                                tts = size(trials(tt).Groups(jj).X_local{ff}, 1 + (1:(sum(fidxs == ff) + 1)));
+                                dts = dim_T(fidxs == ff);
+                                if((tts(1) ~= dim_F(ff) && (tts(2) ~= dim_A || tts(2) ~= 1)) && ~all(tts(:) == [dts(:);dim_A],'all') && ~all(tts(:) == [dts(:);1],'all'))
+                                    error("GMLM constructor: trials(tt).Groups(jj).X_local{ff} dims does not match dim_Ts");
+                                end
+                                
+                                if(tts(1) ~= dim_F(ff))
+                                    new_size = [size(trials(tt).Groups(jj).X_local{ff},1), dim_F(ff), tts(end)];
+                                    if(numel(new_size)-1 ~= numel(tts) && ~all(tts == new_size(2:end))) 
+                                        trials(tt).Groups(jj).X_local{ff} = reshape(trials(tt).Groups(jj).X_local{ff}, new_size);
+                                    end
+                                end
+                            end
+                        end
                         if(~all(arrayfun(@(aa) isnumeric(aa.Groups(jj).X_local{ff}) && ndims(aa.Groups(jj).X_local{ff}) <= 3 && ...
-                                               size(aa.Groups(jj).X_local{ff},1) == numel(aa.Y) && ... 
+                                               size(aa.Groups(jj).X_local{ff},1) == size(aa.Y,1) && ... 
                                                size(aa.Groups(jj).X_local{ff},2) == dim_F(ff) && ... 
                                                (size(aa.Groups(jj).X_local{ff},3) == GMLMstructure.Groups(jj).dim_A || size(aa.Groups(jj).X_local{ff},3) == 1) ...
                                                , trials), 'all'))
@@ -331,6 +383,7 @@ classdef GMLM < handle
             obj.GMLMstructure = GMLMstructure;
             obj.trials = trials;
             
+            
             % check for prior, otherwise is null by default
             if(isfield(GMLMstructure, "prior"))
                 obj.GMLMstructure.prior = GMLMstructure.prior;
@@ -352,9 +405,11 @@ classdef GMLM < handle
             end
             
             %sets local neuron index
-            [obj.neuronIdx, ~, idxs] = unique([trials(:).neuron]);
-            idxs = num2cell(idxs);
-            [obj.trials(:).neuron_idx] = idxs{:};
+            if(~obj.populationData)
+                [obj.neuronIdx, ~, idxs] = unique([trials(:).neuron]);
+                idxs = num2cell(idxs);
+                [obj.trials(:).neuron_idx] = idxs{:};
+            end
             
             %computes maximum number of parameters in the model
             obj.max_params = obj.dim_P + obj.dim_P*obj.dim_B;
@@ -398,7 +453,21 @@ classdef GMLM < handle
     methods (Access = public)
         
         function [pp] = dim_P(obj) %number of neurons
-            pp = numel(obj.neuronIdx);
+            if(obj.populationData)
+                pp = size(obj.trials(1).Y,2);
+            else
+                pp = numel(obj.neuronIdx);
+            end
+        end
+        function [ss] = dim_trialLL(obj, dim) %size of the trial log likelihood
+            if(obj.populationData)
+                ss = [obj.dim_M() obj.dim_P()];
+            else
+                ss = [obj.dim_M() 1];
+            end
+            if(nargin > 1)
+                ss = ss(dim);
+            end
         end
         
         function [dd] = dim_J(obj) % number of tensor coefficient groups
@@ -414,7 +483,7 @@ classdef GMLM < handle
         end
         
         function [nn] = dim_N(obj, tr) % length of each trial
-            nn = arrayfun(@(a)numel(a.Y), obj.trials);
+            nn = arrayfun(@(a)size(a.Y,1), obj.trials);
             if(nargin > 1)
                 nn = nn(tr);
             end
@@ -757,19 +826,29 @@ classdef GMLM < handle
             [params, dataType] = obj.getEmptyParamStruct('includeHyperparameters', includeHyperparameters, 'useDoublePrecision', useDoublePrecision);
             
             %% gets the log mean firing rate for each neuron 
-            log_rate_mu = zeros(obj.dim_P,1);
-            for pp = 1:obj.dim_P
+            if(obj.populationData)
                 total_bins = 0;
-                total_spks = 0;
-                
+                total_spks = zeros(obj.dim_P,1);
                 for tt = 1:obj.dim_M
-                    if(obj.trials(tt).neuron_idx == pp)
-                        total_bins = total_bins + numel(obj.trials(tt).Y);
-                        total_spks = total_spks + sum(obj.trials(tt).Y);
-                    end
+                    total_bins = total_bins + size(obj.trials(tt).Y,1);
+                    total_spks = total_spks + sum(obj.trials(tt).Y)';
                 end
-%                 log_rate_mu(pp) = log((total_spks / total_bins)./obj.bin_size);
-                log_rate_mu(pp) = log(total_spks) - log(total_bins) - log(obj.bin_size);
+                log_rate_mu = log(total_spks) - log(total_bins) - log(obj.bin_size);
+            else
+                log_rate_mu = zeros(obj.dim_P,1);
+                for pp = 1:obj.dim_P
+                    total_bins = 0;
+                    total_spks = 0;
+
+                    for tt = 1:obj.dim_M
+                        if(obj.trials(tt).neuron_idx == pp)
+                            total_bins = total_bins + numel(obj.trials(tt).Y);
+                            total_spks = total_spks + sum(obj.trials(tt).Y);
+                        end
+                    end
+    %                 log_rate_mu(pp) = log((total_spks / total_bins)./obj.bin_size);
+                    log_rate_mu(pp) = log(total_spks) - log(total_bins) - log(obj.bin_size);
+                end
             end
             %%
             params.W(:) = randn(size(params.W))*std(log_rate_mu) + mean(log_rate_mu);
@@ -946,12 +1025,26 @@ classdef GMLM < handle
             %for each trial
             log_rate_per_trial = struct('log_rate', cell(size(obj.trials)));
             for mm = 1:obj.dim_M
-                dim_N = numel(obj.trials(mm).Y);
-                neuron_idx = obj.trials(mm).neuron_idx;
-                
-                %add linear and constant term
-                if(obj.GMLMstructure.dim_B > 0)
-                    log_rate_per_trial(mm).log_rate = obj.trials(mm).X_lin*params.B(:, neuron_idx) + params.W(neuron_idx);
+                dim_N = size(obj.trials(mm).Y, 1);
+                if(obj.populationData)
+                    %add linear and constant term
+                    if(obj.GMLMstructure.dim_B > 0)
+                        if(size(obj.trials(mm).X_lin, 3) == 1)
+                            log_rate_per_trial(mm).log_rate = obj.trials(mm).X_lin * params.B + params.W(:)';
+                        else
+                            log_rate_per_trial(mm).log_rate = nan(dim_N, obj.dim_P());
+                            for pp = 1:obj.dim_P()
+                                log_rate_per_trial(mm).log_rate(:,pp) = obj.trials(mm).X_lin(:, :, pp) * params.B(:, pp) + params.W(pp);
+                            end
+                        end
+                    end
+                else
+                    neuron_idx = obj.trials(mm).neuron_idx;
+
+                    %add linear and constant term
+                    if(obj.GMLMstructure.dim_B > 0)
+                        log_rate_per_trial(mm).log_rate = obj.trials(mm).X_lin * params.B(:, neuron_idx) + params.W(neuron_idx);
+                    end
                 end
                 
                 %add each group
@@ -980,7 +1073,11 @@ classdef GMLM < handle
                     G = sum(G, 3);
                     
                     % linearly weight the components and add to rate
-                    log_rate_per_trial(mm).log_rate = G * params.Groups(jj).V(neuron_idx,:)' + log_rate_per_trial(mm).log_rate;
+                    if(obj.populationData)
+                        log_rate_per_trial(mm).log_rate = G * params.Groups(jj).V' + log_rate_per_trial(mm).log_rate;
+                    else
+                        log_rate_per_trial(mm).log_rate = G * params.Groups(jj).V(neuron_idx,:)' + log_rate_per_trial(mm).log_rate;
+                    end
                 end
             end
         end
@@ -988,7 +1085,7 @@ classdef GMLM < handle
         function [log_like, log_like_per_trial] = computeLogLikelihoodHost(obj, params, opts)
             log_like_per_trial = obj.computeLogRate(params);
             
-            if(nargin > 2 && isfield(opts, "trial_weights") && numel(opts.trial_weights) == obj.dim_M)
+            if(nargin > 2 && isfield(opts, "trial_weights") && size(opts.trial_weights,1) == obj.dim_M)
                 tw = opts.trial_weights;
             else
                 tw = ones(obj.dim_M,1);
@@ -1005,13 +1102,17 @@ classdef GMLM < handle
             %for each trial
             for mm = 1:obj.dim_M
                 if(ll_idx == 1) %poissExp
-                    vv = obj.trials(mm).Y >= 0; %check for any censored values
                     
-                    rr = log_like_per_trial(mm).log_rate(vv) + log(obj.bin_size);
-                    log_like_per_trial(mm).log_like_0 = -exp(rr) + rr.*obj.trials(mm).Y(vv) - (gammaln(obj.trials(mm).Y(vv)+1));
-                    log_like_per_trial(mm).log_like = tw(mm)*sum(log_like_per_trial(mm).log_like_0);
+                    log_like_per_trial(mm).log_like_0  = zeros(size(obj.trials(mm).Y));
+                    
+                    for pp = 1:size(obj.trials(mm).Y, 2)
+                        vv = obj.trials(mm).Y(:, pp) >= 0; %check for any censored values
+                        rr = log_like_per_trial(mm).log_rate(vv, pp) + log(obj.bin_size);
+                        log_like_per_trial(mm).log_like_0(:, pp) = -exp(rr) + rr.*obj.trials(mm).Y(vv, pp) - (gammaln(obj.trials(mm).Y(vv, pp)+1));
+                    end
+                    log_like_per_trial(mm).log_like   = tw(mm,:).*sum(log_like_per_trial(mm).log_like_0, 1);
                 elseif(ll_idx == 2) %sqErr
-                    log_like_per_trial(mm).log_like = -tw(mm)*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2);
+                    log_like_per_trial(mm).log_like = -tw(mm,:).*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2, 1);
                 else
                     error("invalid likelihood setting");
                 end
@@ -1110,6 +1211,8 @@ classdef GMLM < handle
             if(~isempty(trial_weights))
                 if(numel(trial_weights) == obj.dim_M)
                     opts.trial_weights = trial_weights(:);
+                elseif(obj.populationData && size(trial_weights,1) == obj.dim_M && size(trial_weights,2) == obj.dim_P())
+                    opts.trial_weights = trial_weights;
                 elseif(islogical(trial_weights) && trial_weights)
                     opts.trial_weights = ones(obj.dim_M, 1);
                 end
@@ -1405,8 +1508,8 @@ classdef GMLM < handle
             %% sets up GMLMstructure to send to GPU in correct datatypes and 0 indexing
             GMLMstructure_GPU = obj.GMLMstructure;
             
-            GMLMstructure_GPU.dim_P = uint64(obj.dim_P); % not really used here
-            GMLMstructure_GPU.max_trial_length = uint64(max(arrayfun(@(aa) numel(aa.Y), obj.trials)));
+            GMLMstructure_GPU.dim_P = uint64(obj.dim_P); 
+            GMLMstructure_GPU.max_trial_length = uint64(max(arrayfun(@(aa) size(aa.Y,1), obj.trials)));
             GMLMstructure_GPU.dim_B       = uint64(obj.dim_B);
             if(useDoublePrecision)
                 GMLMstructure_GPU.binSize = double(obj.bin_size);
@@ -1488,7 +1591,9 @@ classdef GMLM < handle
                     end
                     
                     %sets neuron index to int32 and 0 indexed 
-                    trialBlocks(bb).trials(mm).neuron_idx = uint32(trialBlocks(bb).trials(mm).neuron_idx - 1);
+                    if(~obj.populationData)
+                        trialBlocks(bb).trials(mm).neuron_idx = uint32(trialBlocks(bb).trials(mm).neuron_idx - 1);
+                    end
                     
                     %for each Group
                     for jj = 1:obj.dim_J
@@ -1513,7 +1618,11 @@ classdef GMLM < handle
             end
             
             %% call mex with (GMLMstructure_GPU, trialBlocks, useDoublePrecision), get pointer in return
-            obj.gpuObj_ptr = kgmlm.CUDAlib.kcGMLM_mex_create(GMLMstructure_GPU, trialBlocks, useDoublePrecision);
+            if(obj.populationData)
+                obj.gpuObj_ptr = kgmlm.CUDAlib.kcGMLMPop_mex_create(GMLMstructure_GPU, trialBlocks, useDoublePrecision);
+            else
+                obj.gpuObj_ptr = kgmlm.CUDAlib.kcGMLM_mex_create(GMLMstructure_GPU, trialBlocks, useDoublePrecision);
+            end
             obj.gpus = deviceNumbers;
             obj.gpuDoublePrecision = useDoublePrecision;
         end
@@ -1529,7 +1638,11 @@ classdef GMLM < handle
                 warning("GMLM is not loaded to GPU. Nothing to free.");
             else
                 % call mex file to delete GPU object pointer
-                kgmlm.CUDAlib.kcGMLM_mex_clear(obj.gpuObj_ptr, obj.gpuDoublePrecision);
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_clear(obj.gpuObj_ptr, obj.gpuDoublePrecision);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_clear(obj.gpuObj_ptr, obj.gpuDoublePrecision);
+                end
                 % erase pointer value
                 obj.gpuObj_ptr = 0;
                 obj.gpus = [];
@@ -1549,8 +1662,12 @@ classdef GMLM < handle
             results = obj.getEmptyResultsStruct(opts);
             
             %send to GPU
-            kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
-            results.log_likelihood = sum(results.trialLL);
+            if(obj.populationData)
+                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            else
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            end
+            results.log_likelihood = sum(results.trialLL, 'all');
         end
         
         function [results] = computeLogPosterior(obj, params, opts)
@@ -1662,7 +1779,7 @@ classdef GMLM < handle
             end
             
             if(~isfield(opts, 'trialLL') || opts.trialLL)
-                results.trialLL = zeros(obj.dim_M, 1, dataType);
+                results.trialLL = zeros(obj.dim_trialLL(), dataType);
             else
                 results.trialLL = [];
             end

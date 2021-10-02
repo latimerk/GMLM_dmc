@@ -76,18 +76,18 @@ GPUGLM_computeBlock<FPTYPE>::~GPUGLM_computeBlock() {
 *  ridx_sa_all must be assigned
 */
 template <class FPTYPE>
-__global__ void kernel_getX_temp(GPUData_kernel<FPTYPE> * X_temp, const GPUData_kernel<FPTYPE> * X, 
-                                    const GPUData_kernel<unsigned int> * ridx_sa_all)   {
+__global__ void kernel_getX_temp(GPUData_kernel<FPTYPE> X_temp, const GPUData_kernel<FPTYPE> X, 
+                                    const GPUData_kernel<unsigned int> ridx_sa_all)   {
     //get current observation number
     int tt_start = blockIdx.y * blockDim.y + threadIdx.y;
     unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < X_temp->x) {
-        unsigned int iX_row = (*ridx_sa_all)[row];
+    if(row < X_temp.x) {
+        unsigned int iX_row = ridx_sa_all[row];
 
         //for each regressor (on this thread)
-        for(int tt = tt_start; tt < X_temp->y; tt += blockDim.y * gridDim.y) {
+        for(int tt = tt_start; tt < X_temp.y; tt += blockDim.y * gridDim.y) {
             //for each event 
-            (*X_temp)(row, tt) = (*X)(iX_row, tt);
+            X_temp(row, tt) = X(iX_row, tt);
         }
     }
 }
@@ -143,34 +143,34 @@ bool GPUGLM_computeBlock<FPTYPE>::loadParams(const GPUGLM_params<FPTYPE> * param
  * and the SQUARE ROOT of the absolute value of the second derivative
  */
 template <class FPTYPE>
-__global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> * LL, GPUData_kernel<FPTYPE> * dLL, GPUData_kernel<FPTYPE> * d2LL,
-        const GPUData_kernel<FPTYPE> * Y,
+__global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYPE> dLL, GPUData_kernel<FPTYPE> d2LL,
+        const GPUData_kernel<FPTYPE> Y,
         const FPTYPE log_dt,
-        const GPUData_kernel<unsigned int> * id_a_trialM,
-        const GPUData_kernel<FPTYPE> * trial_weights,
-        const GPUData_kernel<unsigned int> * ridx_sa_all,
-        const logLikeType logLikeSettings, GPUData_kernel<FPTYPE> * logLikeParams,
+        const GPUData_kernel<unsigned int> id_a_trialM,
+        const GPUData_kernel<FPTYPE> trial_weights,
+        const GPUData_kernel<unsigned int> ridx_sa_all,
+        const logLikeType logLikeSettings, GPUData_kernel<FPTYPE> logLikeParams,
         const bool compute_dK, const bool compute_d2K) {
     //current observation index
     unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < LL->x) {
+    if(row < LL.x) {
         unsigned int X_row;
-        if(ridx_sa_all->y == 0) {
+        if(ridx_sa_all.y == 0) {
             //if full run
             X_row = row;
         }
         else {
             //if sparse run
-            X_row = (*ridx_sa_all)[row];
+            X_row = ridx_sa_all[row];
         }
-        FPTYPE tw_c = (trial_weights->y == 0) ? 1 : (*trial_weights)[(*id_a_trialM)[X_row]];
-        FPTYPE Y_c = (*Y)[X_row];
+        FPTYPE tw_c = (trial_weights.y == 0) ? 1 : trial_weights[id_a_trialM[X_row]];
+        FPTYPE Y_c = Y[X_row];
 
         FPTYPE   LL_c = 0;  
         FPTYPE  dLL_c = 0;   
         FPTYPE d2LL_c = 0;    
         if(tw_c != 0) { //if trial not censored
-            FPTYPE log_rate = (*LL)[row];
+            FPTYPE log_rate = LL[row];
 
             if(logLikeSettings == ll_poissExp) {
                 int Y_ci = floor(Y_c);
@@ -193,12 +193,12 @@ __global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> * LL, GPUData_kernel
                 }
             }
         }
-        (*LL)[row]  =  LL_c*tw_c;
+        LL[row]  =  LL_c*tw_c;
         if(compute_dK) {
-            (*dLL)[row] = dLL_c*tw_c;
+            dLL[row] = dLL_c*tw_c;
         }
         if(compute_d2K) {
-            (*d2LL)[row] = d2LL_c*sqrt(tw_c);
+            d2LL[row] = d2LL_c*sqrt(tw_c);
         }
     }
 }
@@ -207,41 +207,41 @@ __global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> * LL, GPUData_kernel
 *  Sums up the trial log likelihoods (results->trialLL)
 */     
 template <class FPTYPE>
-__global__ void kernel_sum_trialLL_GLM(GPUData_kernel<FPTYPE> * trialLL,
-                                 const GPUData_kernel<unsigned int> * trial_included, 
-                                 const GPUData_kernel<FPTYPE> * LL, 
-                                 const GPUData_kernel<size_t> * dim_N,
-                                 const GPUData_kernel<unsigned int> * ridx_t_all,
-                                 const GPUData_kernel<unsigned int> *  id_t_trial,
-                                 const GPUData_kernel<FPTYPE> * trial_weights,
-                                 const GPUData_kernel<FPTYPE> * normalizingConstants) {
+__global__ void kernel_sum_trialLL_GLM(GPUData_kernel<FPTYPE> trialLL,
+                                 const GPUData_kernel<unsigned int> trial_included, 
+                                 const GPUData_kernel<FPTYPE> LL, 
+                                 const GPUData_kernel<size_t> dim_N,
+                                 const GPUData_kernel<unsigned int> ridx_t_all,
+                                 const GPUData_kernel<unsigned int>  id_t_trial,
+                                 const GPUData_kernel<FPTYPE> trial_weights,
+                                 const GPUData_kernel<FPTYPE> normalizingConstants) {
      
     unsigned int tr = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t mm = dim_N->x; //default is invalid value - will just skip
-    if(trial_included->y > 0) { //if is sparse run
-        if(tr < trial_included->x) {
-            mm = (*trial_included)[tr];
+    size_t mm = dim_N.x; //default is invalid value - will just skip
+    if(trial_included.y > 0) { //if is sparse run
+        if(tr < trial_included.x) {
+            mm = trial_included[tr];
         }
     }
     else {
         mm = tr;
     }
 
-    if(mm < dim_N->x) { // if valid trial
-        FPTYPE tw_c = (trial_weights->y == 0) ? 1 : (*trial_weights)[mm];
+    if(mm < dim_N.x) { // if valid trial
+        FPTYPE tw_c = (trial_weights.y == 0) ? 1 : trial_weights[mm];
         if(tw_c != 0) {  
-            unsigned int row = (*ridx_t_all)[tr];  // this uses 'tr' so that it works for sparse runs
+            unsigned int row = ridx_t_all[tr];  // this uses 'tr' so that it works for sparse runs
 
             //sum up LL
-            FPTYPE ll_total = (*normalizingConstants)[mm] * tw_c;
-            for(int tt = 0; tt < (*dim_N)[mm]; tt++) {
-                ll_total  += (*LL)[row + tt];
+            FPTYPE ll_total = normalizingConstants[mm] * tw_c;
+            for(int tt = 0; tt < dim_N[mm]; tt++) {
+                ll_total  += LL[row + tt];
             }
-            (*trialLL)[(*id_t_trial)[mm]] = ll_total;
+            trialLL[id_t_trial[mm]] = ll_total;
         }
         //no need to compute sum; set results to 0
         else {
-            (*trialLL)[(*id_t_trial)[mm]] = 0;
+            trialLL[id_t_trial[mm]] = 0;
         }
     }
 }

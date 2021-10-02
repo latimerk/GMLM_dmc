@@ -119,7 +119,7 @@ end
 %save trial log likelihoods to harddrive in a piece-wise manner (otherwise, I'd fill up RAM)
 samplesBlockSize      = min(HMC_settings.samplesBlockSize, TotalSamples);
 samples_block.idx     = nan(samplesBlockSize, 1);
-samples_block.trialLL = nan(obj.dim_M, samplesBlockSize, dataType);
+samples_block.trialLL = nan([obj.dim_trialLL(1), obj.dim_trialLL(2), samplesBlockSize], dataType);
 
 if(exist(HMC_settings.samplesFile, 'file'))
     continue_opt = input(sprintf('Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ', HMC_settings.samplesFile), 's');
@@ -132,7 +132,7 @@ end
 a = 1; % dummy variable
 save(HMC_settings.samplesFile, 'a', '-nocompression', '-v7.3');
 samples_file = matfile(HMC_settings.samplesFile, 'Writable',true);
-samples_file.trialLL = zeros(obj.dim_M, samplesBlockSize, dataType);
+samples_file.trialLL = zeros([obj.dim_trialLL(1), obj.dim_trialLL(2), samplesBlockSize], dataType);
 obj.temp_storage_file = HMC_settings.samplesFile;
 
 NB = ceil(TotalSamples / samplesBlockSize); % I'm trying here to pre-allocate space in the samples file without filling up RAM (there's probably a better way to do this, but I don't care)
@@ -142,7 +142,7 @@ for ii = 1:NB
     else
         idx = (1:samplesBlockSize) + (NB-1)*samplesBlockSize;
     end
-    samples_file.trialLL(:, idx) = nan(obj.dim_M, numel(idx), dataType);
+    samples_file.trialLL(:, :, idx) = nan([obj.dim_trialLL(1), obj.dim_trialLL(2), numel(idx)], dataType);
 end
 
 %% initialize HMC state
@@ -168,7 +168,7 @@ for jj = 1:obj.dim_J
 end
 
 samples_block.idx(1) = 1;
-samples_block.trialLL(:, 1) = resultStruct.trialLL;
+samples_block.trialLL(:, :, 1) = resultStruct.trialLL;
 
 samples.log_post(1) = resultStruct.log_post;
 samples.log_like(1) = resultStruct.log_likelihood;
@@ -243,11 +243,11 @@ for sample_idx = start_idx:TotalSamples
     %temp storage of trialLL
     idx_c = mod(sample_idx-1, samplesBlockSize) + 1;
     samples_block.idx(       idx_c) = sample_idx;
-    samples_block.trialLL(:, idx_c) = resultStruct.trialLL;
+    samples_block.trialLL(:, :, idx_c) = resultStruct.trialLL;
     if(mod(sample_idx, samplesBlockSize) == 0 || sample_idx == TotalSamples)
         %save to file
         xx = ~isnan(samples_block.idx);
-        samples_file.trialLL(:,samples_block.idx(xx))  = samples_block.trialLL;
+        samples_file.trialLL(:,:,samples_block.idx(xx))  = samples_block.trialLL;
     end
     
     %% print any updates
@@ -285,29 +285,30 @@ for sample_idx = start_idx:TotalSamples
 end
 
 %% finish sampler
-dim_M = double(obj.dim_M);
 ss_idx = (HMC_settings.nWarmup+1):sample_idx;
 
 fprintf('computing WAIC and PSIS-LOO... ');
-T_n = zeros(dim_M,1);
-V_n = zeros(dim_M,1);
+T_n = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
+V_n = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
 
-summary.PSISLOOS   = zeros(dim_M,1);
-summary.PSISLOO_PK = zeros(dim_M,1);
+summary.PSISLOOS   = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
+summary.PSISLOO_PK = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
 
 % ll = samples.trialLL(:,ss_idx);
-for ii = 1:dim_M
-    ll_c = double(samples_file.trialLL(ii,ss_idx));
-    T_n(ii) = -kgmlm.utils.logMeanExp(ll_c,2);
-    V_n(ii) = mean(ll_c.^2,2) - mean(ll_c,2).^2;
-    
-    [~,summary.PSISLOOS(ii),summary.PSISLOO_PK(ii)] = kgmlm.PSISLOO.psisloo(ll_c(:));
+for ii = 1:obj.dim_trialLL(1)
+    for jj = 1:obj.dim_trialLL(2)
+        ll_c = double(samples_file.trialLL(ii,jj,ss_idx));
+        T_n(ii,jj) = -kgmlm.utils.logMeanExp(ll_c,2);
+        V_n(ii,jj) = mean(ll_c.^2,2) - mean(ll_c,2).^2;
+
+        [~,summary.PSISLOOS(ii,jj),summary.PSISLOO_PK(ii,jj)] = kgmlm.PSISLOO.psisloo(ll_c(:));
+    end
 end
 summary.WAICS = T_n + V_n;
-summary.WAIC  = mean(summary.WAICS,1);
-summary.PSISLOO = sum(summary.PSISLOOS);
+summary.WAIC  = mean(summary.WAICS,'all');
+summary.PSISLOO = sum(summary.PSISLOOS,'all');
 
-badSamples   = sum(summary.PSISLOO_PK >= 0.7);
+badSamples   = sum(summary.PSISLOO_PK >= 0.7,'all');
 if(badSamples > 0)
     fprintf('Warning: PSISLOO PK large (>0.7) for %d / %d observations! \n', badSamples, numel(summary.PSISLOO_PK ));
 else

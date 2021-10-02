@@ -120,12 +120,9 @@ private:
     
     //params for each tensor dimension
     std::vector<GPUData<FPTYPE> *> T; //T[ss] is size dim_T[s] x dim_R_max
-    GPUData_array<FPTYPE> * T_gpu = NULL; // T with pointers on the GPU
     std::vector<GPUData<FPTYPE> *> F; //F[dd] is size dim_F[dd] x dim_R_max
-    GPUData_array<FPTYPE> * F_gpu = NULL; // F with pointers on the GPU
     
     std::vector<GPUData<FPTYPE> *> dF_dT; //dF_dT[ss] is size dim_T[ss] x dim_F[factor_idx[ss]] x dim_R_max
-    GPUData_array<FPTYPE> * dF_dT_gpu = NULL; // dF_dT with pointers on the GPU
     
     GPUData<unsigned int> * N_per_factor = NULL;
     GPUData<unsigned int> * factor_idx = NULL; // size dim_S - how each dimensions's coefficients are decomposed in full->partial CP (0:(dim_S-1) for full multilinear, all 0's for a complete tensor)
@@ -327,9 +324,6 @@ public:
 ***************************************************************************************************************************************************************
  * DATASET on GPU 
  * 
- * Note: I confusingly used the _host suffix differently here than in the parameters and results classes.
- *       Here, it refers to points / vectors on host.
- *       For params/results, it's ptrs to page-locked host memory.
  *
  */
 template <class FPTYPE>
@@ -380,7 +374,7 @@ private:
     GPUData<unsigned int> * ridx_n_tr = NULL; //X idx of each neuron into trial arrays (e.g., dW_trial)
     
     GPUData<unsigned int> * id_t_trial = NULL;  //X total trial number of each trial (total is across all GPUs, indexes into trial_weights and trialLL)   size is dim_M x 1
-    std::vector<unsigned int> id_t_neuron_host;//(host only) neuron number of each trial
+    std::vector<unsigned int> id_t_neuron;//(host only) neuron number of each trial
     
     GPUData<unsigned int> * id_a_trialM;  //X local trial index of each observation  size is dim_N_total x 1
                         // the M says that these numbers are 0:(dim_M-1). This is a reminder that it's different numbers than id_t_trial (without the M)
@@ -451,15 +445,13 @@ protected:
     size_t dim_A;          // number of events for this group
     
     //regressors
-    GPUData_array<FPTYPE> * X = NULL; // the regressors for each facotr group (dim_D x 1)
+     std::vector<GPUData<FPTYPE> *> X; // the regressors for each facotr group (dim_D x 1)
                  // if isShared[dd]==false -  X[dd] is  parent->dim_N_total x dim_F[dd] x (dim_A or 1), if third dim is 1 and dim_A > 0, uses same regressors for each event
                  // if isShared[dd]==true  -  X[dd] is  dim_X[ss] x dim_F[dd]
-    std::vector<GPUData<FPTYPE> *> X_host;
     
-    GPUData_array<int> * iX = NULL; //indices into the rows of X[dd] for any isShared[dd]==true (dim_D x 1)
+    std::vector<GPUData<int> *> iX; //indices into the rows of X[dd] for any isShared[dd]==true (dim_D x 1)
                  // if isShared[dd]==false -  iX_shared[dd] is  empty
                  // if isShared[dd]==true  -  iX_shared[dd] is  parent->dim_N_total x dim_A
-    std::vector<GPUData<int> *> iX_host;
     
     GPUData<bool> * isShared = NULL; // if the regressors for each factor group are shared (global) or local (dim_D x 1)
     GPUData<bool> * isSharedIdentity = NULL; // if the shared regressors for each factor group are the identity matrix (dim_D x 1)
@@ -467,24 +459,22 @@ protected:
     
     //compute space
     //   regressors times parameters
-    GPUData_array<FPTYPE> * XF = NULL; // each X times T (dim_D of them)
+    std::vector<GPUData<FPTYPE> *> XF; // each X times T (dim_D of them)
                  // if isShared[dd]==false -  XF[dd] is  parent->dim_N_total x dim_R_max x (dim_A or 1)
                  // if isShared[dd]==true  -  XF[dd] is  dim_X[dd] x dim_R_max
-    std::vector<GPUData<FPTYPE> *> XF_host;
     
     
     //  compute space for derivatives
     GPUData<FPTYPE> * lambda_v = NULL; // dim_N_total x dim_R_max
     
-    GPUData_array<FPTYPE> * lambda_d = NULL; // (dim_N_total x dim_R_max) x (dim_A or 1)
-    std::vector<GPUData<FPTYPE> *> lambda_d_host;
+    std::vector<GPUData<FPTYPE> *> lambda_d;
     
     GPUData<FPTYPE> * phi_d = NULL; // max({X[dd].getSize(0) : isShared[dd]}) x dim_R_max
 
     GPUData<FPTYPE> * dV_trial = NULL; // dim_R_max x dim_M
     
     //for sparse runs
-    std::vector<GPUData<FPTYPE> *> X_temp_host;
+    std::vector<GPUData<FPTYPE> *> X_temp;
     
     
     // sparse matrices for shared regressor derivatives
@@ -516,19 +506,19 @@ public:
         return parent->dim_P();
     }
     inline size_t dim_X(int ff) const  {
-        return X_host[ff]->getSize(0);
+        return X[ff]->getSize(0);
     }
     inline size_t dim_F(int idx) const  {
-        return X_host[idx]->getSize(1);
+        return X[idx]->getSize(1);
     }
     inline size_t dim_D() const { // number of factors for tensor decomposition (if == dim_S, than is full CP, otherwise parts are full tensors
-        return X_host.size();
+        return X.size();
     }
     inline size_t dim_R() const  { // current rank
-        return XF_host[0]->getSize(1);
+        return XF[0]->getSize(1);
     }
     inline size_t dim_R_max() const  { // max allocated rank
-        return XF_host[0]->getSize_max(1);
+        return XF[0]->getSize_max(1);
     }
     inline cudaError_t set_dim_R(const int dim_R_new, const cudaStream_t stream) { // set rank
         cudaError_t ce = (dim_R_new >=0 && dim_R_new <= dim_R_max()) ? cudaSuccess : cudaErrorInvalidValue;
@@ -540,11 +530,11 @@ public:
             if(ce == cudaSuccess) {
                 ce = dV_trial->resize(stream, dim_R_new, -1, -1);
             }
-            for(int dd = 0; dd < XF_host.size() && ce == cudaSuccess; dd++) {
-                ce = XF_host[dd]->resize(stream, -1, dim_R_new, -1);
+            for(int dd = 0; dd < XF.size() && ce == cudaSuccess; dd++) {
+                ce = XF[dd]->resize(stream, -1, dim_R_new, -1);
             }
-            for(int dd = 0; dd < lambda_d_host.size() && ce == cudaSuccess; dd++) {
-                ce = lambda_d_host[dd]->resize(stream, -1, dim_R_new, -1);
+            for(int dd = 0; dd < lambda_d.size() && ce == cudaSuccess; dd++) {
+                ce = lambda_d[dd]->resize(stream, -1, dim_R_new, -1);
             }
         }
         return ce;

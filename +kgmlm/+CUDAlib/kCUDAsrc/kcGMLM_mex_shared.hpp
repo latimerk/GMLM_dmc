@@ -88,6 +88,54 @@ public:
         
         this->assign(data, x, y, z);
     }
+    GLData_matlab(const matlab::data::TypedArray<const FPTYPE> * matlab_data_ptr) {
+        //gets the input dimensions
+        FPTYPE * data = NULL;
+        size_t x = 0;
+        size_t y = 0;
+        size_t z = 0;
+        if(matlab_data_ptr != NULL) {
+            const matlab::data::TypedArray<const FPTYPE> matlab_data = *matlab_data_ptr;
+            data = const_cast<FPTYPE*>((matlab_data.begin()).operator->());
+
+            const matlab::data::ArrayDimensions dims = matlab_data.getDimensions();
+            x = dims[0];
+            y = 1;
+            z = 1;
+            if(dims.size() > 1) {
+                y = dims[1];
+            }
+            if(dims.size() > 2) {
+                z = dims[2];
+            }
+        }
+
+        this->assign(data, x, y, z);
+    }
+    GLData_matlab(const matlab::data::TypedArray<FPTYPE> * matlab_data_ptr) {
+        //gets the input dimensions
+        FPTYPE * data = NULL;
+        size_t x = 0;
+        size_t y = 0;
+        size_t z = 0;
+        if(matlab_data_ptr != NULL) {
+            const matlab::data::TypedArray<FPTYPE> matlab_data = *matlab_data_ptr;
+            data = const_cast<FPTYPE*>((matlab_data.begin()).operator->());
+
+            const matlab::data::ArrayDimensions dims = matlab_data.getDimensions();
+            x = dims[0];
+            y = 1;
+            z = 1;
+            if(dims.size() > 1) {
+                y = dims[1];
+            }
+            if(dims.size() > 2) {
+                z = dims[2];
+            }
+        }
+
+        this->assign(data, x, y, z);
+    }
     GLData_matlab() {
         this->assign(NULL, 0, 0, 0);
     }

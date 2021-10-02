@@ -2,7 +2,8 @@ function [fNames] = compileCUDAMexFunc(fName)
 
 
 fNames = ["kcGMLM_mex_create.cpp", "kcGMLM_mex_clear.cpp",  "kcGMLM_mex_computeLL.cpp", ...
-          "kcGLM_mex_create.cpp", "kcGLM_mex_clear.cpp",  "kcGLM_mex_computeLL.cpp"];
+          "kcGLM_mex_create.cpp", "kcGLM_mex_clear.cpp",  "kcGLM_mex_computeLL.cpp", ...
+          "kcGMLMPop_mex_create.cpp", "kcGMLMPop_mex_clear.cpp",  "kcGMLMPop_mex_computeLL.cpp"];
       
 if(nargin > 0 && numel(fName) > 1)
     for ii = 1:numel(fName)

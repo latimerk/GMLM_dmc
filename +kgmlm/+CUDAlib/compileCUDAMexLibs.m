@@ -1,9 +1,10 @@
 function [] = compileCUDAMexLibs(idx)
 
 [~, CUDAdirectory, ~, ~, sourceDir, objDir] = kgmlm.CUDAlib.myCUDAPaths();
-fNames = {[sourceDir 'kcBase.cu ' sourceDir 'kcGMLM_dataStructures.cu ' sourceDir 'kcGMLM_computeBlock.cu ' sourceDir 'kcGMLM.cu '], ...
-          [sourceDir 'kcBase.cu ' sourceDir 'kcGLM_dataStructures.cu ' sourceDir 'kcGLM_computeBlock.cu ' sourceDir 'kcGLM.cu ' ]};
-outNames = { 'kcGMLM_lib', 'kcGLM_lib'};
+fNames = {[sourceDir 'kcBase.cu ' sourceDir 'kcGMLM_dataStructures.cu ' sourceDir 'kcGMLM_computeBlock.cu ' sourceDir 'kcGMLM.cu '];
+          [sourceDir 'kcBase.cu ' sourceDir 'kcGLM_dataStructures.cu ' sourceDir 'kcGLM_computeBlock.cu ' sourceDir 'kcGLM.cu ' ];
+          [sourceDir 'kcBase.cu ' sourceDir 'kcGMLMPop_dataStructures.cu ' sourceDir 'kcGMLMPop_computeBlock.cu ' sourceDir 'kcGMLMPop.cu ']};
+outNames = {'kcGMLM_lib', 'kcGLM_lib', 'kcGMLMPop_lib'};
 
 if(nargin > 0)
     fNames = fNames(idx);

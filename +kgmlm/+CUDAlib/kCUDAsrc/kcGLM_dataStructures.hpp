@@ -132,10 +132,6 @@ public:
 ***************************************************************************************************************************************************************
  * DATASET on GPU 
  * 
- * Note: I confusingly used the _host suffix differently here than in the parameters and results classes.
- *       Here, it refers to points / vectors on host.
- *       For params/results, it's ptrs to page-locked host memory.
- *
  */
 template <class FPTYPE>
 class GPUGLM_dataset_GPU : GPUGL_base {

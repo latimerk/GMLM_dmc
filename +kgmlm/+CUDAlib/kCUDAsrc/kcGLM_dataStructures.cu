@@ -84,21 +84,21 @@ GPUGLM_parameters_GPU<FPTYPE>::~GPUGLM_parameters_GPU() {
 }
 
 /* kernel for setting up sparse run indices
-*   One thread per trial being run. Sets up a map between the current indices (0:dim_N_temp-1) to the full indices (0:dim_N_host-1)
+*   One thread per trial being run. Sets up a map between the current indices (0:dim_N_temp-1) to the full indices (0:dim_N-1)
 * 
 */
-__global__ void kernel_ParamsSparseRunSetup_GLM(GPUData_kernel<unsigned int> * ridx_sa_all,
-                                 const GPUData_kernel<unsigned int> * trial_included, 
-                                 const GPUData_kernel<unsigned int> * ridx_st_sall, 
-                                 const GPUData_kernel<unsigned int> * ridx_t_all,
-                                 const GPUData_kernel<size_t> * dim_N) {
+__global__ void kernel_ParamsSparseRunSetup_GLM(GPUData_kernel<unsigned int> ridx_sa_all,
+                                 const GPUData_kernel<unsigned int> trial_included, 
+                                 const GPUData_kernel<unsigned int> ridx_st_sall, 
+                                 const GPUData_kernel<unsigned int> ridx_t_all,
+                                 const GPUData_kernel<size_t> dim_N) {
     unsigned int tr = blockIdx.x * blockDim.x + threadIdx.x;
-    if(tr < trial_included->x) {
-        unsigned int mm = (*trial_included)[tr];
-        unsigned int start_all = (*ridx_t_all)[mm];
-        unsigned int start_sp  = (*ridx_st_sall)[tr];
-        for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
-            (*ridx_sa_all)[nn + start_sp] = start_all + nn;
+    if(tr < trial_included.x) {
+        unsigned int mm = trial_included[tr];
+        unsigned int start_all = ridx_t_all[mm];
+        unsigned int start_sp  = ridx_st_sall[tr];
+        for(int nn = 0; nn < dim_N[mm]; nn++) {
+            ridx_sa_all[nn + start_sp] = start_all + nn;
         }
     }
 }
@@ -135,7 +135,7 @@ void GPUGLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGLM_params<FPTYPE> * glm_
 
         if(trial_weights_nonzero_cnt_c != 0) {
             // copies weights to GPU
-            checkCudaErrors(trial_weights_temp->copyHostToGPU(stream), "GPUGLM_parameters_GPU errors: could not copy trial_weights_temp_host to device!");
+            checkCudaErrors(trial_weights_temp->copyHostToGPU(stream), "GPUGLM_parameters_GPU errors: could not copy trial_weights_temp to device!");
             trial_weights = trial_weights_temp;
         }
         else {
@@ -261,11 +261,11 @@ void GPUGLM_results_GPU<FPTYPE>::addToHost(const GPUGLM_parameters_GPU<FPTYPE> *
 
     //check the dims of the destination to see if they hold up
     if(opts->compute_trialLL && results_dest->dim_M() != max_trials()) {
-        output_stream << "GPUGLM_results_GPU::addResults_host errors: results.dim_M = " << results_dest->dim_M() << " is the incorrect size! (expected dim_M = " << max_trials() << ")";
+        output_stream << "GPUGLM_results_GPU::addResults errors: results.dim_M = " << results_dest->dim_M() << " is the incorrect size! (expected dim_M = " << max_trials() << ")";
         msg->callErrMsgTxt(output_stream);
     }
     if((opts->compute_dK || opts->compute_d2K)  && results_dest->dim_K(msg) != dim_K()) {
-        output_stream << "GPUGLM_results_GPU::addResults_host errors: results.dim_K = " << results_dest->dim_K(msg) << " is the incorrect size! (expected dim_B = " << dim_K() << ")";
+        output_stream << "GPUGLM_results_GPU::addResults errors: results.dim_K = " << results_dest->dim_K(msg) << " is the incorrect size! (expected dim_B = " << dim_K() << ")";
         msg->callErrMsgTxt(output_stream);
     }
     

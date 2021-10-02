@@ -140,47 +140,47 @@ void GPUGMLM_computeBlock<FPTYPE>::computeRateParts(const GPUGMLM_computeOptions
  *  for sparse runs with compute_dB, saves out the partial X_lin into X_lin_temp
  */        
 template <class FPTYPE>
-__global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> * LL, GPUData_kernel<FPTYPE> * dLL,
-        const GPUData_kernel<FPTYPE> * Y,
-        const GPUData_kernel<FPTYPE> * lambda,
-        const GPUData_kernel<FPTYPE> * X_lin ,
-        const GPUData_kernel<FPTYPE> * B     , 
-        const GPUData_kernel<FPTYPE> * W, const FPTYPE log_dt,
-        const GPUData_kernel<unsigned int> * id_a_neuron,
-        const GPUData_kernel<unsigned int> * id_a_trialM,
-        const GPUData_kernel<FPTYPE> * trial_weights,
-        const GPUData_kernel<unsigned int> * ridx_sa_all,
-        GPUData_kernel<FPTYPE> * X_lin_temp, const bool compute_dB,
-        const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> * logLikeParams) {
+__global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYPE> dLL,
+        const GPUData_kernel<FPTYPE> Y,
+        const GPUData_kernel<FPTYPE> lambda,
+        const GPUData_kernel<FPTYPE> X_lin ,
+        const GPUData_kernel<FPTYPE> B     , 
+        const GPUData_kernel<FPTYPE> W, const FPTYPE log_dt,
+        const GPUData_kernel<unsigned int> id_a_neuron,
+        const GPUData_kernel<unsigned int> id_a_trialM,
+        const GPUData_kernel<FPTYPE> trial_weights,
+        const GPUData_kernel<unsigned int> ridx_sa_all,
+        GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
+        const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
     size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < LL->x) {
+    if(row < LL.x) {
         size_t Xlin_row;
-        if(ridx_sa_all->y < 1) {
+        if(ridx_sa_all.y < 1) {
             //if full run
             Xlin_row = row;
         }
         else {
             //if sparse run
-            Xlin_row = (*ridx_sa_all)[row];
+            Xlin_row = ridx_sa_all[row];
         }
-        size_t neuron_num = (*id_a_neuron)[Xlin_row];
-        FPTYPE tw_c = (trial_weights->y < 1) ? 1 : (*trial_weights)[(*id_a_trialM)[Xlin_row]];
+        size_t neuron_num = id_a_neuron[Xlin_row];
+        FPTYPE tw_c = (trial_weights.y < 1) ? 1 : trial_weights[id_a_trialM[Xlin_row]];
 
-        FPTYPE Y_c = (*Y)[Xlin_row];
+        FPTYPE Y_c = Y[Xlin_row];
 
         FPTYPE  LL_c = 0;  
         FPTYPE dLL_c = 0;    
         if(tw_c != 0) { //if trial not censored
-            FPTYPE log_rate = (*W)[neuron_num];
-            for(int bb = 0; bb < X_lin->y; bb++) {
-                log_rate += (*X_lin)(Xlin_row, bb) * (*B)(bb, neuron_num);
-                if(ridx_sa_all->y > 0 && compute_dB) { // for dB when doing sparse run
-                    (*X_lin_temp)(row, bb) = (*X_lin)(Xlin_row, bb);
+            FPTYPE log_rate = W[neuron_num];
+            for(int bb = 0; bb < X_lin.y; bb++) {
+                log_rate += X_lin(Xlin_row, bb) * B(bb, neuron_num);
+                if(ridx_sa_all.y > 0 && compute_dB) { // for dB when doing sparse run
+                    X_lin_temp(row, bb) = X_lin(Xlin_row, bb);
                 }
             }
-            for(int jj = 0; jj < lambda->y; jj++) {
-                log_rate += (*lambda)(row, jj);
+            for(int jj = 0; jj < lambda.y; jj++) {
+                log_rate += lambda(row, jj);
             }
 
             if(logLikeSettings == ll_poissExp) {
@@ -198,64 +198,65 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> * LL, GPUData_kernel<FPT
                 dLL_c = -2*eY_c;
             }
         }
-        (*LL)[row]  =  LL_c*tw_c;
-        (*dLL)[row] = dLL_c*tw_c;
+        LL[row]  =  LL_c*tw_c;
+        dLL[row] = dLL_c*tw_c;
     }
 }
 /* Kernel for each trial
 *  Sums up the trial log likelihoods (results->trialLL)
 *   also sets up some derivative computations (dataset->dW_trial, dataset->dB_trial)*/
 template <class FPTYPE>
-__global__ void kernel_sum_trialLL(GPUData_kernel<FPTYPE> * trialLL, GPUData_kernel<FPTYPE> * dW_trial,
-                                 const GPUData_kernel<unsigned int> * trial_included, 
-                                 const GPUData_kernel<FPTYPE> * LL, const GPUData_kernel<FPTYPE> * dLL, 
+__global__ void kernel_sum_trialLL(GPUData_kernel<FPTYPE> trialLL, GPUData_kernel<FPTYPE> dW_trial,
+                                 const GPUData_kernel<unsigned int>  trial_included, 
+                                 const GPUData_kernel<FPTYPE> LL, const GPUData_kernel<FPTYPE> dLL, 
                                  const bool compute_trialLL, const bool compute_dW, 
-                                 const GPUData_kernel<size_t> * dim_N,
-                                 const GPUData_kernel<unsigned int> * ridx_t_all,
-                                 const GPUData_kernel<unsigned int> * id_t_trial,
-                                 const GPUData_kernel<FPTYPE> * trial_weights,
-                                 const GPUData_kernel<FPTYPE> * normalizingConstants) {
+                                 const GPUData_kernel<size_t> dim_N,
+                                 const GPUData_kernel<unsigned int> ridx_t_all,
+                                 const GPUData_kernel<unsigned int> id_t_trial,
+                                 const GPUData_kernel<FPTYPE> trial_weights,
+                                 const GPUData_kernel<FPTYPE> normalizingConstants) {
     size_t tr = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t mm = dim_N->x; //default is invalid value - will just skip
-    if(trial_included->y > 0) { //if is sparse run
-        if(tr < trial_included->x) {
-            mm = (*trial_included)[tr];
+    size_t mm = dim_N.x; //default is invalid value - will just skip
+    if(trial_included.y > 0) { //if is sparse run
+        if(tr < trial_included.x) {
+            mm = trial_included[tr];
         }
     }
     else {
         mm = tr;
     }
 
-    if(mm < dim_N->x) { // if valid trial
-        FPTYPE tw_c = (trial_weights->y < 1) ? 1 : (*trial_weights)[mm];
+    if(mm < dim_N.x) { // if valid trial
+        FPTYPE tw_c = (trial_weights.y < 1) ? 1 : trial_weights[mm];
+
         if(tw_c != 0) {  
-            unsigned int row = (*ridx_t_all)[tr];  // this uses 'tr' so that it works for sparse runs
+            unsigned int row = ridx_t_all[tr];  // this uses 'tr' so that it works for sparse runs
 
             //sum up LL
-            FPTYPE ll_total = (*normalizingConstants)[mm] * tw_c;
+            FPTYPE ll_total = normalizingConstants[mm] * tw_c;
             FPTYPE dLL_total = 0;
-            for(int tt = 0; tt < (*dim_N)[mm]; tt++) {
+            for(int tt = 0; tt < dim_N[mm]; tt++) {
                 if(compute_trialLL) {
-                    ll_total  += (*LL)[row + tt];
+                    ll_total  += LL[row + tt];
                 }
                 if(compute_dW) {
-                    dLL_total += (*dLL)[row + tt];
+                    dLL_total += dLL[row + tt];
                 }
             }
             if(compute_trialLL) {
-                (*trialLL)[(*id_t_trial)[mm]] = ll_total;
+                trialLL[id_t_trial[mm]] = ll_total;
             }
             if(compute_dW) {
-                (*dW_trial)[mm] = dLL_total;
+                dW_trial[mm] = dLL_total;
             }
         }
         //no need to compute sum; set results to 0
         else {
             if(compute_trialLL) {
-                (*trialLL)[(*id_t_trial)[mm]] = 0;
+                trialLL[id_t_trial[mm]] = 0;
             }
             if(compute_dW) {
-                (*dW_trial)[mm] = 0;
+                dW_trial[mm] = 0;
             }
         }
     }
@@ -272,6 +273,10 @@ void GPUGMLM_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOptions<F
          //launch kernel to sum lambda for each trial
     
     //X_lin*B + W + log_dt + sum(lambda) -> LL for each neuron
+            
+    if(opts->compute_dB && isSparseRun) {
+        dataset->X_lin_temp->resize(stream, dataset->LL->getSize(0));
+    }
 
     dim3 block_size;
     block_size.x = 1024;
@@ -319,20 +324,20 @@ void GPUGMLM_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOptions<F
 *   also sets up some derivative computations (dataset->dW_trial, dataset->dB_trial)
 */
 template <class FPTYPE>
-__global__ void kernel_sum_dW( GPUData_kernel<FPTYPE> * dW,  const GPUData_kernel<FPTYPE> * dW_trial, const GPUData_kernel<FPTYPE> * trial_weights,
-                                 const GPUData_kernel<unsigned int> * ridx_n_tr) {
+__global__ void kernel_sum_dW( GPUData_kernel<FPTYPE> dW,  const GPUData_kernel<FPTYPE> dW_trial, const GPUData_kernel<FPTYPE> trial_weights,
+                                 const GPUData_kernel<unsigned int> ridx_n_tr) {
     size_t pp = blockIdx.x * blockDim.x + threadIdx.x;
-    if(pp < dW->x) {
-        unsigned int t_start = (*ridx_n_tr)[pp];
-        unsigned int t_end   = (pp == dW->x-1) ? dW_trial->x : (*ridx_n_tr)[pp+1];
+    if(pp < dW.x) {
+        unsigned int t_start = ridx_n_tr[pp];
+        unsigned int t_end   = (pp == dW.x-1) ? dW_trial.x : ridx_n_tr[pp+1];
 
         FPTYPE dW_sum = 0;
         for(int tr = t_start; tr < t_end; tr++) {
-            if(trial_weights->y == 0 || (*trial_weights)[tr] != 0) {
-                dW_sum += (*dW_trial)[tr];
+            if(trial_weights.y == 0 || trial_weights[tr] != 0) {
+                dW_sum += dW_trial[tr];
             }
         }
-        (*dW)[pp] = dW_sum;
+        dW[pp] = dW_sum;
     }
 }
 

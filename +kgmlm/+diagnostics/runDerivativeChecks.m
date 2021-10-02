@@ -1,75 +1,86 @@
 %% A quick and dirty diagnotistic script to check log likelihood derivatives to make sure the optimized CUDA code is actually working. Runs through a bunch of setup scenarios.
 % I've occasionally noticed failures that are due to a random dataset/parameters being numerically unstable (exploding values). This doesn't mean the derivative
 % is incorrect.
-function [params] = runDerivativeChecks(testType, deviceNumbers, dim_A, shrink_dim_R, pauseAtParts)
+function [params] = runDerivativeChecks(testType, isPop, deviceNumbers, dim_A, shrink_dim_R, pauseAtParts)
 
-if(nargin < 2 || isempty(deviceNumbers))
+if(nargin < 2 || isempty(isPop))
+    isPop = false;
+end
+if(nargin < 3 || isempty(deviceNumbers))
     deviceNumbers = [0 0];
 end
-if(nargin < 3 || isempty(dim_A))
+if(nargin < 4 || isempty(dim_A))
     dim_A = 2;
 end
-if(nargin < 5 || isempty(pauseAtParts))
+if(nargin < 5 || isempty(shrink_dim_R))
+    shrink_dim_R = false;
+end
+if(nargin < 6 || isempty(pauseAtParts))
     pauseAtParts = false;
 end
-if(nargin < 4 || isempty(shrink_dim_R))
-    shrink_dim_R = false;
+
+if(isPop)
+    generator = @kgmlm.diagnostics.constructGMLMPopforTests;
+else
+    generator = @kgmlm.diagnostics.constructGMLMforTests;
 end
 
 if(isnumeric(testType))
     switch(testType)
         case 1
             % group with 1 dim (local)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( 1, false, false, dim_A);
+            [GMLMstructure, trials] = generator( 1, false, false, dim_A);
 
         case 2
             % group with 1 dim (shared)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( 1, true, false, dim_A);
+            [GMLMstructure, trials] = generator( 1, true, false, dim_A);
 
         case 3
             % group with 2 dims - independent factors (one local, one shared)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 2], [false true], [false false], dim_A);
+            [GMLMstructure, trials] = generator( [1 2], [false true], [false false], dim_A);
 
         case 4
             % group with 2 dims - independent factors (one local, one shared identity)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 2], [false true], [false true], dim_A);
+            [GMLMstructure, trials] = generator( [1 2], [false true], [false true], dim_A);
 
         case 5
             % group with 4 dims - factors 1:2, 3:4 (local, local)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 1 2 2], [false true], [false false], dim_A);
+            [GMLMstructure, trials] = generator( [1 1 2 2], [false true], [false false], dim_A);
 
         case 6
             % group with 4 dims - factors 1:2, 3:4 (local, shared identity)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 1 2 2], [false true], [false true], dim_A);
+            [GMLMstructure, trials] = generator( [1 1 2 2], [false true], [false true], dim_A);
 
         case 7
             % group with 4 dims - factors 1:3, 4, (local, shared)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 1 1 2], [false true], [false false], dim_A);
+            [GMLMstructure, trials] = generator( [1 1 1 2], [false true], [false false], dim_A);
 
         case 8
             % group with 4 dims - factors 1:2, 3:4 (local, shared identity) - but local coefficients are the same for all events
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 1 2 2], [false true], [false false], dim_A);
+            [GMLMstructure, trials] = generator( [1 1 2 2], [false true], [false false], dim_A);
             for tt = 1:numel(trials)
                 trials(tt).Groups(1).X_local{1} = trials(tt).Groups(1).X_local{1}(:, :, 1);
             end
         case 9
             % group with 2 dims - independent factors (one local, one shared identity)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 2], [false true], [false false], dim_A);
+            [GMLMstructure, trials] = generator( [1 2], [false true], [false false], dim_A);
             for tt = 1:numel(trials)
                 trials(tt).Groups(1).X_local{1} = trials(tt).Groups(1).X_local{1}(:, :, 1);
             end
         case 10
             % group with 2 dims - independent factors (two local)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 2], [false false], [false false], dim_A);
+            [GMLMstructure, trials] = generator( [1 2], [false false], [false false], dim_A);
             for tt = 1:numel(trials)
                 trials(tt).Groups(1).X_local{1} = trials(tt).Groups(1).X_local{1}(:, :, 1);
             end
         case 11
             % group with 4 dims - independent factors (two local, one shared, one shared identity)
-            [GMLMstructure, trials] = kgmlm.diagnostics.constructGMLMforTests( [1 2 3 4], [false false true true], [false false false true], dim_A);
+            [GMLMstructure, trials] = generator( [1 2 3 4], [false false true true], [false false false true], dim_A);
             for tt = 1:numel(trials)
                 trials(tt).Groups(1).X_local{1} = trials(tt).Groups(1).X_local{1}(:, :, 1);
             end
+        otherwise
+            error("Test not found");
     end
 
 
@@ -155,6 +166,23 @@ clf;
 plotDerivativeComparison(results_all, results_est, ll_host);
 pauseMessage(pauseAtParts, sprintf("Done with weighted LL 2...\n"));
 
+if(gmlm.populationData)
+    %random weights - full full
+    [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M, true);
+    figure(4);
+    clf;
+    plotDerivativeComparison(results_all, results_est, ll_host);
+    pauseMessage(pauseAtParts, sprintf("Done with weighted LL 1...\n"));
+
+    % some subset of weights
+    [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, 10, true);
+
+    figure(5);
+    clf;
+    plotDerivativeComparison(results_all, results_est, ll_host);
+    pauseMessage(pauseAtParts, sprintf("Done with weighted LL 2...\n"));
+end
+
 end
 
 %%
@@ -169,9 +197,13 @@ end
 function [] = plotDerivativeComparison(results_all, results_est, ll_host)
     
     NR = numel(results_all.Groups) + 1;
-    NC = max(3, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1);
+    NC = max(4, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1);
     
     subplot(NR, NC, 1);
+    plot([ll_host(:) results_all.trialLL(:)])
+    title('trial LLs');
+
+    subplot(NR, NC, 2);
     dds = ll_host(:) - results_all.trialLL(:);
     plot(dds)
     title('trial LL diffs');
@@ -180,11 +212,11 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host)
     end
 
 
-    subplot(NR, NC, 2);
+    subplot(NR, NC, 3);
     plot([results_all.dW(:) results_est.dW(:)])
     title('dW');
 
-    subplot(NR, NC, 3);
+    subplot(NR, NC, 4);
     plot([results_all.dB(:) results_est.dB(:)])
     title('dB');
 

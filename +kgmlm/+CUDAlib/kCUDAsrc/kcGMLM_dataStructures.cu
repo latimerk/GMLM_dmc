@@ -114,6 +114,10 @@ GPUGMLM_parameters_Group_GPU<FPTYPE>::GPUGMLM_parameters_Group_GPU(const GPUGMLM
     
     std::vector<size_t> dim_F_c;
     dim_F_c.assign(dim_D(), 1);
+    if(dim_D() > MAX_DIM_D) {
+        output_stream << "GPUGMLM_parameters_Group_GPU errors: dim_D greater than max allowed (" << MAX_DIM_D << "!";
+        msg->callErrMsgTxt(output_stream);
+    }
 
     dim_F_max   = 0;
     for(int ss = 0; ss < dim_S(); ss++) {
@@ -160,14 +164,7 @@ GPUGMLM_parameters_Group_GPU<FPTYPE>::GPUGMLM_parameters_Group_GPU(const GPUGMLM
     }
 
     checkCudaErrors(factor_idx->copyHostToGPU(stream), "GPUGMLM_parameters_Group_GPU errors: could not copy factor_idx to device!");
-    checkCudaErrors(N_per_factor->copyHostToGPU(stream), "GPUGMLM_parameters_Group_GPU errors: could not copy factor_idx to device!");
-
-    T_gpu = new GPUData_array<FPTYPE>(ce, T, stream, msg);
-    checkCudaErrors(ce, "GPUGMLM_parameters_Group_GPU errors: could not copy T ptrs to device!");   
-    F_gpu = new GPUData_array<FPTYPE>(ce, F, stream, msg);
-    checkCudaErrors(ce, "GPUGMLM_parameters_Group_GPU errors: could not copy F ptrs to device!");   
-    dF_dT_gpu = new GPUData_array<FPTYPE>(ce, dF_dT, stream, msg);
-    checkCudaErrors(ce, "GPUGMLM_parameters_Group_GPU errors: could not copy dF_dT ptrs to device!"); 
+    checkCudaErrors(N_per_factor->copyHostToGPU(stream), "GPUGMLM_parameters_Group_GPU errors: could not copy N_per_factor to device!");
 }
 
 //destructor
@@ -206,27 +203,24 @@ GPUGMLM_parameters_Group_GPU<FPTYPE>::~GPUGMLM_parameters_Group_GPU() {
     cudaSafeFree(factor_idx, "GPUGMLM_parameters_Group_GPU errors: could not free factor_idx");
     cudaSafeFree(N_per_factor, "GPUGMLM_parameters_Group_GPU errors: could not free N_per_factor");
 
-    cudaSafeFree(T_gpu, "GPUGMLM_parameters_Group_GPU errors: could not free T_gpu");
-    cudaSafeFree(F_gpu, "GPUGMLM_parameters_Group_GPU errors: could not free F_gpu");
-    cudaSafeFree(dF_dT_gpu, "GPUGMLM_parameters_Group_GPU errors: could not free dF_dT_gpu");
 }
 
 /* kernel for setting up sparse run indices
-*   One thread per trial being run. Sets up a map between the current indices (0:dim_N_temp-1) to the full indices (0:dim_N_host-1)
+*   One thread per trial being run. Sets up a map between the current indices (0:dim_N_temp-1) to the full indices (0:dim_N-1)
 * 
 */
-__global__ void kernel_ParamsSparseRunSetup(GPUData_kernel<unsigned int> * ridx_sa_all,
-                                 const GPUData_kernel<unsigned int> * trial_included, 
-                                 const GPUData_kernel<unsigned int> * ridx_st_sall, 
-                                 const GPUData_kernel<unsigned int> * ridx_t_all,
-                                 const GPUData_kernel<size_t> * dim_N) {
+__global__ void kernel_ParamsSparseRunSetup(GPUData_kernel<unsigned int> ridx_sa_all,
+                                 const GPUData_kernel<unsigned int> trial_included, 
+                                 const GPUData_kernel<unsigned int> ridx_st_sall, 
+                                 const GPUData_kernel<unsigned int> ridx_t_all,
+                                 const GPUData_kernel<size_t> dim_N) {
     unsigned int tr = blockIdx.x * blockDim.x + threadIdx.x;
-    if(tr < trial_included->x) {
-        unsigned int mm = (*trial_included)[tr];
-        unsigned int start_all = (*ridx_t_all)[mm];
-        unsigned int start_sp  = (*ridx_st_sall)[tr];
-        for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
-            (*ridx_sa_all)[nn + start_sp] = start_all + nn;
+    if(tr < trial_included.x) {
+        unsigned int mm = trial_included[tr];
+        unsigned int start_all = ridx_t_all[mm];
+        unsigned int start_sp  = ridx_st_sall[tr];
+        for(int nn = 0; nn < dim_N[mm]; nn++) {
+            ridx_sa_all[nn + start_sp] = start_all + nn;
         }
     }
 }
@@ -242,6 +236,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         output_stream << "GPUGMLM_parameters_GPU errors: input does not have correct number of trial weights" << std::endl;
         msg->callErrMsgTxt(output_stream);
     }
+    bool reset_sizes = false;
     if(opts != NULL && opts->trial_weights.size() != 0) {
         size_t trial_weights_nonzero_cnt_c = 0;
         dataset->dim_N_temp = 0;
@@ -258,15 +253,10 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
 
                 dataset->dim_N_temp += (*(dataset->dim_N))[mm];
 
-                dataset->dim_N_neuron_temp[dataset->id_t_neuron_host[mm]] += (*(dataset->dim_N))[mm];
+                dataset->dim_N_neuron_temp[dataset->id_t_neuron[mm]] += (*(dataset->dim_N))[mm];
 
                 trial_weights_nonzero_cnt_c++;
             }
-        }
-            // neuron index: this assumes I loaded the data correctly so it's sorted by neuron
-        (*(dataset->ridx_sn_sall))[0] = 0;
-        for(unsigned int pp = 1; pp < dim_P() + 1; pp++) {
-            (*(dataset->ridx_sn_sall))[pp] = dataset->dim_N_neuron_temp[pp-1] + (*(dataset->ridx_sn_sall))[pp-1];
         }
 
         checkCudaErrors(trial_included_temp->resize(stream, trial_weights_nonzero_cnt_c), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
@@ -274,7 +264,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
 
         if(trial_weights_nonzero_cnt_c != 0) {
             // copies weights to GPU
-            checkCudaErrors(trial_weights_temp->copyHostToGPU(stream), "GPUGMLM_parameters_GPU errors: could not copy trial_weights_temp_host to device!");  
+            checkCudaErrors(trial_weights_temp->copyHostToGPU(stream), "GPUGMLM_parameters_GPU errors: could not copy trial_weights_temp to device!");  
             trial_weights = trial_weights_temp;
         }
         else {
@@ -282,13 +272,21 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
             return;
         }
 
-        //sets some sizes
-        checkCudaErrors(dataset->dLL->resize(   stream, dataset->dim_N_temp), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
-        checkCudaErrors(dataset->LL->resize(    stream, dataset->dim_N_temp), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
-        checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_temp, -1), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
-
+        
         //copy list of trials with nonzero weights to host only if the number is small enough for a sparse run
         if(trial_weights_nonzero_cnt_c <= dataset->max_trials_for_sparse_run) {
+            
+                // neuron index: this assumes I loaded the data correctly so it's sorted by neuron
+            (*(dataset->ridx_sn_sall))[0] = 0;
+            for(unsigned int pp = 1; pp < dim_P() + 1; pp++) {
+                (*(dataset->ridx_sn_sall))[pp] = dataset->dim_N_neuron_temp[pp-1] + (*(dataset->ridx_sn_sall))[pp-1];
+            }
+
+            //sets some sizes
+            checkCudaErrors(dataset->dLL->resize(   stream, dataset->dim_N_temp), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+            checkCudaErrors(dataset->LL->resize(    stream, dataset->dim_N_temp), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+            checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_temp, -1), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+
             checkCudaErrors(trial_included_temp->resize(  stream, trial_weights_nonzero_cnt_c), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
             checkCudaErrors(dataset->ridx_st_sall->resize(stream, trial_weights_nonzero_cnt_c), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
             checkCudaErrors(dataset->ridx_sa_all->resize( stream, dataset->dim_N_temp), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
@@ -313,15 +311,17 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
                                                                                dataset->dim_N->device());
         }
         else {
-            trial_included = trial_included_0;
-            dataset->ridx_a_all_c = dataset->ridx_a_all;
-            dataset->ridx_t_all_c = dataset->ridx_t_all;
+            reset_sizes = true;
         }
         checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
     }
     else {
         // this says all trial weights are 1 (normal log likelihood computation)
         trial_weights  = trial_weights_0;
+        reset_sizes = true;
+    }
+
+    if(reset_sizes) {
         trial_included = trial_included_0;
         dataset->ridx_a_all_c = dataset->ridx_a_all;
         dataset->ridx_t_all_c = dataset->ridx_t_all;
@@ -331,13 +331,9 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         }
 
          //sets some sizes
-        if(dataset->dLL->getSize(0) != dataset->dim_N_total()) {
-            checkCudaErrors(dataset->dLL->resize(stream, dataset->dim_N_total()), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for full run!");
-            checkCudaErrors(dataset->LL->resize(stream, dataset->dim_N_total()), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for full run!");
-            checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_total()), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for full run!");
-
-            checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not synchronize streams for fixing sizes for full run!");
-        }
+        checkCudaErrors(dataset->dLL->resize(stream, dataset->dim_N_total()), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for full run!");
+        checkCudaErrors(dataset->LL->resize(stream, dataset->dim_N_total()), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for full run!");
+        checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_total()), "GPUGMLM_parameters_GPU::copyToGPU errors: could not set sizes for full run!");
     }
     
     if(gmlm_params != NULL) { //this null check is so I could use this function only to change the weights if I wanted (I probably won't)
@@ -415,59 +411,59 @@ void GPUGMLM_parameters_Group_GPU<FPTYPE>::copyToGPU(const GPUGMLM_group_params<
 */
         
 template <class FPTYPE>
-__global__ void kernel_assembleFactorFilter(GPUData_array_kernel<FPTYPE> * F, GPUData_array_kernel<FPTYPE> * dF_dT,
-        const GPUData_array_kernel<FPTYPE> * T,
-        const GPUData_kernel<unsigned int> * factor_idx,
-        const GPUData_kernel<unsigned int> * N_per_factor, const GPUData_kernel<bool> * compute_dT) {
+__global__ void kernel_assembleFactorFilter(GPUData_array_kernel<FPTYPE, MAX_DIM_D> F, GPUData_array_kernel<FPTYPE, MAX_DIM_D> dF_dT,
+        const GPUData_array_kernel<FPTYPE, MAX_DIM_D> T,
+        const GPUData_kernel<unsigned int> factor_idx,
+        const GPUData_kernel<unsigned int> N_per_factor, const GPUData_kernel<bool> compute_dT) {
      
     size_t row    = blockIdx.x * blockDim.x + threadIdx.x;
     size_t factor = blockIdx.y * blockDim.y + threadIdx.y;
     
-    if(factor < F->N && (*N_per_factor)[factor] > 1) {
-        const size_t dim_S = T->N;
-        const size_t dim_F = ((*F)[factor]).x;
+    if(factor < F.N && N_per_factor[factor] > 1) {
+        const size_t dim_S = T.N;
+        const size_t dim_F = F[factor].x;
         
         if(row < dim_F) {
-            for(int rr = 0; rr < ((*F)[factor]).y; rr++) {
+            for(int rr = 0; rr < F[factor].y; rr++) {
                 for(int ss_c = 0; ss_c < dim_S; ss_c++) {
-                    if((*factor_idx)[ss_c] == factor && (*compute_dT)[ss_c]) {
-                        for(int tt = 0; tt < (*dF_dT)[ss_c].x; tt++) {
-                            (*dF_dT)[ss_c](tt, row, rr) = 0;
+                    if(factor_idx[ss_c] == factor && compute_dT[ss_c]) {
+                        for(int tt = 0; tt < dF_dT[ss_c].x; tt++) {
+                            dF_dT[ss_c](tt, row, rr) = 0;
                         }
                     }
                 }
 
                 size_t T_ctr = 1;
                 for(int ss = 0; ss < dim_S; ss++) {
-                    if((*factor_idx)[ss] == factor) {
-                        size_t tt = (row/T_ctr) % (*T)[ss].x;
+                    if(factor_idx[ss] == factor) {
+                        size_t tt = (row/T_ctr) % T[ss].x;
                         if(T_ctr == 1) {
-                            (*F)[factor](row, rr)  = (*T)[ss](tt, rr);
+                            F[factor](row, rr)  = T[ss](tt, rr);
                         }
                         else {
-                            (*F)[factor](row, rr) *= (*T)[ss](tt, rr);
+                            F[factor](row, rr) *= T[ss](tt, rr);
                         }
-                        T_ctr *= (*T)[ss].x;
+                        T_ctr *= T[ss].x;
 
-                        if((*compute_dT)[ss]) {
-                        	(*dF_dT)[ss](tt, row, rr) = 1;
+                        if(compute_dT[ss]) {
+                        	dF_dT[ss](tt, row, rr) = 1;
                         }
                     }
                 }
                 
                 for(int ss_c = 0; ss_c < dim_S; ss_c++) {
-                    if((*factor_idx)[ss_c] == factor && (*compute_dT)[ss_c]) {
+                    if(factor_idx[ss_c] == factor && compute_dT[ss_c]) {
 
                         size_t T_ctr = 1;
                         for(int ss = 0; ss < dim_S; ss++) {
-                            if((*factor_idx)[ss] == factor) {
-                                size_t tt = (row/T_ctr) % (*T)[ss].x;
+                            if(factor_idx[ss] == factor) {
+                                size_t tt = (row/T_ctr) % T[ss].x;
                                 if(ss != ss_c) {
-                                    for(int tt_0 = 0; tt_0 < (*dF_dT)[ss_c].x; tt_0++) {
-                                        (*dF_dT)[ss_c](tt_0, row, rr) *= (*T)[ss](tt, rr);
+                                    for(int tt_0 = 0; tt_0 < dF_dT[ss_c].x; tt_0++) {
+                                        dF_dT[ss_c](tt_0, row, rr) *= T[ss](tt, rr);
                                     }
                                 }
-                                T_ctr *= (*T)[ss].x;
+                                T_ctr *= T[ss].x;
                             }
                         }
                     }
@@ -482,7 +478,6 @@ __global__ void kernel_assembleFactorFilter(GPUData_array_kernel<FPTYPE> * F, GP
 template <class FPTYPE>
 void GPUGMLM_parameters_Group_GPU<FPTYPE>::assembleF(const cudaStream_t stream) {
     if(dim_S() > 1) {
-        
         dim3 block_size;
         block_size.x = min(static_cast<size_t>(256), dim_F_max);
         block_size.y = min(static_cast<size_t>(4)  , dim_D());
@@ -490,7 +485,7 @@ void GPUGMLM_parameters_Group_GPU<FPTYPE>::assembleF(const cudaStream_t stream) 
         grid_size.x = dim_F_max / block_size.x + ((dim_F_max % block_size.x == 0)? 0:1);
         grid_size.y = dim_D()   / block_size.y + ((dim_D()   % block_size.y == 0)? 0:1);
 
-        kernel_assembleFactorFilter<<<grid_size, block_size, 0, stream>>>(F_gpu->device(), dF_dT_gpu->device(), T_gpu->device(), factor_idx->device(), N_per_factor->device(), compute_dT->device());
+        kernel_assembleFactorFilter<<<grid_size, block_size, 0, stream>>>( GPUData<FPTYPE>::assembleKernels(F), GPUData<FPTYPE>::assembleKernels(dF_dT),  GPUData<FPTYPE>::assembleKernels(T), factor_idx->device(), N_per_factor->device(), compute_dT->device());
     }
 }
 
@@ -655,15 +650,15 @@ void GPUGMLM_results_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_GPU<FPTYPE>
 
     //check the dims of the destination to see if they hold up
     if(opts->compute_trialLL && results_dest->dim_M() != max_trials()) {
-        output_stream << "GPUGMLM_results_GPU::addResults_host errors: results.dim_M = " << results_dest->dim_M() << " is the incorrect size! (expected dim_M = " << max_trials() << ")";
+        output_stream << "GPUGMLM_results_GPU::addResults errors: results.dim_M = " << results_dest->dim_M() << " is the incorrect size! (expected dim_M = " << max_trials() << ")";
         msg->callErrMsgTxt(output_stream);
     }
     if(opts->compute_dB && results_dest->dim_B() != dim_B()) {
-        output_stream << "GPUGMLM_results_GPU::addResults_host errors: results.dim_B = " << results_dest->dim_B() << " is the incorrect size! (expected dim_B = " << dim_B() << ")";
+        output_stream << "GPUGMLM_results_GPU::addResults errors: results.dim_B = " << results_dest->dim_B() << " is the incorrect size! (expected dim_B = " << dim_B() << ")";
         msg->callErrMsgTxt(output_stream);
     }
     if(dim_J() != results_dest->Groups.size()) {
-        output_stream << "GPUGMLM_results_GPU::addResults_host errors: results.dim_J is the incorrect size!";
+        output_stream << "GPUGMLM_results_GPU::addResults errors: results.dim_J is the incorrect size!";
         msg->callErrMsgTxt(output_stream);
     }
     
@@ -674,14 +669,14 @@ void GPUGMLM_results_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_GPU<FPTYPE>
         }
         if(opts->compute_dW) {
             if(!(dW->isEqualSize(results_dest->dW))) {
-                output_stream << "GPUGMLM_results_GPU::addResults_host errors: results.dim_P = " << results_dest->dim_P(msg) << " is the incorrect size! (expected dim_P = " << dim_P() << ")";
+                output_stream << "GPUGMLM_results_GPU::addResults errors: results.dim_P = " << results_dest->dim_P(msg) << " is the incorrect size! (expected dim_P = " << dim_P() << ")";
                 msg->callErrMsgTxt(output_stream);
             }
             results_dest->dW->assign(0);
         }
         if(opts->compute_dB && dim_B() > 0) {
             if(!(dB->isEqualSize(results_dest->dB))) {
-                output_stream << "GPUGMLM_results_GPU::addResults_host errors: results.dim_P = " << results_dest->dim_P(msg) << " is the incorrect size! (expected dim_P = " << dim_P() << ")";
+                output_stream << "GPUGMLM_results_GPU::addResults errors: results.dim_P = " << results_dest->dim_P(msg) << " is the incorrect size! (expected dim_P = " << dim_P() << ")";
                 msg->callErrMsgTxt(output_stream);
             }
             results_dest->dB->assign(0);
@@ -728,19 +723,19 @@ void GPUGMLM_results_Group_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_Group
     if(reset) {
         if(opts->compute_dV) {
             if(!(dV->isEqualSize(results_dest->dV))) {
-                output_stream << "GPUGMLM_results_Group_GPU::addResults_host errors: results struct is the incorrect size!";
+                output_stream << "GPUGMLM_results_Group_GPU::addResults errors: results struct is the incorrect size!";
                 msg->callErrMsgTxt(output_stream);
             }
             results_dest->dV->assign(0);
         }
         if(results_dest->dim_S() != dim_S()) {
-            output_stream << "GPUGMLM_results_Group_GPU::addResults_host errors: results struct is the incorrect size!";
+            output_stream << "GPUGMLM_results_Group_GPU::addResults errors: results struct is the incorrect size!";
             msg->callErrMsgTxt(output_stream);
         }
         for(int ss = 0; ss < dim_S(); ss++) {
             if(opts->compute_dT[ss]) {
                 if(!(dT[ss]->isEqualSize(results_dest->dT[ss]))) {
-                    output_stream << "GPUGMLM_results_Group_GPU::addResults_host errors: results struct is the incorrect size!";
+                    output_stream << "GPUGMLM_results_Group_GPU::addResults errors: results struct is the incorrect size!";
                     msg->callErrMsgTxt(output_stream);
                 }
                 results_dest->dT[ss]->assign(0);
@@ -817,7 +812,7 @@ GPUGMLM_dataset_GPU<FPTYPE>::GPUGMLM_dataset_GPU(const GPUGMLM_structure_args<FP
     checkCudaErrors(ce, "GPUGMLM_dataset_GPU errors: could not allocate id_t_trial on device!");
     normalizingConstants_trial = new GPUData<FPTYPE>(ce, GPUData_HOST_STANDARD, stream, dim_M());
     checkCudaErrors(ce, "GPUGMLM_dataset_GPU errors: could not allocate normalizingConstants_trial on device!");
-    id_t_neuron_host.assign(dim_M(), 0);
+    id_t_neuron.assign(dim_M(), 0);
 
     for(int pp = 0; pp < dim_P(); pp++) {
         //find each trial for neuron pp
@@ -843,7 +838,7 @@ GPUGMLM_dataset_GPU<FPTYPE>::GPUGMLM_dataset_GPU(const GPUGMLM_structure_args<FP
                 
                 //save trial and neuron number
                 (*id_t_trial)[tr_ctr] = block->trials[mm]->trial_idx;
-                id_t_neuron_host[tr_ctr] = block->trials[mm]->neuron;
+                id_t_neuron[tr_ctr] = block->trials[mm]->neuron;
                 if(isInDataset_trial[block->trials[mm]->trial_idx]) { //trial index already found
                     output_stream << "GPUGMLM_dataset_GPU errors: trial indices must be unique!";
                     msg->callErrMsgTxt(output_stream);
@@ -878,7 +873,7 @@ GPUGMLM_dataset_GPU<FPTYPE>::GPUGMLM_dataset_GPU(const GPUGMLM_structure_args<FP
     for(int mm = 0; mm < dim_M(); mm++) {
         for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
             (*id_a_trialM)[N_total_ctr + nn] = mm;
-            (*id_a_neuron)[N_total_ctr + nn] = id_t_neuron_host[mm];
+            (*id_a_neuron)[N_total_ctr + nn] = id_t_neuron[mm];
         }
         N_total_ctr += (*dim_N)[mm];
     }
@@ -959,11 +954,11 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
     cudaError_t ce;
     
     //sets up dimensions
-    X_host.resize( GMLMGroupStructure->dim_D(msg));
-    XF_host.resize(dim_D());
-    iX_host.resize(dim_D());
-    X_temp_host.resize( dim_D());
-    lambda_d_host.resize( dim_D());
+    X.resize( GMLMGroupStructure->dim_D(msg));
+    XF.resize(dim_D());
+    iX.resize(dim_D());
+    X_temp.resize( dim_D());
+    lambda_d.resize( dim_D());
 
     isShared = new GPUData<bool>(ce, GPUData_HOST_STANDARD, stream, dim_D()); 
     checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate isShared!");
@@ -1007,25 +1002,25 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
             }
 
             //allocate space
-            X_host[dd]  = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, GMLMGroupStructure->X_shared[dd]->getSize(0), dim_F_c[dd], depth);
-            iX_host[dd] = new GPUData<int   >(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_A);
+            X[dd]  = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, GMLMGroupStructure->X_shared[dd]->getSize(0), dim_F_c[dd], depth);
+            iX[dd] = new GPUData<int   >(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_A);
 
             //copy to GPU
-            checkCudaErrors(X_host[dd]->copyTo(stream, GMLMGroupStructure->X_shared[dd], false), "GPUGMLM_dataset_Group_GPU errors: could not copy X[dd] shared to device!");
+            checkCudaErrors(X[dd]->copyTo(stream, GMLMGroupStructure->X_shared[dd], false), "GPUGMLM_dataset_Group_GPU errors: could not copy X[dd] shared to device!");
        
             // copy each trial's data to GPU
             for(int mm = 0; mm < trials.size(); mm++) {
                 int mm_0 = trial_load_order[mm];
                 
                 cudaPos copyOffset = make_cudaPos((*(parent->ridx_t_all))[mm], 0, 0); //get row for current trial
-                checkCudaErrors(iX_host[dd]->copyTo(stream, trials[mm_0]->Groups[groupNum]->iX[dd], true, copyOffset), "GPUGMLM_dataset_Group_GPU errors: could not copy iX[dd] shared to device!");
+                checkCudaErrors(iX[dd]->copyTo(stream, trials[mm_0]->Groups[groupNum]->iX[dd], true, copyOffset), "GPUGMLM_dataset_Group_GPU errors: could not copy iX[dd] shared to device!");
             }
 
             //check if X_shared is the identity matrix
-            if(X_host[dd]->getSize(0) == X_host[dd]->getSize(1)) {
+            if(X[dd]->getSize(0) == X[dd]->getSize(1)) {
                 (*isSharedIdentity)[dd] = true;
-                for(int ii = 0; ii < X_host[dd]->getSize(0) && (*isSharedIdentity)[dd]; ii++) {
-                    for(int jj = 0; jj < X_host[dd]->getSize(1) && (*isSharedIdentity)[dd]; jj++) {
+                for(int ii = 0; ii < X[dd]->getSize(0) && (*isSharedIdentity)[dd]; ii++) {
+                    for(int jj = 0; jj < X[dd]->getSize(1) && (*isSharedIdentity)[dd]; jj++) {
                         if(ii == jj) {
                             (*isSharedIdentity)[dd] = 1 == (*(GMLMGroupStructure->X_shared[dd]))(ii,jj);
                         }
@@ -1041,16 +1036,16 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
 
             if(!((*isSharedIdentity)[dd])) {
                 //XF comp space
-                XF_host[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, dim_X(dd), GMLMGroupStructure->dim_R_max);
+                XF[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, dim_X(dd), GMLMGroupStructure->dim_R_max);
                 checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for XF[dd] shared!" );
             }
             else {
-                XF_host[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, dim_X(dd), GMLMGroupStructure->dim_R_max, 0); // is empty, but has correct dimensions
+                XF[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, dim_X(dd), GMLMGroupStructure->dim_R_max, 0); // is empty, but has correct dimensions
                 checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for XF[dd] shared+identity!" );
             }
 
             //X space for sparse runs
-            X_temp_host[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->max_trial_length * parent->max_trials_for_sparse_run, dim_F_c[dd], dim_A, true);
+            X_temp[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->max_trial_length * parent->max_trials_for_sparse_run, dim_F_c[dd], dim_A, true);
             checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for X_temp[dd]!" );
         }
         else {
@@ -1065,23 +1060,23 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
             }
 
             //allocate space
-            X_host[dd]  = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_F_c[dd], depth, true);
-            iX_host[dd] = new GPUData<int   >(ce, GPUData_HOST_NONE, stream, 0, GMLMGroupStructure->dim_A);
+            X[dd]  = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_F_c[dd], depth, true);
+            iX[dd] = new GPUData<int   >(ce, GPUData_HOST_NONE, stream, 0, GMLMGroupStructure->dim_A);
 
             // copy each trial's data
             for(int mm = 0; mm < trials.size(); mm++) {
                 int mm_0 = trial_load_order[mm];
 
                 cudaPos copyOffset = make_cudaPos((*(parent->ridx_t_all))[mm], 0, 0); //get row for current trial
-                checkCudaErrors(X_host[dd]->copyTo(stream, trials[mm_0]->Groups[groupNum]->X[dd], true, copyOffset), "GPUGMLM_dataset_Group_GPU errors: could not copy X[dd] local to device!");
+                checkCudaErrors(X[dd]->copyTo(stream, trials[mm_0]->Groups[groupNum]->X[dd], true, copyOffset), "GPUGMLM_dataset_Group_GPU errors: could not copy X[dd] local to device!");
             }
 
             //XF comp space
-            XF_host[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), GMLMGroupStructure->dim_R_max, depth, true);
+            XF[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), GMLMGroupStructure->dim_R_max, depth, true);
             checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for XF[dd] shared!" );
 
             //X space for sparse runs
-            X_temp_host[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->max_trial_length * parent->max_trials_for_sparse_run, dim_F_c[dd], depth, true);
+            X_temp[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->max_trial_length * parent->max_trials_for_sparse_run, dim_F_c[dd], depth, true);
             checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for X_temp[dd]!" );
         }
 
@@ -1092,32 +1087,21 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
              
     //upload host ptrs and dims to GPU
     
-    X = new GPUData_array<FPTYPE>(ce, X_host, stream, msg);
-    checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not copy X to device!");    
-   
-    XF = new GPUData_array<FPTYPE>(ce, XF_host, stream, msg);
-    checkCudaErrors( ce, "GPUGMLM_dataset_Group_GPU errors: could not copy XF to device!");    
-    
-    iX = new GPUData_array<int>(ce, iX_host, stream, msg);
-    checkCudaErrors(    ce, "GPUGMLM_dataset_Group_GPU errors: could not copy iX to device!");
-    
     //setup compute space
     lambda_v = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_R_max());
     checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for lambda_v!" );
 
     // pitched memory for lambda_d: note arrangement is (dim_N_total*dim_A) x dim_R
     //                                this stacks the events to line up with X or S
-    lambda_d_host.assign(dim_D(), NULL);
+    lambda_d.assign(dim_D(), NULL);
     for(int dd = 0; dd < dim_D(); dd++) {
         size_t depth = dim_A;
-        if(!((*isShared)[dd]) && X_host[dd]->getSize(2) == 1) {
+        if(!((*isShared)[dd]) && X[dd]->getSize(2) == 1) {
             depth = 1;
         }
-        lambda_d_host[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_R_max(), depth, true);
+        lambda_d[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, parent->dim_N_total(), dim_R_max(), depth, true);
         checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for lambda_d!" );
     }
-    lambda_d = new GPUData_array<FPTYPE>(ce, lambda_d_host, stream, msg);
-    checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not copy lambda_d to device!");
 
     phi_d =  new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_X_shared, dim_R_max());
     checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for phi_d!" );
@@ -1202,7 +1186,7 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
             cusparseStatus_t cusparse_stat;
             spi_S[dd] =  new cusparseSpMatDescr_t;
             cusparse_stat = cusparseCreateCoo(spi_S[dd],
-                        dim_X(dd), lambda_d_host[dd]->getSize(0) * lambda_d_host[dd]->getSize(2), //num rows, cols
+                        dim_X(dd), lambda_d[dd]->getSize(0) * lambda_d[dd]->getSize(2), //num rows, cols
                         spi_rows[dd]->size(), //number of non-zeros
                         spi_rows[dd]->getData_gpu(), //row offsets
                         spi_cols[dd]->getData_gpu(), //col offsets
@@ -1215,8 +1199,8 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
             //setup dense handle for lambda_d
             spi_lambda_d[dd] = new cusparseDnVecDescr_t;
             cusparse_stat = cusparseCreateDnVec(spi_lambda_d[dd],
-                                                lambda_d_host[dd]->getSize(0) * lambda_d_host[dd]->getSize(2),  //size
-                                                lambda_d_host[dd]->getData_gpu(),
+                                                lambda_d[dd]->getSize(0) * lambda_d[dd]->getSize(2),  //size
+                                                lambda_d[dd]->getData_gpu(),
                                                 getCudaType<FPTYPE>());
             checkCudaErrors(cusparse_stat, "GPUGMLM_dataset_Group_GPU errors: creating dense vec cusparse handle spi_lambda_d failed.");
 
@@ -1290,21 +1274,16 @@ GPUGMLM_dataset_GPU<FPTYPE>::~GPUGMLM_dataset_GPU() {
 
 template <class FPTYPE>
 GPUGMLM_dataset_Group_GPU<FPTYPE>::~GPUGMLM_dataset_Group_GPU() {
-    cudaSafeFreeVector(X_host, "GPUGMLM_dataset_Group_GPU errors: could not free X[dd]");
-    cudaSafeFreeVector(XF_host, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
-    cudaSafeFreeVector(iX_host, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
-    cudaSafeFreeVector(X_temp_host   , "GPUGMLM_dataset_Group_GPU errors: could not free X_temp_host[dd]");
+    cudaSafeFreeVector(X, "GPUGMLM_dataset_Group_GPU errors: could not free X[dd]");
+    cudaSafeFreeVector(XF, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
+    cudaSafeFreeVector(iX, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
+    cudaSafeFreeVector(X_temp   , "GPUGMLM_dataset_Group_GPU errors: could not free X_temp[dd]");
     
     cudaSafeFree(isShared, "GPUGMLM_dataset_Group_GPU errors: could not free isShared");
-    cudaSafeFree(isSharedIdentity, "GPUGMLM_dataset_Group_GPU errors: could not free isSharedIdentity");
-
-    cudaSafeFree(X, "GPUGMLM_dataset_Group_GPU errors: could not free X");
-    cudaSafeFree(XF, "GPUGMLM_dataset_Group_GPU errors: could not free XF");
-    cudaSafeFree(iX, "GPUGMLM_dataset_Group_GPU errors: could not free iX");
+    cudaSafeFree(isSharedIdentity, "GPUGMLM_dataset_Group_GPU errors: could not free isSharedIdentity");;
 
     cudaSafeFree(lambda_v, "GPUGMLM_dataset_Group_GPU errors: could not free lambda_v");
-    cudaSafeFree(lambda_d, "GPUGMLM_dataset_Group_GPU errors: could not free lambda_d");
-    cudaSafeFreeVector(lambda_d_host, "GPUGMLM_dataset_Group_GPU errors: could not free lambda_d_host[dd]");
+    cudaSafeFreeVector(lambda_d, "GPUGMLM_dataset_Group_GPU errors: could not free lambda_d[dd]");
     cudaSafeFree(   phi_d, "GPUGMLM_dataset_Group_GPU errors: could not free phi_d");
     cudaSafeFree(dV_trial, "GPUGMLM_dataset_Group_GPU errors: could not free dV_trial");
 
@@ -1339,25 +1318,24 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::~GPUGMLM_dataset_Group_GPU() {
 *  ridx_sa_all must be assigned
 */
 template <class FPTYPE>
-__global__ void kernel_getGroupX_local_full(GPUData_kernel<FPTYPE> * X_temp, const GPUData_kernel<FPTYPE> * X,
-                                    const GPUData_kernel<unsigned int> * ridx_sa_all) {
+__global__ void kernel_getGroupX_local_full(GPUData_kernel<FPTYPE> X_temp, const GPUData_kernel<FPTYPE> X,
+                                    const GPUData_kernel<unsigned int> ridx_sa_all) {
     //get current observation number
     unsigned int tt_start = blockIdx.y * blockDim.y + threadIdx.y;
     size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < ridx_sa_all->x) {
+    if(row < ridx_sa_all.x) {
         size_t iX_row;
-        iX_row = (*ridx_sa_all)[row];
+        iX_row = ridx_sa_all[row];
 
         //for each event 
-        for(unsigned int aa = 0; aa < X_temp->z; aa++) {
+        for(unsigned int aa = 0; aa < X_temp.z; aa++) {
             //for each regressor (on this thread)
-            for(unsigned int tt = tt_start; tt < X_temp->y; tt += blockDim.y * gridDim.y) {
-                (*X_temp)(row, tt, aa) = (*X)(iX_row, tt, aa);
+            for(unsigned int tt = tt_start; tt < X_temp.y; tt += blockDim.y * gridDim.y) {
+                X_temp(row, tt, aa) = X(iX_row, tt, aa);
             }
         }
     }
 }
-
 
 //functions to multiply the tensor coefficients by the current parameters
 template <class FPTYPE>
@@ -1370,16 +1348,24 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
         output_stream << "GPUGMLM_dataset_Group_GPU errors: dim_R too large for pre-allocated space!";
         msg->callErrMsgTxt(output_stream);
     }
+    
+
+    if(isSparseRun) {
+        checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
+    }
+    else {
+        checkCudaErrors(lambda_v->resize(stream, parent->lambda->getSize_max(0), -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
+    }
 
     for(int dd = 0; dd < dim_D(); dd++) {
         
-        GPUData<FPTYPE> * X_c = X_host[dd];
+        GPUData<FPTYPE> * X_c = X[dd];
         if(isSparseRun) {
-            checkCudaErrors(X_temp_host[dd]->resize(  stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
-            checkCudaErrors(lambda_d_host[dd]->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
+            checkCudaErrors(X_temp[dd]->resize(  stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
+            checkCudaErrors(lambda_d[dd]->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
         }
         else {
-            checkCudaErrors(lambda_d_host[dd]->resize(stream, lambda_d_host[dd]->getSize_max(0),-1,-1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for full runs.");
+            checkCudaErrors(lambda_d[dd]->resize(stream, lambda_d[dd]->getSize_max(0),-1,-1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for full runs.");
         }
         if((*isSharedIdentity)[dd]) {
             continue;
@@ -1399,19 +1385,20 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
             dim3 grid_size;
             grid_size.x = parent->dim_N_temp / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
             grid_size.y = 1;
-            kernel_getGroupX_local_full<<<grid_size, block_size, 0, stream>>>(X_temp_host[dd]->device(), X_host[dd]->device(), 
+            kernel_getGroupX_local_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), 
                                         parent->ridx_sa_all->device());
             checkCudaErrors("GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors:  kernel_getGroupX_local_full launch failed");
 
-            X_c = X_temp_host[dd];
+            X_c = X_temp[dd];
         }
 
-        checkCudaErrors(XF_host[dd]->resize(stream, X_c->getSize(0)), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set matrix size for run.");
+        checkCudaErrors(XF[dd]->resize(stream, X_c->getSize(0)), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set matrix size for run.");
             
-        checkCudaErrors(X_c->GEMM(XF_host[dd], params->F[dd], cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors:  X*F -> XF failed");
+        checkCudaErrors(X_c->GEMM(XF[dd], params->F[dd], cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors:  X*F -> XF failed");
+
+
     }
 }
-
 
 //=============================================================================================================================================================
 //=============================================================================================================================================================
@@ -1424,49 +1411,49 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
  * If computing any dT values AND dim_S > 1, needs some dynamic shared memory to make this work on both 1080 and 2080 cards well. Memory size in bytes is dim_S * blockDim.x * sizeof(FPTYPE)
  */
 template <class FPTYPE>
-__global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> * lambda, 
-        GPUData_kernel<FPTYPE> * lambda_v, 
-        GPUData_array_kernel<FPTYPE> * lambda_d,
+__global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda, 
+        GPUData_kernel<FPTYPE> lambda_v, 
+        GPUData_array_kernel<FPTYPE, MAX_DIM_D> lambda_d,
         const int col,
-        const GPUData_array_kernel<FPTYPE> * XF,
-        const GPUData_array_kernel<FPTYPE> * F,
-        const GPUData_array_kernel<int> * iX,
-        const GPUData_kernel<bool> * isShared,
-        const GPUData_kernel<bool> * isSharedIdentity,
-        const GPUData_kernel<FPTYPE> * V, 
-        const GPUData_kernel<unsigned int> * id_a_neuron,
-        const GPUData_kernel<unsigned int> * id_a_trialM,
-        const GPUData_kernel<FPTYPE> * trial_weights, 
-        const bool compute_dV, const GPUData_kernel<bool> * compute_dF, const bool compute_dT_any,
-        const GPUData_kernel<unsigned int> * ridx_sa_all, const size_t dim_A) {
+        const GPUData_array_kernel<FPTYPE, MAX_DIM_D> XF,
+        const GPUData_array_kernel<FPTYPE, MAX_DIM_D> F,
+        const GPUData_array_kernel<int, MAX_DIM_D> iX,
+        const GPUData_kernel<bool> isShared,
+        const GPUData_kernel<bool> isSharedIdentity,
+        const GPUData_kernel<FPTYPE> V, 
+        const GPUData_kernel<unsigned int> id_a_neuron,
+        const GPUData_kernel<unsigned int> id_a_trialM,
+        const GPUData_kernel<FPTYPE> trial_weights, 
+        const bool compute_dV, const GPUData_kernel<bool> compute_dF, const bool compute_dT_any,
+        const GPUData_kernel<unsigned int> ridx_sa_all, const size_t dim_A) {
     //get current observation number
     extern __shared__ int t_array_0[];
     FPTYPE * t_array = (FPTYPE*)t_array_0; // shared memory for derivative setup
 
     const size_t row = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if(row < lambda->x) {
+    if(row < lambda.x) {
         size_t iX_row = row; //if full run
-        if(ridx_sa_all->y > 0) {
+        if(ridx_sa_all.y > 0) {
             //if sparse run
-            iX_row = (*ridx_sa_all)[row];
+            iX_row = ridx_sa_all[row];
         }
 
-        if(trial_weights->y == 0 || (*trial_weights)[(*id_a_trialM)[iX_row]] != 0) { //if trial not censored
-            unsigned int neuron_num = (*id_a_neuron)[iX_row];
+        if(trial_weights.y == 0 || trial_weights[id_a_trialM[iX_row]] != 0) { //if trial not censored
+            unsigned int neuron_num = id_a_neuron[iX_row];
 
             //for each rank
             FPTYPE ll = 0;
-            for(int rr = 0; rr < V->y; rr++) { //dim_R = V->Y
+            for(int rr = 0; rr < V.y; rr++) { //dim_R = V->Y
                 //for each event 
                 FPTYPE lv = 0;
-                const FPTYPE vv = (*V)(neuron_num, rr);
+                const FPTYPE vv = V(neuron_num, rr);
 
                 if(compute_dT_any) {
-                    for(unsigned int dd = 0 ; dd < XF->N; dd++) {
-                        if((*compute_dF)[dd]) {
-                            for(unsigned int aa = 0; aa < (*lambda_d)[dd].z; aa++) {
-                                (*lambda_d)[dd](row, rr, aa) = 0;
+                    for(unsigned int dd = 0 ; dd < XF.N; dd++) {
+                        if(compute_dF[dd]) {
+                            for(unsigned int aa = 0; aa < lambda_d[dd].z; aa++) {
+                                lambda_d[dd](row, rr, aa) = 0;
                             }
                         }
                     }
@@ -1474,30 +1461,30 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> * lambda,
                 for(unsigned int aa = 0; aa < dim_A; aa++) { //over dim_A
                     FPTYPE lv_aa = 1;
                     //for each factor
-                    for(unsigned int dd = 0; dd < XF->N; dd++) { //dim_D = XF->N, dim_S = T->N
+                    for(unsigned int dd = 0; dd < XF.N; dd++) { //dim_D = XF->N, dim_S = T->N
                         FPTYPE tc = 0;
-                        if((*isShared)[dd]) { //shared regressors
-                            int idx_0 = (*iX)[dd](iX_row, aa);
+                        if(isShared[dd]) { //shared regressors
+                            int idx_0 = iX[dd](iX_row, aa);
                             if(idx_0 >= 0) {
-                                if((*isSharedIdentity)[dd]) {
-                                    if(idx_0 < (*F)[dd].x) {
-                                        tc = (*F)[dd](idx_0, rr);
+                                if(isSharedIdentity[dd]) {
+                                    if(idx_0 < F[dd].x) {
+                                        tc = F[dd](idx_0, rr);
                                     }
                                 }
                                 else {
-                                    if(idx_0 < (*XF)[dd].x) {
-                                        tc = (*XF)[dd](idx_0, rr);
+                                    if(idx_0 < XF[dd].x) {
+                                        tc = XF[dd](idx_0, rr);
                                     }
                                 }
                             }
                         }
                         else  { //local regressors
-                            tc = (*XF)[dd](row, rr, aa);
+                            tc = XF[dd](row, rr, aa);
                         }
 
                         lv_aa *= tc;
-                        if(compute_dT_any && XF->N > 1) {
-                            t_array[dd + threadIdx.x*XF->N] = tc;
+                        if(compute_dT_any && XF.N > 1) {
+                            t_array[dd + threadIdx.x*XF.N] = tc;
                         }
                         else if(tc == 0 ) {
                             break;
@@ -1509,25 +1496,25 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> * lambda,
                     //sets up any dT matrices (doing this here eliminates the need to go back through the XT matrices in a different kernel)
                     //  I do this outside the previous loop because otherwise everything was super slow on the 1080 cards
                     if(compute_dT_any) {
-                        for(unsigned int dd = 0 ; dd < XF->N; dd++) {
-                            if((*compute_dF)[dd]) {
+                        for(unsigned int dd = 0 ; dd < XF.N; dd++) {
+                            if(compute_dF[dd]) {
                                 FPTYPE tt = vv;
-                                for(unsigned int dd2 = 0; dd2 < XF->N; dd2++) {
+                                for(unsigned int dd2 = 0; dd2 < XF.N; dd2++) {
                                     if(dd2 != dd) {
-                                        tt *= t_array[dd2 + threadIdx.x*XF->N];
+                                        tt *= t_array[dd2 + threadIdx.x*XF.N];
                                     }
                                 }
-                                (*lambda_d)[dd](row, rr, aa) += tt;
+                                lambda_d[dd](row, rr, aa) += tt;
                             }
                         } //dd
                     }
                 } // aa
                 if(compute_dV) {
-                    (*lambda_v)(row, rr) = lv;
+                    lambda_v(row, rr) = lv;
                 }
                 ll += lv * vv; 
             }
-            (*lambda)(row, col) = ll;
+            lambda(row, col) = ll;
         }
     }
 }
@@ -1555,8 +1542,8 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
         }
 
         size_t size_shared = (compute_dT_any && params->dim_D() > 1) ? (sizeof(FPTYPE) * params->dim_D() * block_size.x) : 0;
-        kernel_getGroupRate<<<grid_size, block_size, size_shared, stream>>>(parent->lambda->device(), lambda_v->device(), lambda_d->device(), groupNum,
-                                                                            XF->device(), params->F_gpu->device(), iX->device(),
+        kernel_getGroupRate<<<grid_size, block_size, size_shared, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
                                                                             isShared->device(), isSharedIdentity->device(),
                                                                             params->V->device(), 
                                                                             parent->id_a_neuron->device(),
@@ -1568,8 +1555,6 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
     }
 }
 
-
-
 //=============================================================================================================================================================
 //=============================================================================================================================================================
 //=============================================================================================================================================================
@@ -1578,11 +1563,11 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
 *  sets up the elements of S to be dLL
 */
 template <class FPTYPE>
-__global__ void kernel_set_spi_S( GPUData_kernel<FPTYPE> * S,  const GPUData_kernel<FPTYPE> * dLL,
-                               const GPUData_kernel<int> * S_idx) {
+__global__ void kernel_set_spi_S( GPUData_kernel<FPTYPE> S,  const GPUData_kernel<FPTYPE> dLL,
+                               const GPUData_kernel<int> S_idx) {
     size_t nn = blockIdx.x * blockDim.x + threadIdx.x;
-    if(nn < S->x) {
-        (*S)[nn] = (*dLL)[(*S_idx)[nn] % dLL->x];
+    if(nn < S.x) {
+        S[nn] = dLL[S_idx[nn] % dLL.x];
     }
 }
 
@@ -1591,31 +1576,31 @@ __global__ void kernel_set_spi_S( GPUData_kernel<FPTYPE> * S,  const GPUData_ker
 *  ridx_sa_all must be assigned
 */
 template <class FPTYPE>
-__global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> * X_temp, const GPUData_kernel<FPTYPE> * X, const GPUData_kernel<FPTYPE> * dLL,
-                                    GPUData_kernel<int> * iX,      
-                                    GPUData_kernel<unsigned int> * ridx_sa_all,
+__global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> X_temp, const GPUData_kernel<FPTYPE> X, const GPUData_kernel<FPTYPE> dLL,
+                                    GPUData_kernel<int>  iX,      
+                                    GPUData_kernel<unsigned int>  ridx_sa_all,
                                     const bool isIdentity)   {
     //get current observation number
     unsigned int tt_start = blockIdx.y * blockDim.y + threadIdx.y;
     size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < X_temp->x) {
+    if(row < X_temp.x) {
         size_t iX_row;
-        iX_row = (*ridx_sa_all)[row];
+        iX_row = ridx_sa_all[row];
 
         //for each regressor (on this thread)
-        for(unsigned int tt = tt_start; tt < X->y; tt += blockDim.y * gridDim.y) {
+        for(unsigned int tt = tt_start; tt < X.y; tt += blockDim.y * gridDim.y) {
             //for each event 
-            for(unsigned int aa = 0; aa < iX->y; aa++) {
-                int idx_0 = (*iX)(iX_row, aa);
-                if(idx_0 < 0 || idx_0 >= X->x) {
-                    (*X_temp)(row, tt, aa) = 0;
+            for(unsigned int aa = 0; aa < iX.y; aa++) {
+                int idx_0 = iX(iX_row, aa);
+                if(idx_0 < 0 || idx_0 >= X.x) {
+                    X_temp(row, tt, aa) = 0;
                 }
                 else {
                     if(isIdentity) {
-                        (*X_temp)(row, tt, aa) = (idx_0 == tt) ?  (*dLL)[row] : 0;
+                        X_temp(row, tt, aa) = (idx_0 == tt) ?  dLL[row] : 0;
                     }
                     else {
-                        (*X_temp)(row, tt, aa) = (*X)(idx_0, tt) * (*dLL)[row];
+                        X_temp(row, tt, aa) = X(idx_0, tt) * dLL[row];
                     }
                 }
             }
@@ -1627,15 +1612,15 @@ __global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> * X_temp, co
 /* Kernel for each observation that sets up lambda_t with dLL
 */
 template <class FPTYPE>
-__global__ void kernel_dLL_mult(GPUData_kernel<FPTYPE> * lambda_d, const GPUData_kernel<FPTYPE>  *  dLL) {
+__global__ void kernel_dLL_mult(GPUData_kernel<FPTYPE> lambda_d, const GPUData_kernel<FPTYPE> dLL) {
     //get current observation number
     size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < dLL->x) {
+    if(row < dLL.x) {
         //for each regressor (on this thread)
-        for(int rr = 0; rr < lambda_d->y; rr++) {
+        for(int rr = 0; rr < lambda_d.y; rr++) {
             //for each event 
-            for(int aa = 0; aa < lambda_d->z; aa++) {
-                (*lambda_d)(row, rr, aa) *= (*dLL)[row]; 
+            for(int aa = 0; aa < lambda_d.z; aa++) {
+                lambda_d(row, rr, aa) *= dLL[row]; 
             }
         }
     }                             
@@ -1696,14 +1681,14 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 grid_size.x = parent->dim_N_temp  / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
                 grid_size.y = 1;
 
-                kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp_host[dd]->device(), X_host[dd]->device(), parent->dLL->device(),
-                                            	iX_host[dd]->device(), 
+                kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), parent->dLL->device(),
+                                            	iX[dd]->device(), 
                                                 parent->ridx_sa_all->device(),
                                                 (*isSharedIdentity)[dd]);
                 checkCudaErrors("GPUGMLM_dataset_Group_GPU::computeDerivatives errors:  kernel_getGroupX_shared_full launch failed");
 
-                X_c   = X_temp_host[dd];
-                phi_c = lambda_d_host[dd];
+                X_c   = X_temp[dd];
+                phi_c = lambda_d[dd];
             }
             else if(!((*isShared)[dd]) && isSparseRun) { 
                 // if local regressors and sparse run
@@ -1713,11 +1698,11 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 dim3 grid_size;
                 grid_size.x = parent->dim_N_temp / block_size.x + ((parent->dim_N_temp % block_size.x == 0)? 0:1);
 
-                kernel_dLL_mult<<<grid_size, block_size, 0, stream>>>(lambda_d_host[dd]->device(), parent->dLL->device());
+                kernel_dLL_mult<<<grid_size, block_size, 0, stream>>>(lambda_d[dd]->device(), parent->dLL->device());
                 checkCudaErrors("GPUGMLM_dataset_Group_GPU::computeDerivatives errors:  diag(dLL)*lambda_d -> lambda_d failed");
 
-                X_c     = X_temp_host[dd];
-                phi_c = lambda_d_host[dd];
+                X_c     = X_temp[dd];
+                phi_c = lambda_d[dd];
             }
             else if((*isShared)[dd]) { // only do this if doing full run
                 //this step is faster with sparse matrices for shared regressors
@@ -1737,7 +1722,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 for(int rr = 0; rr < params->dim_R(); rr++) {
                     //I found - on a 1080ti at least - doing this series of SpMV ops was typically faster than a single SpMM (annoyingly)
                     cusparseStatus_t cusparse_stat;
-                    cusparse_stat = cusparseDnVecSetValues(*(spi_lambda_d[dd]), lambda_d_host[dd]->getData_gpu() + rr*lambda_d_host[dd]->getLD_gpu());
+                    cusparse_stat = cusparseDnVecSetValues(*(spi_lambda_d[dd]), lambda_d[dd]->getData_gpu() + rr*lambda_d[dd]->getLD_gpu());
                     checkCudaErrors(cusparse_stat, "GPUGMLM_dataset_Group_GPU errors: cusparseDnVecSetValues failed for lambda_t.");
                     if((*isSharedIdentity)[dd]) {
                         cusparse_stat = cusparseDnVecSetValues(*(spi_phi_d[dd]), results->dF[dd]->getData_gpu() + rr*results->dF[dd]->getLD_gpu());
@@ -1763,7 +1748,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                                   That's why this loop is here.*/
                 }
 
-                X_c   = X_host[dd];
+                X_c   = X[dd];
                 phi_c = phi_d;
             }
             else {
@@ -1774,11 +1759,11 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 dim3 grid_size;
                 grid_size.x = parent->dim_N_total() / block_size.x + ((parent->dim_N_total() % block_size.x == 0)? 0:1);
 
-                kernel_dLL_mult<<<grid_size, block_size, 0, stream>>>(lambda_d_host[dd]->device(), parent->dLL->device());
+                kernel_dLL_mult<<<grid_size, block_size, 0, stream>>>(lambda_d[dd]->device(), parent->dLL->device());
                 checkCudaErrors("GPUGMLM_dataset_Group_GPU::computeDerivatives errors:  diag(dLL)*lambda_d -> lambda_d failed");
 
-                X_c   = X_host[dd];
-                phi_c = lambda_d_host[dd];
+                X_c   = X[dd];
+                phi_c = lambda_d[dd];
             }
 
             checkCudaErrors(phi_c->resize(stream, X_c->getSize(0), results->dF[dd]->getSize(1), X_c->getSize(2)), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: setting size of phi_c failed");
@@ -1807,7 +1792,6 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
 //=============================================================================================================================================================
 //=============================================================================================================================================================
 
-
 //explicitly create classes for single and double precision floating point for library
 template class GPUGMLM_parameters_Group_GPU<float>;
 template class GPUGMLM_parameters_Group_GPU<double>;
@@ -1819,7 +1803,6 @@ template class GPUGMLM_results_Group_GPU<double>;
 template class GPUGMLM_results_GPU<float>;
 template class GPUGMLM_results_GPU<double>;
         
-
 template class GPUGMLM_dataset_Group_GPU<float>;
 template class GPUGMLM_dataset_Group_GPU<double>;
 template class GPUGMLM_dataset_GPU<float>;

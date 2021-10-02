@@ -1,6 +1,6 @@
 %% finite difference tool for all GMLM parameters
 % can check with stochastic gradients by giving a "numberOfTrialsForSGrun" (weights per trial will be random)
-function [results_est, results_all, ll_host, params] = checkDerivatives(gmlm, params, numberOfTrialsForSGrun)
+function [results_est, results_all, ll_host, params] = checkDerivatives(gmlm, params, numberOfTrialsForSGrun, perNeuronWeights)
 
 if(nargin < 2 || isempty(params))
     params     = gmlm.getRandomParamStruct();
@@ -9,16 +9,24 @@ opts_empty = gmlm.getComputeOptionsStruct(false);
 opts_all   = gmlm.getComputeOptionsStruct(true);
 
 if(nargin > 2 && ~isempty(numberOfTrialsForSGrun) && numberOfTrialsForSGrun > 0)
-    opts_empty.trial_weights = zeros(gmlm.dim_M,1);
-    ws = rand(numberOfTrialsForSGrun,1)*2;
     nz = randperm(gmlm.dim_M, numberOfTrialsForSGrun);
-    opts_empty.trial_weights(nz) = ws;
+    if(nargin < 4 || isempty(perNeuronWeights) || ~perNeuronWeights || ~gmlm.populationData)
+        opts_empty.trial_weights = zeros(gmlm.dim_M,1);
+        ws = rand(numberOfTrialsForSGrun,1)*2;
+        opts_empty.trial_weights(nz) = ws;
+    else
+        opts_empty.trial_weights = zeros(gmlm.dim_M, gmlm.dim_P);
+        ws = rand(numberOfTrialsForSGrun,gmlm.dim_P)*2;
+        opts_empty.trial_weights(nz, :) = ws;
+    end
     opts_all.trial_weights = opts_empty.trial_weights;
 end
 
 results_all =  gmlm.computeLogPosterior(params, opts_all);
 [~,lls_host] = gmlm.computeLogLikelihoodHost(params, opts_empty);
-ll_host = [lls_host(:).log_like];
+
+ll_host = cell2mat({lls_host(:).log_like}');
+ll_host = ll_host(:);
 
 dx = 1e-4;
 cs  = [-1/60 3/20 -3/4 3/4 -3/20 1/60]; %centered FD coefficients

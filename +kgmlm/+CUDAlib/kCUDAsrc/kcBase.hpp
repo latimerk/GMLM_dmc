@@ -25,81 +25,77 @@
 #include "kcShared.hpp"
 
 namespace kCUDA { 
+    
+const unsigned int MAX_DIM_D = 6;
+    
 enum GPUData_HOST_ALLOCATION {GPUData_HOST_NONE = 0, GPUData_HOST_PAGELOCKED = 1, GPUData_HOST_STANDARD = 2}; 
 
     //classes for storing matrices (including stacks of matrices)
 // base classes for CUDA arrays
 //  holds data in up to a 3D array, while managing the pitch sizes and such
 template <typename FPTYPE> 
-class GPUData_kernel { // holds data on GPU for more compact/clean kernel calls
-    public:
-        size_t x;
-        size_t y;
-        size_t z;
+struct GPUData_kernel { // holds data on GPU for more compact/clean kernel calls
+    unsigned int x, y, z, ld, inc;
+    FPTYPE * data; 
+    
+    __device__ __host__ GPUData_kernel() : x(0), y(0), z(0), ld(0), inc(0), data(NULL) {
+    }
 
-        size_t x_s;
-        size_t z_s;
-
-        size_t ld;
-        size_t inc;
-
-        FPTYPE * data; 
-        
-        __device__
-        const FPTYPE & operator()(const size_t xx, const size_t yy = 0, const size_t zz = 0) const {
-            size_t index = xx + yy * ld + zz * inc;
-            return data[index];
-        }
-        __device__
-        FPTYPE & operator()(const size_t xx, const size_t yy = 0, const size_t zz = 0) {
-            size_t index = xx + yy * ld + zz * inc;
-            return data[index];
-        }
-        __device__
-        const FPTYPE & operator[](const size_t index) const {
-            return data[index];
-        }
-        __device__
-        FPTYPE & operator[](const size_t index) {
-            return data[index];
-        }
-        __device__
-        const FPTYPE & get(const size_t xx, const size_t yy = 0, const size_t zz = 0) const {
-            size_t index = xx + yy * ld + zz * inc;
-            return data[index];
-        }
-        __device__
-        void set(const FPTYPE & val, const size_t xx, const size_t yy = 0, const size_t zz = 0) {
-            size_t index = xx + yy * ld + zz * inc;
-            data[index] = val;
-        }
+    __device__ __host__
+    const FPTYPE & operator()(const size_t xx, const size_t yy = 0, const size_t zz = 0) const {
+        size_t index = xx + yy * ld + zz * inc;
+        return data[index];
+    }
+    __device__ __host__
+    FPTYPE & operator()(const size_t xx, const size_t yy = 0, const size_t zz = 0) {
+        size_t index = xx + yy * ld + zz * inc;
+        return data[index];
+    }
+    __device__ __host__
+    const FPTYPE & operator[](const size_t index) const {
+        return data[index];
+    }
+    __device__ __host__
+    FPTYPE & operator[](const size_t index) {
+        return data[index];
+    }
+    __device__ __host__
+    const FPTYPE & get(const size_t xx, const size_t yy = 0, const size_t zz = 0) const {
+        size_t index = xx + yy * ld + zz * inc;
+        return data[index];
+    }
+    __device__ __host__
+    void set(const FPTYPE & val, const size_t xx, const size_t yy = 0, const size_t zz = 0) {
+        size_t index = xx + yy * ld + zz * inc;
+        data[index] = val;
+    }
 };
     
+
+template <typename FPTYPE, unsigned int N_max> 
+struct GPUData_array_kernel {
+    GPUData_kernel<FPTYPE> kernel[N_max];
+    unsigned int N = 0;
+    
+    __device__ __host__
+    const GPUData_kernel<FPTYPE> & operator[](const size_t index) const {
+        return kernel[index];
+    }
+    __device__ __host__
+    GPUData_kernel<FPTYPE> & operator[](const size_t index) {
+        return kernel[index];
+    }
+};
+
 template <class FPTYPE> 
 class GPUData {
     private:
         cudaPitchedPtr data_gpu;
         
-        GPUData_kernel<FPTYPE> * data_kernel = NULL;
+        GPUData_kernel<FPTYPE> data_kernel;
+        GPUData_kernel<FPTYPE> data_host;
         
-        FPTYPE * data_host = NULL;
-        
-        cudaExtent data_size; //for GPU
-        cudaExtent data_size_bytes; // data_size_bytes.depth = data_size.depth * sizeof(FPTYPE), convenient for some cuda api calls
-        
-        cudaExtent data_size_c; // current size (in elements, not bytes) is <= data_size
-        
-        size_t inc_gpu;
-        size_t inc_host;
-        
-        size_t inc_gpu_bytes;
-        size_t inc_host_bytes;
-        
-        size_t ld_gpu;
-        size_t ld_host;
-        
-        size_t ld_gpu_bytes;
-        size_t ld_host_bytes;
+        dim3 data_size; //for GPU
         
         int devNum;
         bool allocated_host  = false;
@@ -113,14 +109,14 @@ class GPUData {
         
             // constructor with GPU allocation, returns a CUDA status in first argument
             //  include_host 0 == none, 1 = page locked, 2 = host
-        GPUData(cudaError_t & ce, GPUData_HOST_ALLOCATION include_host, const cudaStream_t stream, size_t width, size_t height = 1, size_t depth = 1, bool stacked_depth = false);
-        GPUData(cudaError_t & ce, GPUData_HOST_ALLOCATION include_host, const cudaStream_t stream, cudaExtent size, bool stacked_depth = false);
+        GPUData(cudaError_t & ce, GPUData_HOST_ALLOCATION include_host, const cudaStream_t stream, size_t x, size_t y = 1, size_t z = 1, bool stacked_depth = false);
+        GPUData(cudaError_t & ce, GPUData_HOST_ALLOCATION include_host, const cudaStream_t stream, const dim3 size, bool stacked_depth = false);
 
         // allocate memory on GPU (and page-locked host if requested), returns cuda status
-        cudaError_t allocate_gpu(GPUData_HOST_ALLOCATION include_host, const cudaStream_t stream, size_t width, size_t height = 1, size_t depth = 1, bool stacked_depth = false);
+        cudaError_t allocate_gpu(GPUData_HOST_ALLOCATION include_host, const cudaStream_t stream, size_t x, size_t y = 1, size_t z = 1, bool stacked_depth = false);
         
         // allocate memory on host (is page-locked host if requested, otherwise normal memory), returns cuda status (will only be set if page-locked memory requested)
-        cudaError_t allocate_host(bool page_locked_memory, size_t width, size_t height = 1, size_t depth = 1);
+        cudaError_t allocate_host(bool page_locked_memory, size_t x, size_t y = 1, size_t z = 1);
         
         // deletes all memory currently allocated, returns cuda status
         cudaError_t deallocate();
@@ -129,22 +125,25 @@ class GPUData {
         ~GPUData();
         
         //gets the struct to send matrix to a cuda kernel
-        inline const GPUData_kernel<FPTYPE> * device() const {
+        inline const GPUData_kernel<FPTYPE> device() const {
             return data_kernel;
         }
-        inline GPUData_kernel<FPTYPE> * device() {
+        inline GPUData_kernel<FPTYPE> device() {
             return data_kernel;
         }
         
         //pointers to the data
         inline const FPTYPE * getData_gpu() const {
-            return reinterpret_cast<FPTYPE*>(data_gpu.ptr) ;
+            return data_kernel.data;
+        }
+        inline const FPTYPE * getData_gpu_alt() const {
+            return reinterpret_cast<FPTYPE *>(data_gpu.ptr);
         }
         inline FPTYPE * getData_gpu() {
-            return reinterpret_cast<FPTYPE*>(data_gpu.ptr) ;
+            return data_kernel.data;
         }
         inline FPTYPE * getData_host() {
-            return data_host;
+            return data_host.data;
         }
         
         //info about allocated
@@ -164,26 +163,26 @@ class GPUData {
             return allocated_gpu || allocated_host;
         }
         
-        //lead dimensions of matrix (for pitched memory), across the height dimension (or columns because of BLAS/MATLAB style memory)
+        //lead dimensions of matrix (for pitched memory), across the y dimension (or columns because of BLAS/MATLAB style memory)
         inline size_t getLD_gpu() const {
-            return ld_gpu;
+            return data_kernel.ld;
         }
         inline size_t getLD_gpu_bytes() const {
-            return ld_gpu_bytes;
+            return getLD_gpu() * sizeof(FPTYPE);
         }
         inline size_t getLD_host_bytes() const {
-            return ld_host_bytes;
+            return getLD_host() * sizeof(FPTYPE);
         }
         inline size_t getLD_host() const {
-            return ld_host;
+            return data_host.ld;
         }
         
-        //incremement (in number of elements, not bytes) across the depth dimension
+        //incremement (in number of elements, not bytes) across the z dimension
         inline size_t getInc_gpu() const {
-            return inc_gpu;
+            return data_kernel.inc;
         }
         inline size_t getInc_host() const {
-            return inc_host;
+            return data_host.inc;
         }
         
         //total size info
@@ -208,27 +207,27 @@ class GPUData {
         inline size_t getSize(int dim) const {
             switch(dim) {
                 case 0:
-                    return data_size_c.width;
+                    return data_kernel.x;
                 case 1:
-                    return data_size_c.height;
+                    return data_kernel.y;
                 case 2:
-                    return data_size_c.depth;
+                    return data_kernel.z;
                 default:
                     return 0;
             }  
         }
-        inline cudaExtent getSize() const {
-            return data_size_c;
+        inline dim3 getSize() const {
+            return make_dim3(data_kernel.x, data_kernel.y, data_kernel.z);
         }
         
         inline size_t getSize_max(int dim) const {
             switch(dim) {
                 case 0:
-                    return data_size.width;
+                    return data_size.x;
                 case 1:
-                    return data_size.height;
+                    return data_size.y;
                 case 2:
-                    return data_size.depth;
+                    return data_size.z;
                 default:
                     return 0;
             }  
@@ -240,7 +239,7 @@ class GPUData {
                 for(int xx = 0; xx < getSize(0); xx++) {
                     for(int yy = 0; yy < getSize(1); yy++) {
                         for(int zz = 0; zz < getSize(2); zz++) {
-                            data_host[xx + yy*ld_host + zz*inc_host] = val;
+                            data_host(xx, yy, zz) = val;
                         }
                     }
                 }
@@ -252,7 +251,7 @@ class GPUData {
         cublasStatus_t GEMVs(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0);
         
         //resizes current data (within pre-allocated bounds - doesn't change memory size, just dims for computations)
-        cudaError_t resize(const cudaStream_t stream, int width = -1, int height = -1, int depth = -1);
+        cudaError_t resize(const cudaStream_t stream, int x = -1, int y = -1, int z = -1);
         
         //copy a GPU array into current GPU array -> must be same size!
         // if allowSmaller, source can be smaller than the current GPU array, otherwise must be the same size to not return error
@@ -285,8 +284,7 @@ class GPUData {
         
         const FPTYPE & operator()(size_t xx, size_t yy, size_t zz = 0) const {
             if(isOnHost()) {
-                size_t index = xx + yy * ld_host + zz * inc_host;
-                return data_host[index];
+                return data_host(xx, yy, zz);
             }
             else {
                 return data_host[0];
@@ -294,69 +292,28 @@ class GPUData {
         }
         FPTYPE & operator()(size_t xx, size_t yy, size_t zz = 0) {
             if(isOnHost()) {
-                size_t index = xx + yy * ld_host + zz * inc_host;
-                return data_host[index];
+                return data_host(xx, yy, zz);
             }
             else {
                 return data_host[0];
             }
         }
         
+        // assembles an array_kernel
+        static GPUData_array_kernel<FPTYPE, MAX_DIM_D> assembleKernels(const std::vector<GPUData<FPTYPE> *> data) {
+            GPUData_array_kernel<FPTYPE, MAX_DIM_D> a;
+            a.N = data.size();
+            for(unsigned int ii = 0; ii < a.N; ii++) {
+                a[ii] = data[ii]->device();
+            }
+            return a;
+        }
+        
 };
 
- //classes for storing matrices (including stacks of matrices)
-template <typename FPTYPE> 
-class GPUData_array_kernel { // holds data on GPU for more compact/clean kernel calls
-    public:
-        GPUData_kernel<FPTYPE> ** data = NULL;   
-        size_t N;
+ 
 
-        __device__ const GPUData_kernel<FPTYPE> & operator[](size_t index) const {
-            return (*data[index]);
-        }
-        __device__  GPUData_kernel<FPTYPE> & operator[](size_t index) {
-            return (*data[index]);
-        }
-        
-}; 
-
-//points to a bunch of matrices on the GPU
-template <class FPTYPE> 
-class GPUData_array {
-    private:
-        //ptr array on GPU
-        GPUData_kernel<FPTYPE> ** data_gpu = NULL;                
-        size_t N_elements;
-        std::vector<GPUData_kernel<FPTYPE> *> data_host;
-
-        GPUData_array_kernel<FPTYPE> * data_kernel = NULL;
-        
-        int devNum;
-    public:
-        // allocate from vector of GPUData
-        GPUData_array();
-        
-        GPUData_array(cudaError_t & ce, std::vector<GPUData<FPTYPE> *> & data, const cudaStream_t stream, std::shared_ptr<GPUGL_msg> msg);
-        
-        // destructor destroys memory - does not check for CUDA errors! Recommend calling deallocate manually
-        ~GPUData_array();
-        
-        //check if setup
-        inline bool isAllocated() {
-            return data_gpu != NULL;
-        }
-    
-        //get data for device
-        inline GPUData_array_kernel<FPTYPE> * device() {
-            return data_kernel;
-        }
-        
-        // deallocate everything
-        cudaError_t deallocate();
-        
-        cudaError_t allocate(std::vector<GPUData<FPTYPE> *> & data, const cudaStream_t stream, std::shared_ptr<GPUGL_msg> msg);
-};    
-    
+ 
 //base class with some convenient functions    
 class GPUGL_base  {
     protected:
@@ -414,18 +371,6 @@ class GPUGL_base  {
         //Frees CUDA allocated pointers and checks for errors
         template <typename T>
         inline bool cudaSafeFree(GPUData<T> * & a, const char * msg_str = "cudaFree error") {
-            if(a) {
-                bool result = checkCudaErrors(a->deallocate(), msg_str, true);
-                delete a;
-                a = NULL;
-                return result;
-            }
-            else {
-                return true;
-            }
-        }
-        template <typename T>
-        inline bool cudaSafeFree(GPUData_array<T> * & a, const char * msg_str = "cudaFree error") {
             if(a) {
                 bool result = checkCudaErrors(a->deallocate(), msg_str, true);
                 delete a;
@@ -509,9 +454,6 @@ class GPUGL_base  {
 };
 
 
-
-
-        
 
 
 
