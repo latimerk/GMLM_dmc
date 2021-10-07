@@ -197,6 +197,16 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
                  LL_c = -(eY_c*eY_c);
                 dLL_c = -2*eY_c;
             }
+            else if(logLikeSettings == ll_poissExpRefractory) {
+                // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
+                int Y_ci = floor(Y_c);
+                if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                    log_rate += log_dt;
+                    FPTYPE rate = safeExp(log_rate);
+                     LL_c = (-(1-Y_ci/2)*rate + Y_ci * log_rate);
+                    dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
+                }
+            }
         }
         LL[row]  =  LL_c*tw_c;
         dLL[row] = dLL_c*tw_c;

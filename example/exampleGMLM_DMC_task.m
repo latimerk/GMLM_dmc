@@ -12,7 +12,7 @@
 %   License.txt, included with the software, for details.
 %
 if(isempty(which('hosvd')))
-    error('Please add tensor toolbox to your path for visualizations.')
+    warning('Please add tensor toolbox to your path for visualizations.')
 end
 
 %% load data and get task information

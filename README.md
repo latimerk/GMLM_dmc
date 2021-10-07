@@ -2,7 +2,7 @@
 Generalized multilinear model for dimensionality reduction of neural population spike trains.
 While this code is intended for modeling responses during decision-making tasks, it could be used more broadly for tensor regression.
 Currently, the code primarily supports Poisson spike count observations, but squared errors are also included.
-The main GMLM class can work with simultaneously or independently recorded neurons. A future update will include optimizations specifically for population recordings.
+The main GMLM class can work with simultaneously or independently recorded neurons. The example scripts currently only show the setup for the individual recording configuration.
 MODEL FITTING REQUIRES NVIDIA GPUS.
 
 The core of the code is a C++/CUDA library with optimized log likelihood and derivative computations.
