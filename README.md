@@ -24,3 +24,4 @@ TensorToolbox 3.1
 ```
 Latimer, K. W., & Freedman, D. J. (2021). Low-dimensional encoding of decisions in parietal cortex reflects long-term training history. bioRxiv.
 ```
+https://www.biorxiv.org/content/10.1101/2021.10.07.463576v1
