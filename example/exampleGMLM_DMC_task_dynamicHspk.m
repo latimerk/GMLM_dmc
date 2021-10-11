@@ -93,8 +93,8 @@ end
 
 % normalize components, standardize signs (keeps coefficient tensor the same)
 
-dynHspk_stim.timing = bases.stimBasis * params_map.Groups(3).T{2};
-dynHspk_stim.kernel = bases.spkHistBasis * params_map.Groups(3).T{1};
+dynHspk_stim.timing = bases.stim.B * params_map.Groups(3).T{2};
+dynHspk_stim.kernel = bases.spkHist.B * params_map.Groups(3).T{1};
 dynHspk_stim.sample_weighting = params_map.Groups(3).T{3}(1,:);
 dynHspk_stim.test_weighting   = params_map.Groups(3).T{3}(2,:);
 dynHspk_stim.neuron_loading_weights   = params_map.Groups(3).V;
@@ -129,7 +129,7 @@ clf;
 
 subplot(2, 2, 1);
 hold on
-plot([0 bases.stimBasis_tts(end) * TaskInfo.binSize_ms], [0 0], 'k:', 'linewidth', 0.5, 'handlevisibility', 'off');
+plot([0 bases.stim.tts_0(end)], [0 0], 'k:', 'linewidth', 0.5, 'handlevisibility', 'off');
 plot(bases.stimBasis_tts * TaskInfo.binSize_ms, dynHspk_stim.timing);
 xlabel('time from sample onset (ms)');
 ylabel('weight (normalized)');
@@ -137,7 +137,7 @@ title('dynamic spike history: stimulus-timing kernel');
 
 subplot(2, 2, 2);
 hold on
-plot([0 bases.spkHistBasis_tts(end) * TaskInfo.binSize_ms], [0 0], 'k:', 'linewidth', 0.5, 'handlevisibility', 'off');
+plot([0 bases.spkHist.tts_(end)], [0 0], 'k:', 'linewidth', 0.5, 'handlevisibility', 'off');
 plot(bases.spkHistBasis_tts * TaskInfo.binSize_ms, dynHspk_stim.kernel);
 xlabel('time from previous spike (ms)');
 ylabel('weight (normalized)');
@@ -153,16 +153,16 @@ title('neuron loading weights');
 subplot(2, 2, 4);
 hold on
 
-plot([0 bases.spkHistBasis_tts(end) * TaskInfo.binSize_ms], [0 0], 'k:', 'linewidth', 0.5, 'handlevisibility', 'off');
+plot([0 bases.spkHist.tts_0(end)], [0 0], 'k:', 'linewidth', 0.5, 'handlevisibility', 'off');
 
 PS = [100 1100];
-B_spk = bases.spkHistBasis * params_map.B; % per-neuron fixed hspk
+B_spk = bases.spkHist.B * params_map.B; % per-neuron fixed hspk
 color_ps = [0 0 0;
             1 0 0];
 labels = cell(numel(PS),1);
 for pp = 1:numel(PS)
     % get timepoint in basis closest to PS(pp)
-    [~,tt] = min(abs(PS(pp) - bases.stimBasis_tts * TaskInfo.binSize_ms));
+    [~,tt] = min(abs(PS(pp) - bases.stim.tts_0));
     
     
     hspk_c = B_spk + double(ktensor(dynHspk_stim.sample_weighting(:), {dynHspk_stim.kernel, dynHspk_stim.neuron_loading_weights, dynHspk_stim.timing(tt,:)}));
@@ -172,7 +172,7 @@ for pp = 1:numel(PS)
     eb_1 = y - 2 * sem;
     eb_2 = y + 2 * sem;
     
-    DMC.plottingTools.plotLineWithErrorRegion(gca, bases.spkHistBasis_tts * TaskInfo.binSize_ms, y, eb_1, eb_2, color_ps(pp,:));
+    DMC.plottingTools.plotLineWithErrorRegion(gca, bases.spkHist.tts_0, y, eb_1, eb_2, color_ps(pp,:));
     
     labels{pp} = sprintf("%d ms after sample", PS(pp));
 end

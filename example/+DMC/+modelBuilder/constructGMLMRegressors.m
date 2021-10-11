@@ -72,7 +72,7 @@ end
 
 
 stimLength_bins = ceil(TaskInfo.StimLength_ms/TaskInfo.binSize_ms);
-paddedSpikeHistBasis = [zeros(size(bases.spkHistBasis) + [1 0]); bases.spkHistBasis];%zero padding is to make convolutions easier
+paddedSpikeHistBasis = [zeros(size(bases.spkHist.B) + [1 0]); bases.spkHist.B];%zero padding is to make convolutions easier
 
 N_tensor_groups = 2;
 if(includeStimDynHspk)
@@ -83,24 +83,24 @@ if(includeLeverDynHspk)
 end
 
 %sets up main structure
-GMLMstructure.dim_B = size(bases.spkHistBasis, 2); % specify size of the linear term
+GMLMstructure.dim_B = size(bases.spkHist.B, 2); % specify size of the linear term
 GMLMstructure.Groups = struct('X_shared', cell(N_tensor_groups,1), 'dim_R_max', [], 'dim_A', [], 'name', [], 'dim_names', []); % tensor coefficient groups
 
 GMLMstructure.Groups(1).name = "Stimulus";
 GMLMstructure.Groups(1).dim_names = ["timing", "xstim"]; %dimensions of the tensor
 GMLMstructure.Groups(1).dim_A = 2;      % number of events in group: 2 for sample and test stimuli
 GMLMstructure.Groups(1).dim_R_max = 12; % max allocated space for rank
-GMLMstructure.Groups(1).X_shared{1} = bases.stimBasis; %shared regressors for each factor/dimension (here factor and dimension are the same)
+GMLMstructure.Groups(1).X_shared{1} = bases.stim.B; %shared regressors for each factor/dimension (here factor and dimension are the same)
 GMLMstructure.Groups(1).X_shared{2} = [stimulusConfig(:, :, 1); stimulusConfig(:, :, 2)]; % stacks the sample and test
-GMLMstructure.Groups(1).dim_T = [size(bases.stimBasis, 2) size(stimulusConfig,2)]; % I require specifying the dimensions of each part of the tensor to make sure everything is correct
+GMLMstructure.Groups(1).dim_T = [size(bases.stim.B, 2) size(stimulusConfig,2)]; % I require specifying the dimensions of each part of the tensor to make sure everything is correct
 GMLMstructure.Groups(1).factor_idx = 1:2; %factor setup: here all dims are their own factor
 
 GMLMstructure.Groups(2).name = "Lever";
 GMLMstructure.Groups(2).dim_names = "timing";
 GMLMstructure.Groups(2).dim_A = 1;
 GMLMstructure.Groups(2).dim_R_max = 3; % max allocated space for rank
-GMLMstructure.Groups(2).X_shared{1} = bases.leverBasis;
-GMLMstructure.Groups(2).dim_T = size(bases.leverBasis, 2);
+GMLMstructure.Groups(2).X_shared{1} = bases.response.B;
+GMLMstructure.Groups(2).dim_T = size(bases.response.B, 2);
 GMLMstructure.Groups(2).factor_idx = 1;
 
 jj = 2;
@@ -110,8 +110,8 @@ if(includeStimDynHspk)
     GMLMstructure.Groups(jj).dim_names = ["kernel", "timing", "xstim" ];
     GMLMstructure.Groups(jj).dim_A = 2;
     GMLMstructure.Groups(jj).dim_R_max = 3; % max allocated space for rank
-    GMLMstructure.Groups(jj).X_shared = {[], bases.stimBasis, [dynHspkConfig(:, :, 1); dynHspkConfig(:, :, 2)];};
-    GMLMstructure.Groups(jj).dim_T = [size(bases.spkHistBasis, 2) size(GMLMstructure.Groups(jj).X_shared{2}, 2) size(GMLMstructure.Groups(jj).X_shared{3}, 2) ];
+    GMLMstructure.Groups(jj).X_shared = {[], bases.stim.B, [dynHspkConfig(:, :, 1); dynHspkConfig(:, :, 2)];};
+    GMLMstructure.Groups(jj).dim_T = [size(bases.spkHist.B, 2) size(GMLMstructure.Groups(jj).X_shared{2}, 2) size(GMLMstructure.Groups(jj).X_shared{3}, 2) ];
     GMLMstructure.Groups(jj).factor_idx = 1:3;
 end
 if(includeLeverDynHspk)
@@ -120,10 +120,10 @@ if(includeLeverDynHspk)
     GMLMstructure.Groups(jj).dim_names = ["kernel", "timing"];
     GMLMstructure.Groups(jj).dim_A = 1;
     GMLMstructure.Groups(jj).dim_R_max = 1; % max allocated space for rank
-    GMLMstructure.Groups(jj).X_shared = {[], bases.leverBasis};
+    GMLMstructure.Groups(jj).X_shared = {[], bases.response.B};
     GMLMstructure.Groups(jj).isCompleteTensor = false; % true means full tensor structure is given, not just multilinear form (note that this is always going to be true for this order of tensor)
     GMLMstructure.Groups(jj).isShared = [false true];
-    GMLMstructure.Groups(jj).dim_T = [size(bases.spkHistBasis, 2) size(GMLMstructure.Groups(jj).X_shared{2}, 2)];
+    GMLMstructure.Groups(jj).dim_T = [size(bases.spkHist.B, 2) size(GMLMstructure.Groups(jj).X_shared{2}, 2)];
     GMLMstructure.Groups(jj).factor_idx = 1:2;
 end
 
@@ -137,8 +137,8 @@ for nn = 1:numel(Neurons)
     
     NT = numel(Neurons(nn).sampleDir);
     %% setup spike history
-    Y_c = zeros([size(Neurons(nn).Y) size(bases.spkHistBasis,2)]);
-    for bb = 1:size(bases.spkHistBasis, 2)
+    Y_c = zeros([size(Neurons(nn).Y) size(bases.spkHist.B,2)]);
+    for bb = 1:size(bases.spkHist.B, 2)
         Y_c(:, :, bb) = conv2(Neurons(nn).Y, paddedSpikeHistBasis(:, bb), 'same');
     end
     
@@ -179,7 +179,7 @@ for nn = 1:numel(Neurons)
         
         %% get direction stimulus info 
         %stim timings
-        trials(tr_idx).Groups(1).iX_shared{1}(:, :) = getEventTimingsInBasis(trLength, [Neurons(nn).sampleTime(mm) Neurons(nn).testTime(mm)] - trStart, bases.stimBasis_tts);
+        trials(tr_idx).Groups(1).iX_shared{1}(:, :) = getEventTimingsInBasis(trLength, [Neurons(nn).sampleTime(mm) Neurons(nn).testTime(mm)] - trStart, bases.stim.tts);
             %entries here are an index into a row of StimRegressors.timings (okay if out of bounds, GMLM code pads with 0's)
         
         %sample stim direction
@@ -190,7 +190,7 @@ for nn = 1:numel(Neurons)
         trials(tr_idx).Groups(1).iX_shared{2}(:, 2) = Neurons(nn).testDir(mm) + ND; %test cat info should be in a the second block of the xstim regressors (hence the + ND)
         
         %% get lever timing info
-        trials(tr_idx).Groups(2).iX_shared{1}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).leverTime(mm)  - trStart, bases.leverBasis_tts);
+        trials(tr_idx).Groups(2).iX_shared{1}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).leverTime(mm)  - trStart, bases.response.tts);
         %the lever timing from the bases is important here: activity reflects lever release BEFORE it happens (filter is acausal)
 
         %% get spike hist
@@ -202,15 +202,15 @@ for nn = 1:numel(Neurons)
         if(includeStimDynHspk)
             jj = jj + 1;
             trials(tr_idx).Groups(jj).X_local{1}      = trials(tr_idx).X_lin;
-            trials(tr_idx).Groups(jj).iX_shared{2}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).sampleTime(mm) - trStart, bases.stimBasis_tts);
-            trials(tr_idx).Groups(jj).iX_shared{2}(:, 2) = getEventTimingsInBasis(trLength, Neurons(nn).testTime(mm)   - trStart, bases.stimBasis_tts);
+            trials(tr_idx).Groups(jj).iX_shared{2}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).sampleTime(mm) - trStart, bases.stim.tts);
+            trials(tr_idx).Groups(jj).iX_shared{2}(:, 2) = getEventTimingsInBasis(trLength, Neurons(nn).testTime(mm)   - trStart, bases.stim.tts);
             trials(tr_idx).Groups(jj).iX_shared{3}(:, 1) = Neurons(nn).sampleDir(mm);
             trials(tr_idx).Groups(jj).iX_shared{3}(:, 2) = Neurons(nn).testDir(mm) + ND; 
         end
         if(includeLeverDynHspk)
             jj = jj + 1;
             trials(tr_idx).Groups(jj).X_local{1}      = trials(tr_idx).X_lin;
-            trials(tr_idx).Groups(jj).iX_shared{2}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).leverTime(mm) - trStart, bases.leverBasis_tts);
+            trials(tr_idx).Groups(jj).iX_shared{2}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).leverTime(mm) - trStart, bases.response.tts);
         end
         
         %% get spike observations

@@ -23,7 +23,7 @@ prior_function_stim    = @(params, results, groupNum) DMC.priors.GMLMprior_stim(
 %  P(params.Groups(lever).T{1}(:,jj)) ~ N(0, I*exp(H(1)*2))
 levPrior_setup.hyperprior.nu       = 4; %for a half-t distribution over the standard deviations (exp(H(1))
 levPrior_setup.NH       = 1; %number of hyperparameters
-levPrior_setup.numBases = size(bases.leverBasis, 2);
+levPrior_setup.numBases = size(bases.response.B, 2);
 prior_function_lever    = @(params, results, groupNum) DMC.priors.GMLMprior_lever(params, results, groupNum,  levPrior_setup); 
 
 %prior over spike history filters (1 hyperparameter H_spk)
@@ -33,7 +33,7 @@ prior_function_lever    = @(params, results, groupNum) DMC.priors.GMLMprior_leve
 spkHistPrior_setup.hyperprior.nu       = 4;
 spkHistPrior_setup.NH       = 1; %number of hyperparameters
 
-spkHistPrior_setup.numBases = size(bases.spkHistBasis, 2);
+spkHistPrior_setup.numBases = size(bases.spkHist.B, 2);
 prior_function_spkHist      = @(params, results) DMC.priors.GMLMprior_spkHist(params, results, spkHistPrior_setup);
 
 if(nargin > 2)

@@ -15,12 +15,12 @@ end
 %% plot the MLE fit from the example script
 %get tensor of sample stimulus filters 
 ND = numel(TaskInfo.Directions);
-tts = (1:ceil(1500/TaskInfo.binSize_ms)); %here I'm cutting out the first 1500 ms of the filters for visualization
-tts_ms = tts*5;
+tts = bases.stim.tts_0 >= 0 & bases.stim.tts_0 <= 1500; %here I'm cutting out the first 1500 ms of the filters for visualization
+tts_ms = bases.stim.tts_0(tts);
 
 rank_c = size(paramStruct.Groups(stimGroup).T{1}, 2);
 
-Components.Time   = bases.stimBasis(tts,:)*double(paramStruct.Groups(stimGroup).T{1});
+Components.Time   = bases.stim.B(tts,:)*double(paramStruct.Groups(stimGroup).T{1});
 Components.Stim   = R_sample_stim*double(paramStruct.Groups(stimGroup).T{2});
 Components.Neuron = double(paramStruct.Groups(stimGroup).V);
 sampleStimFilters = ktensor(ones(rank_c,1), {Components.Time, Components.Stim, Components.Neuron});
@@ -180,8 +180,8 @@ for ii = 1:numel(exampleNeurons)
 end
 
 %% plot lever and spk history filter for example neurons
-lev_filters = (bases.leverBasis*paramStruct.Groups(leverGroup).T{1})*paramStruct.Groups(leverGroup).V';
-spkHist_filters = bases.spkHistBasis * paramStruct.B;
+lev_filters = (bases.response.B*paramStruct.Groups(leverGroup).T{1})*paramStruct.Groups(leverGroup).V';
+spkHist_filters = bases.spkHist.B * paramStruct.B;
 
 figure(4);
 clf;
@@ -190,7 +190,7 @@ NC = numel(exampleNeurons);
 for ii = 1:numel(exampleNeurons)
     %lever filter
     subplot(NR, NC, ii );
-    plot(bases.leverBasis_tts * TaskInfo.binSize_ms, lev_filters(:, exampleNeurons(ii)));
+    plot(bases.lever.tts_0, lev_filters(:, exampleNeurons(ii)));
     if(ii == 1)
         xlabel('time from lever release (ms)');
         ylabel('log gain');
@@ -199,7 +199,7 @@ for ii = 1:numel(exampleNeurons)
     title(sprintf('cell %d\nbaseline log rate = %.2f\nlever filter', exampleNeurons(ii), paramStruct.W(exampleNeurons(ii))));
     
     subplot(NR, NC, ii + NC);
-    plot(bases.spkHistBasis_tts * TaskInfo.binSize_ms, spkHist_filters(:, exampleNeurons(ii)));
+    plot(bases.spkHist.tts_0, spkHist_filters(:, exampleNeurons(ii)));
     if(ii == 1)
         xlabel('time from prev spike (ms)');
         ylabel('log gain');

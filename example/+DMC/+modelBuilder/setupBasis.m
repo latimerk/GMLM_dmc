@@ -75,19 +75,21 @@ basis_0 = [zeros(tt_0,N); basis_0];
 stim_0 = basis_0(:,1:N);
 stim = orth(stim_0); %orthogonalizes for numerical reasons
 
-basisStruct.stimBasis_0 = stim_0((tt_0+1):end,:);
+basisStruct.stim.B_0 = stim_0((tt_0+1):end,:);
 
-basisStruct.stimBasis    = stim((tt_0+1):end,:);
-basisStruct.stimBasis_tts = tts_0((tt_0+1):end);
+basisStruct.stim.B   = stim((tt_0+1):end,:);
+basisStruct.stim.tts = tts_0((tt_0+1):end);
+basisStruct.stim.tts_0 = basisStruct.stim.tts * (delta_t_default*1e3);
 
 %% lever basis
 N_lev = find(peaks > 300/downsampleRate,1,'first'); %select number of basis, lever length should be only 
 lever_0 = circshift(basis_0(end:-1:1,1:N_lev),[bins_post_lever+20/downsampleRate 0]);
 lever = orth(lever_0); %orthogonalizes for numerical reasons
 tt_v = sum(lever.^2,2)>1e-8;
-basisStruct.leverBasis_0 = lever_0(tt_v, :);
-basisStruct.leverBasis     = lever(tt_v,:);
-basisStruct.leverBasis_tts = tts_0(tt_v);
+basisStruct.response.B_0 = lever_0(tt_v, :);
+basisStruct.response.B   = lever(tt_v,:);
+basisStruct.response.tts = tts_0(tt_v);
+basisStruct.response.tts_0 = basisStruct.response.tts * (delta_t_default*1e3);
 
 %% get spike history filter
 %filter can use delta functions for a period of the refractory period pluse 
@@ -110,16 +112,17 @@ if(N_spkHist_long > 0)
     bc = [bc;zeros(size(spkHistBasis2,1)-size(bc,1),size(bc,2))];
     bb = [bc spkHistBasis2];
     
-    basisStruct.spkHistBasis_0 = bb;
+    basisStruct.spkHist.B_0 = bb;
 
     
     sb = [orth(bc) orth(spkHistBasis2)];
 
-    basisStruct.spkHistBasis = sb; 
+    basisStruct.spkHist.B = sb; 
 else
-    basisStruct.spkHistBasis = bc;
+    basisStruct.spkHist.B = bc;
 end
-basisStruct.spkHistBasis_tts = 1:size(basisStruct.spkHistBasis,1);
+basisStruct.spkHist.tts = 1:size(basisStruct.spkHist.B,1);
+basisStruct.spkHist.tts_0 = basisStruct.spkHist.tts * (delta_t_default*1e3);
 
 %% plot the bases
 if(plotBases)
@@ -130,32 +133,32 @@ if(plotBases)
     end
     clf
     subplot(2,3,1);
-    plot(basisStruct.stimBasis_tts * delta_t * 1e3, basisStruct.stimBasis_0);
+    plot(basisStruct.stim.tts_0, basisStruct.stim.B_0);
     xlabel('time from stimulus onset (ms)');
     title('stimulus filter basis');
     
     subplot(2,3,4);
-    plot(basisStruct.stimBasis_tts * delta_t * 1e3, basisStruct.stimBasis);
+    plot(basisStruct.stim.tts_0, basisStruct.stim.B);
     xlabel('time from stimulus onset (ms)');
     title('orthormalized stimulus filter basis');
     
     subplot(2,3,2);
-    plot(basisStruct.leverBasis_tts * delta_t * 1e3, basisStruct.leverBasis_0);
+    plot(basisStruct.response.tts_0, basisStruct.response.B_0);
     xlabel('time from lever release onset (ms)');
     title('lever filter basis');
     
     subplot(2,3,5);
-    plot(basisStruct.leverBasis_tts * delta_t * 1e3, basisStruct.leverBasis);
+    plot(basisStruct.response.tts_0 , basisStruct.response.B);
     xlabel('time from lever release (ms)');
     title('orthormalized lever filter basis');
     
     subplot(2,3,3);
-    plot(basisStruct.spkHistBasis_tts * delta_t * 1e3, basisStruct.spkHistBasis_0);
+    plot(basisStruct.spkHist.tts_0, basisStruct.spkHist.B_0);
     xlabel('time from spike (ms)');
     title('spk hist filter basis');
     
     subplot(2,3,6);
-    plot(basisStruct.spkHistBasis_tts * delta_t * 1e3, basisStruct.spkHistBasis);
+    plot(basisStruct.spkHist.tts_0, basisStruct.spkHist.B);
     xlabel('time from spike (ms)');
     title('orthormalized spk hist filter basis');
 end

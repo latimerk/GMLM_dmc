@@ -55,9 +55,9 @@ fprintf('Parsing data from cell %d... ', cellToFit);
 totalTrials = numel(Neurons(cellToFit).sampleDir);
 
 N_stim_filts = size(stimulusConfig, 2) ;
-N_stim_cov   = N_stim_filts * size(bases.stimBasis, 2);
-N_lev_cov    = size(bases.leverBasis, 2);
-N_hspk_cov   = size(bases.spkHistBasis, 2);
+N_stim_cov   = N_stim_filts * size(bases.stim.B, 2);
+N_lev_cov    = size(bases.response.B, 2);
+N_hspk_cov   = size(bases.spkHist.B, 2);
 
 if(N_hspk_cov > 0)
     GLMstructure.group_names = ["stim", "lever", "hspk", "const"];
@@ -69,9 +69,9 @@ end
 
 % setup spike history
 if(N_hspk_cov > 0)
-    paddedSpikeHist = [zeros(size(bases.spkHistBasis) + [1 0]); bases.spkHistBasis];%zero padding is to make convolutions easier
-    Y_c = zeros([size(Neurons(cellToFit).Y) size(bases.spkHistBasis,2)]);
-    for bb = 1:size(bases.spkHistBasis, 2)
+    paddedSpikeHist = [zeros(size(bases.spkHist.B) + [1 0]); bases.spkHist.B];%zero padding is to make convolutions easier
+    Y_c = zeros([size(Neurons(cellToFit).Y) size(bases.spkHist.B,2)]);
+    for bb = 1:size(bases.spkHist.B, 2)
         Y_c(:, :, bb) = conv2(Neurons(cellToFit).Y, paddedSpikeHist(:, bb), 'same');
     end
 end
@@ -108,8 +108,8 @@ for mm = 1:totalTrials
 
     %sample stim timing & filter setup
     sampleBases_tts = (1:trLength) - timeBeforeSample_bins; %NOTE: all timings here will be relative to this sample stim onset time
-    valid_tts = sampleBases_tts > 0 & sampleBases_tts <= size(bases.stimBasis, 1);
-    sampleStimRegressors(valid_tts, :) = kron(sampleFilterLoadings, bases.stimBasis( sampleBases_tts(valid_tts), :)); 
+    valid_tts = sampleBases_tts > 0 & sampleBases_tts <= size(bases.stim.B, 1);
+    sampleStimRegressors(valid_tts, :) = kron(sampleFilterLoadings, bases.stim.B( sampleBases_tts(valid_tts), :)); 
 
     %test stim direction
     testStimDirection  = Neurons(cellToFit).testDir(mm);
@@ -117,19 +117,19 @@ for mm = 1:totalTrials
 
     %test stim timing & filter setup
     testBases_tts = (1:trLength) - timeBeforeSample_bins - (Neurons(cellToFit).testTime(mm) - Neurons(cellToFit).sampleTime(mm)); %NOTE: all timings here will be relative to this sample stim onset time
-    valid_tts = testBases_tts > 0 & testBases_tts <= size(bases.stimBasis, 1);
-    testStimRegressors(valid_tts, :) = kron(testFilterLoadings, bases.stimBasis( testBases_tts(valid_tts), :)); 
+    valid_tts = testBases_tts > 0 & testBases_tts <= size(bases.stim.B, 1);
+    testStimRegressors(valid_tts, :) = kron(testFilterLoadings, bases.stim.B( testBases_tts(valid_tts), :)); 
 
     trials(mm).X{1} = sampleStimRegressors + testStimRegressors;
     
     %% get lever timing info
     trials(mm).X{2} = zeros(trLength, N_lev_cov);
     if(~isnan(Neurons(cellToFit).leverTime(mm))) %if lever release happens
-        lever_tts = (1:trLength) - timeBeforeSample_bins - (Neurons(cellToFit).leverTime(mm) - Neurons(cellToFit).sampleTime(mm)) - bases.leverBasis_tts(1);
+        lever_tts = (1:trLength) - timeBeforeSample_bins - (Neurons(cellToFit).leverTime(mm) - Neurons(cellToFit).sampleTime(mm)) - bases.response.tts(1);
         %the lever timing from the bases is important here: activity reflects lever release BEFORE it happens (filter is acausal)
         %I ignored it for the stimulus timing because I know how those filters were setup
-        valid_tts = lever_tts > 0 & lever_tts <= size(bases.stimBasis, 1);
-        trials(mm).X{2}( valid_tts, :) =  bases.leverBasis( lever_tts(valid_tts), :); 
+        valid_tts = lever_tts > 0 & lever_tts <= size(bases.stim.B, 1);
+        trials(mm).X{2}( valid_tts, :) =  bases.response.B( lever_tts(valid_tts), :); 
     end
 
     %% get spike hist

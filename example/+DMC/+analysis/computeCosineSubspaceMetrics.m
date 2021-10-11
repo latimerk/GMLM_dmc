@@ -47,8 +47,8 @@ timePeriods(8).range_ms = 1:1600;
 
 timeInfo = struct();
 
-timeInfo.stimBasis_ms  =  bases.stimBasis_tts  * delta_t * 1e3;
-timeInfo.leverBasis_ms =  bases.leverBasis_tts * delta_t * 1e3;
+timeInfo.stimBasis_ms  =  bases.stim.tts_0;
+timeInfo.leverBasis_ms =  bases.response.tts_0;
 for ii = 1:numel(timePeriods)
     timePeriods(ii).range_bins = timeInfo.stimBasis_ms  >= timePeriods(ii).range_ms(1) & timeInfo.stimBasis_ms  <= timePeriods(ii).range_ms(end);
 end
@@ -56,7 +56,7 @@ end
 timeInfo.test_tts = timeInfo.stimBasis_ms <= 700;
 
 %%
-TT = size(bases.stimBasis,1);
+TT = size(bases.stim.B,1);
 NP = numel(timePeriods);
 N_samples = HMC_settings.nSamples;
 
@@ -97,7 +97,7 @@ for ss = 1:N_samples
 
     V_stim = (V_stim_0'*V_all) ./ sqrt(dim_P);
 
-    stim_T = bases.stimBasis * samples.Groups(1).T{1}(:,:,sample_idx);
+    stim_T = bases.stim.B * samples.Groups(1).T{1}(:,:,sample_idx);
     stim_X = samples.Groups(1).T{2}(:,:,sample_idx);
 
     %% direction ellipse info

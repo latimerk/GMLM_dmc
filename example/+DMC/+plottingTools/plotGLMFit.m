@@ -9,10 +9,10 @@ end
 
 %% get stimulus filters
 NF = size(R_sample_stim,  2);  %number of stim filters
-NB = size(bases.stimBasis,2); %number of stim bases
-stimFilters = bases.stimBasis*reshape(paramStruct.Ks{1},[],NF);
+NB = size(bases.stim.B,2); %number of stim bases
+stimFilters = bases.stim.B*reshape(paramStruct.Ks{1},[],NF);
 
-stimFilter_tts = (1:size(stimFilters,1)) * TaskInfo.binSize_ms;
+stimFilter_tts = bases.stim.tts_0;
 test_ts = stimFilter_tts <= 650; %only plot first 650 ms of test stim filters
 
 NR = 2;
@@ -68,22 +68,22 @@ title('sample stim: total tuning');
 xlabel('time from stim onset (ms)');
 
 %% plot lever filter
-leverFilter = bases.leverBasis*paramStruct.Ks{2};
+leverFilter = bases.response.B*paramStruct.Ks{2};
 
 subplot(NR, NC, NC + 1);
 hold on
-plot(bases.leverBasis_tts * TaskInfo.binSize_ms, leverFilter);
+plot(bases.response.tts_0 * TaskInfo.binSize_ms, leverFilter);
 title('lever filter');
 ylabel('log gain');
 xlabel('time from lever release (ms)');
 
 
 %% plot spkHist filter
-spkHistFilter = bases.spkHistBasis*paramStruct.Ks{3};
+spkHistFilter = bases.spkHist.B*paramStruct.Ks{3};
 
 subplot(NR, NC, NC + 2);
 hold on
-plot(bases.spkHistBasis_tts * TaskInfo.binSize_ms, spkHistFilter);
+plot(bases.spkHist.tts_0 * TaskInfo.binSize_ms, spkHistFilter);
 title('spk hist filter');
 xlabel('time from last spk');
 
