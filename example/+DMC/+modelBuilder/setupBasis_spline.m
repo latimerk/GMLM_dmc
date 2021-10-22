@@ -5,15 +5,24 @@
 %   Sarmashghi, M., Jadhav, S. P., & Eden, U. (2021). Efficient Spline Regression for Neural Spiking Data. bioRxiv.
 %
 %
-function [bases] = setupBasis_spline(binSize_ms, stimLength_ms, delayPeriod_ms)
+function [bases] = setupBasis_spline(binSize_ms, stimLength_ms, delayPeriod_ms, highResPostStim_on_ms, highResPostStim_off_ms)
 if(nargin < 1 || isempty(binSize_ms))
     binSize_ms = 5;
 end
 if(nargin < 2 || isempty(stimLength_ms))
     stimLength_ms = 550;
 end
-if(nargin < 3|| isempty(delayPeriod_ms))
+if(nargin < 3 || isempty(delayPeriod_ms))
     delayPeriod_ms = 1200;
+end
+if(nargin < 4 || isempty(delayPeriod_ms))
+    delayPeriod_ms = 1200;
+end
+if(nargin < 5 || isempty(highResPostStim_on_ms))
+    highResPostStim_on_ms = 200;
+end
+if(nargin < 6 || isempty(highResPostStim_off_ms))
+    highResPostStim_off_ms = 200;
 end
    
 bases.binSize_ms = binSize_ms;
@@ -30,10 +39,20 @@ bases.spkHist.zeroEndPoints = [false false];
 
 %%  stimulus filter basis
 bases.stim.s    = []; % empty = default
-bases.stim.c_pt = [0:25:200 250:50:stimLength_ms (stimLength_ms+25):25:(stimLength_ms+175) (stimLength_ms+200):50:(stimLength_ms + delayPeriod_ms + 500)];
+
+high_res_delta = 25;
+low_res_delta = 50;
+stimFilter_end = stimLength_ms*2 + delayPeriod_ms + 50;
+
+bases.stim.c_pt = [0:high_res_delta:highResPostStim_on_ms ...
+                 (highResPostStim_on_ms):low_res_delta:(stimLength_ms) ...
+                 stimLength_ms:high_res_delta:(stimLength_ms + highResPostStim_off_ms) ...
+                 (stimLength_ms + highResPostStim_off_ms):low_res_delta:stimFilter_end];
+bases.stim.c_pt = unique(bases.stim.c_pt);
+             
 bases.stim.c_pt(end) = bases.stim.c_pt(end) + dd;
 bases.stim.c_pt(1)   = bases.stim.c_pt(1)   - dd;
-bases.stim.lag  = [0 stimLength_ms + delayPeriod_ms + 500];
+bases.stim.lag  = [0 stimFilter_end];
 bases.stim.zeroEndPoints = [false false];
 
 [bases.stim.B, bases.stim.B_0, bases.stim.tts_0, bases.stim.tts] = DMC.modelBuilder.ModifiedCardinalSpline(bases.stim.lag, bases.stim.c_pt, bases.stim.s, binSize_ms, bases.stim.zeroEndPoints);

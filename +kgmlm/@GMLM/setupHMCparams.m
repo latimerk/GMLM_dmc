@@ -47,7 +47,6 @@ if(~debugSettings)
     %step size paramters
     HMC_settings.stepSize.stepL     = 1.0; %total steps to take is min(maxSteps , ceil(stepL/e))
     HMC_settings.stepSize.maxSteps  = 100; %max number of steps per sample
-    HMC_settings.N_acceptAllImprovements = 0;
     
     HMC_settings.fitMAP = [100 500 900]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
     
@@ -73,17 +72,10 @@ else
     %step size paramters
     HMC_settings.stepSize.stepL     = 0.5; %total steps to take is min(maxSteps , ceil(stepL/e))
     HMC_settings.stepSize.maxSteps  = 50; %max number of steps per sample
-    HMC_settings.N_acceptAllImprovements = 0;
     HMC_settings.fitMAP = [50 250 450]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
 end
 
 %%
-
-%parameters for an MH step to quickly traverse the scaler part of each component of tensor
-HMC_settings.MH_scale.sig =  0.2;
-HMC_settings.MH_scale.N            = 5; % I used to sample 10 because I could, but 5 ought to be more than enough
-HMC_settings.MH_scale.sample_every = 1;
-
 %step size paramters
     %for the dual-averging updates
 HMC_settings.stepSize.e_0 = 1e-1;
@@ -94,7 +86,7 @@ HMC_settings.stepSize.t_0   = 10;
 HMC_settings.stepSize.mu    = log(10*HMC_settings.stepSize.e_0);
 
 
-HMC_settings.nWarmup = nWarmup;
-HMC_settings.nSamples  = nSamples;
+HMC_settings.nWarmup  = nWarmup;
+HMC_settings.nSamples = nSamples;
 
 

@@ -23,7 +23,7 @@
 %           The regressor term X_{f} is a multidimensional array of size (N x size(F^f,1) x dim_A) where N is the number of observations
 %               (if X_{f} is the same for all events, the third dimension can be set to 1 regardless of dim_A)
 %           
-%               Thus, X_{n,a,f} is a row vector of size (1 x dim_F(f))
+%               Then, X_{n,a,f} is a row vector of size (1 x dim_F(f))
 %
 %               The X's can be defined in two ways depending on sparsity structure
 %
@@ -126,6 +126,21 @@ classdef GMLM < handle
                     end
                 end
             end
+            if(isfield(GMLMstructure, "gibbs_step"))
+                if(~isempty(GMLMstructure.gibbs_step))
+                    if(~isstruct(GMLMstructure.gibbs_step) || ~isfield(GMLMstructure.gibbs_step, 'sample_func') || ~isfield(GMLMstructure.gibbs_step, 'dim_H'))
+                        error("GMLM constructor: GMLMstructure.gibbs_step must be empty or structure with fields 'sample_func' and 'dim_H'");
+                    end
+
+                    if(~isa(GMLMstructure.gibbs_step.sample_func,'function_handle'))
+                        error("GMLM constructor: GMLMstructure.gibbs_step.sample_func must be a function handle");
+                    end
+
+                    if(~isscalar(GMLMstructure.gibbs_step.dim_H) || GMLMstructure.gibbs_step.dim_H < 0 || fix(GMLMstructure.gibbs_step.dim_H) ~= GMLMstructure.gibbs_step.dim_H)
+                        error("GMLM constructor: GMLMstructure.gibbs_step.dim_H must be a non-negative integer");
+                    end
+                end
+            end
                 
             for jj = 1:numel(GMLMstructure.Groups)
                 %check max rank setting (positive integer)
@@ -205,8 +220,28 @@ classdef GMLM < handle
                             error("GMLM constructor: GMLMstructure.Groups().prior.log_prior_func must be a function handle");
                         end
                         
-                        if(~isscalar(GMLMstructure.Groups(jj).prior.dim_H) || GMLMstructure.Groups(jj).prior.dim_H < 0 || fix(GMLMstructure.Groups(jj).prior.dim_H) ~= GMLMstructure.Groups(jj).prior.dim_H)
-                            error("GMLM constructor: GMLMstructure.Groups().prior.dim_H must be a non-negative integer");
+                        validScalar = isnumeric(GMLMstructure.Groups(jj).prior.dim_H) && isscalar(GMLMstructure.Groups(jj).prior.dim_H) && GMLMstructure.Groups(jj).prior.dim_H >= 0 && fix(GMLMstructure.Groups(jj).prior.dim_H) == GMLMstructure.Groups(jj).prior.dim_H;
+                        
+                        if(~validScalar && ~isa(GMLMstructure.Groups(jj).prior.dim_H, 'function_handle'))
+                            error("GMLM constructor: GMLMstructure.Groups().prior.dim_H must be a non-negative integer or function");
+                        end
+                    end
+                end
+                %if contains a gibbs step, should be empty or a function
+                if(isfield(GMLMstructure.Groups, "gibbs_step"))
+                    if(~isempty(GMLMstructure.Groups(jj).gibbs_step))
+                        if(~isstruct(GMLMstructure.Groups(jj).gibbs_step) || ~isfield(GMLMstructure.Groups(jj).gibbs_step, 'sample_func') || ~isfield(GMLMstructure.Groups(jj).gibbs_step, 'dim_H'))
+                            error("GMLM constructor: GMLMstructure.Groups().gibbs_step must be empty or structure with fields 'sample_func' and 'dim_H'");
+                        end
+                        
+                        if(~isa(GMLMstructure.Groups(jj).gibbs_step.sample_func,'function_handle'))
+                            error("GMLM constructor: GMLMstructure.Groups().gibbs_step.sample_func must be a function handle");
+                        end
+                        
+                        validScalar = isnumeric(GMLMstructure.Groups(jj).gibbs_step.dim_H) && isscalar(GMLMstructure.Groups(jj).gibbs_step.dim_H) && GMLMstructure.Groups(jj).gibbs_step.dim_H >= 0 && fix(GMLMstructure.Groups(jj).gibbs_step.dim_H) == GMLMstructure.Groups(jj).gibbs_step.dim_H;
+                        
+                        if(~validScalar && ~isa(GMLMstructure.Groups(jj).gibbs_step.dim_H,'function_handle'))
+                            error("GMLM constructor: GMLMstructure.Groups().gibbs_step.dim_H must be a non-negative integer or function");
                         end
                     end
                 end
@@ -390,6 +425,11 @@ classdef GMLM < handle
             else
                 obj.GMLMstructure.prior = [];
             end
+            if(isfield(GMLMstructure, "gibbs_step"))
+                obj.GMLMstructure.gibbs_step = GMLMstructure.gibbs_step;
+            else
+                obj.GMLMstructure.gibbs_step = [];
+            end
                 
             %set default rank, prior, and makes sure name is a string (not char)
             for jj = 1:numel(obj.GMLMstructure.Groups)
@@ -401,6 +441,13 @@ classdef GMLM < handle
                     obj.GMLMstructure.Groups(jj).prior = GMLMstructure.Groups(jj).prior;
                 else
                     obj.GMLMstructure.Groups(jj).prior = [];
+                end
+                
+                % check for gibbs_step, otherwise is null by default
+                if(isfield(GMLMstructure.Groups, "gibbs_step"))
+                    obj.GMLMstructure.Groups(jj).gibbs_step = GMLMstructure.Groups(jj).gibbs_step;
+                else
+                    obj.GMLMstructure.Groups(jj).gibbs_step = [];
                 end
             end
             
@@ -579,7 +626,7 @@ classdef GMLM < handle
             isShared = ~isempty(obj.GMLMstructure.Groups(idx).X_shared{factor});
         end
         
-        function [hh] = dim_H(obj, idx) %number of hyperparams: hyperparams on W and B if idx is not given, hyperparams on T and V if idx gives a tensor group, and all hyperparams in model if idx = -1 
+        function [hh] = dim_H(obj, idx) %number of hyperparams (that can be sampled by HMC): hyperparams on W and B if idx is not given, hyperparams on T and V if idx gives a tensor group, and all hyperparams in model if idx = -1 
             if(nargin < 2)
                 %gets number of hyperparams for top-level prior
                 if(~isempty(obj.GMLMstructure.prior))
@@ -598,6 +645,37 @@ classdef GMLM < handle
                 idx = obj.getGroupIdx(idx);
                 if(~isempty(obj.GMLMstructure.Groups(idx).prior))
                     hh = obj.GMLMstructure.Groups(idx).prior.dim_H;
+                    if(isa(hh, 'function_handle'))
+                        hh = hh(obj.dim_R(idx));
+                    end
+                else
+                    hh = 0;
+                end
+            end
+        end
+        
+        function [hh] = dim_H_gibbs(obj, idx) %number of hyperparams (that are sampled by a gibbs step): hyperparams on W and B if idx is not given, hyperparams on T and V if idx gives a tensor group, and all hyperparams in model if idx = -1 
+            if(nargin < 2)
+                %gets number of hyperparams for top-level prior
+                if(~isempty(obj.GMLMstructure.gibbs_step))
+                    hh = obj.GMLMstructure.gibbs_step.dim_H;
+                else
+                    hh = 0;
+                end
+            elseif(idx == -1)
+                %gets total hyperparams in entire model
+                hh = obj.dim_H();
+                for jj = 1:obj.dim_J
+                    hh = hh + obj.dim_H(jj);
+                end
+            else
+                %gets number of hyperparams for group-level prior
+                idx = obj.getGroupIdx(idx);
+                if(~isempty(obj.GMLMstructure.Groups(idx).gibbs_step))
+                    hh = obj.GMLMstructure.Groups(idx).gibbs_step.dim_H;
+                    if(isa(hh, 'function_handle'))
+                        hh = hh(obj.dim_R(idx));
+                    end
                 else
                     hh = 0;
                 end
@@ -779,7 +857,8 @@ classdef GMLM < handle
             params.B = zeros(obj.dim_B, obj.dim_P, dataType);
             if(includeHyperparameters)
                 params.H = zeros(obj.dim_H, 1, 'double');
-                params.Groups = struct('T', [], 'V', [], 'H', [], 'dim_names', [], 'name', []);
+                params.H_gibbs = zeros(obj.dim_H_gibbs, 1, 'double');
+                params.Groups = struct('T', [], 'V', [], 'H', [], 'H_gibbs', [], 'dim_names', [], 'name', []);
             else
                 params.Groups = struct('T', [], 'V', [], 'dim_names', [], 'name',[]);
             end
@@ -802,6 +881,7 @@ classdef GMLM < handle
                 
                 if(includeHyperparameters)
                     params.Groups(jj).H = zeros(obj.dim_H(jj), 1, 'double');
+                    params.Groups(jj).H_gibbs = zeros(obj.dim_H_gibbs(jj), 1, 'double');
                 end
             end
         end
@@ -854,7 +934,18 @@ classdef GMLM < handle
             params.W(:) = randn(size(params.W))*std(log_rate_mu) + mean(log_rate_mu);
             params.B(:) = randn(size(params.B)) * 0.1;
             if(isfield(params, 'H'))
-                params.H(:) = randn(size(params.H));
+                if(isfield(obj.GMLMstructure.prior, 'generator'))
+                    params.H(:) = obj.GMLMstructure.prior.generator();
+                else
+                    params.H(:) = randn(size(params.H));
+                end
+            end
+            if(isfield(params, 'H_gibbs'))
+                if(isfield(obj.GMLMstructure.gibbs_step, 'generator'))
+                    params.H_gibbs(:) = obj.GMLMstructure.gibbs_step.generator();
+                else
+                    params.H_gibbs(:) = randn(size(params.H_gibbs));
+                end
             end
             
             %for each group
@@ -875,7 +966,18 @@ classdef GMLM < handle
                 
                 %hyperparams
                 if(isfield(params.Groups(jj), 'H'))
-                    params.Groups(jj).H(:) = randn(size(params.Groups(jj).H));
+                    if(isfield(obj.GMLMstructure.Groups(jj).prior, 'generator'))
+                        params.Groups(jj).H(:) = obj.GMLMstructure.Groups(jj).prior.generator(obj.dim_R(jj));
+                    else
+                        params.Groups(jj).H(:) = randn(size(params.Groups(jj).H));
+                    end
+                end
+                if(isfield(params.Groups(jj), 'H_gibbs'))
+                    if(isfield(obj.GMLMstructure.Groups(jj).gibbs_step, 'generator'))
+                        params.Groups(jj).H_gibbs(:) = obj.GMLMstructure.Groups(jj).gibbs_step.generator(obj.dim_R(jj));
+                    else
+                        params.Groups(jj).H_gibbs(:) = randn(size(params.Groups(jj).H_gibbs));
+                    end
                 end
             end
         end
@@ -920,6 +1022,10 @@ classdef GMLM < handle
                         isValid(ii) = false;
                         continue;
                     end
+                    if(~isfield(params(ii), 'H_gibbs') || ~isvector(params(ii).H_gibbs) || ~isnumeric(params(ii).H_gibbs) || numel(params(ii).H_gibbs) ~= obj.dim_H_gibbs)
+                        isValid(ii) = false;
+                        continue;
+                    end
                 end
 
                 if(~isfield(params(ii), 'Groups') || ~isstruct(params(ii).Groups) || ~isfield(params(ii).Groups, 'V') || ~isfield(params(ii).Groups, 'T') || numel(params(ii).Groups) ~= obj.dim_J)
@@ -949,6 +1055,10 @@ classdef GMLM < handle
                     %hyperparams if requested
                     if(includeHyperparameters)
                         if(~isfield(params(ii).Groups, 'H') || ~isvector(params(ii).Groups(jj).H) || ~isnumeric(params(ii).Groups(jj).H) || numel(params(ii).Groups(jj).H) ~= obj.dim_H(jj))
+                            isValid(ii) = false;
+                            continue;
+                        end
+                        if(~isfield(params(ii).Groups, 'H_gibbs') || ~isvector(params(ii).Groups(jj).H_gibbs) || ~isnumeric(params(ii).Groups(jj).H_gibbs) || numel(params(ii).Groups(jj).H_gibbs) ~= obj.dim_H_gibbs(jj))
                             isValid(ii) = false;
                             continue;
                         end
@@ -1037,6 +1147,8 @@ classdef GMLM < handle
                                 log_rate_per_trial(mm).log_rate(:,pp) = obj.trials(mm).X_lin(:, :, pp) * params.B(:, pp) + params.W(pp);
                             end
                         end
+                    else
+                        log_rate_per_trial(mm).log_rate = params.W(:)';
                     end
                 else
                     neuron_idx = obj.trials(mm).neuron_idx;
@@ -1202,7 +1314,8 @@ classdef GMLM < handle
             opts.dB = enableAll;
             if(includeHyperparameters)
                 opts.dH = enableAll;
-                opts.Groups = struct('dT', [], 'dV', [], 'dH', []);
+                opts.H_gibbs = enableAll;
+                opts.Groups = struct('dT', [], 'dV', [], 'dH', [], 'H_gibbs', []);
             else
                 opts.Groups = struct('dT', [], 'dV', []);
             end
@@ -1230,6 +1343,7 @@ classdef GMLM < handle
                 
                 if(includeHyperparameters)
                     opts.Groups(jj).dH = enableAll;
+                    opts.Groups(jj).H_gibbs = enableAll;
                 end
             end
         end
@@ -1283,6 +1397,10 @@ classdef GMLM < handle
                     isValid = false;
                     return;
                 end
+                if(~isfield(opts, 'H_gibbs') || ~isscalar(opts.H_gibbs) || ~islogical(opts.H_gibbs))
+                    isValid = false;
+                    return;
+                end
             end
             
             if(~isfield(opts, 'Groups') || ~isstruct(opts.Groups) || ~isfield(opts.Groups, 'dV') || ~isfield(opts.Groups, 'dT') || numel(opts.Groups) ~= obj.dim_J)
@@ -1306,6 +1424,10 @@ classdef GMLM < handle
                 %hyperparams if requested
                 if(includeHyperparameters)
                     if(~isfield(opts.Groups, 'dH') || ~isscalar(opts.Groups(jj).dH) || ~islogical(opts.Groups(jj).dH) )
+                        isValid = false;
+                        return;
+                    end
+                    if(~isfield(opts.Groups, 'H_gibbs') || ~isscalar(opts.Groups(jj).H_gibbs) || ~islogical(opts.Groups(jj).H_gibbs) )
                         isValid = false;
                         return;
                     end
@@ -1729,7 +1851,6 @@ classdef GMLM < handle
         [params_map, results_test_map, results_train_map]              = computeMAP_crossValidated(obj, foldIDs, params_init, varargin);
         
         [samples, summary, HMC_settings, paramStruct, M] = runHMC_simple(obj, params_init, settings, varargin);
-        [params, acceptedProps, log_p_accept]            = scalingMHStep(obj, params, MH_scaleSettings, optStruct);
         [HMC_settings]                                   = setupHMCparams(obj, nWarmup, nSamples, debugSettings);
     end
     

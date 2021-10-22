@@ -24,7 +24,24 @@ elseif(sample >= 100)
     sampleStart = 20;
 end
 
-NR = 1+length(samples.Groups);
+plotH_gibbs = ~isempty(samples.H_gibbs);
+for jj = 1:length(samples.Groups)
+    if(~isempty(samples.Groups(jj).H_gibbs))
+        plotH_gibbs = true;
+        break;
+    end
+end
+plotH = ~isempty(samples.H);
+for jj = 1:length(samples.Groups)
+    if(~isempty(samples.Groups(jj).H))
+        plotH = true;
+        break;
+    end
+end
+  
+  
+
+NR = max(1+length(samples.Groups), 1 + plotH_gibbs + plotH);
 NC = 5;
 subplot(NR,NC,1)
 plot(1:TotalSamples,samples.W)
@@ -94,17 +111,40 @@ for jj = 1:length(samples.Groups)
 end
 
 
-subplot(NR,NC,NC + NC)
-hold on
-if(~isempty(samples.H))
-    plot(1:TotalSamples,samples.H)
-end
-for jj = 1:length(samples.Groups)
-    if(~isempty(samples.Groups(jj).H))
-        plot(1:TotalSamples,samples.Groups(jj).H)
+if(plotH)
+    subplot(NR,NC,NC + NC)
+    hold on
+    if(~isempty(samples.H))
+        NH = size(samples.H, 1);
+        plot(1:TotalSamples,samples.H(1:min(NH,5), :))
     end
+    for jj = 1:length(samples.Groups)
+        if(~isempty(samples.Groups(jj).H))
+            NH = size(samples.Groups(jj).H, 1);
+            plot(1:TotalSamples,samples.Groups(jj).H(1:min(NH,5), :))
+        end
+    end
+    hold off
+    set(gca,'tickdir','out','box','off');
+    title('H');
 end
-hold off
-set(gca,'tickdir','out','box','off');
-title('H');
+
+
+if(plotH_gibbs)
+    subplot(NR,NC,NC*2 + NC)
+    hold on
+    if(~isempty(samples.H_gibbs))
+        NH = size(samples.H_gibbs, 1);
+        plot(1:TotalSamples,samples.H_gibbs(1:min(NH,5), :))
+    end
+    for jj = 1:length(samples.Groups)
+        if(~isempty(samples.Groups(jj).H_gibbs))
+            NH = size(samples.Groups(jj).H_gibbs, 1);
+            plot(1:TotalSamples,samples.Groups(jj).H_gibbs(1:min(NH,12), :))
+        end
+    end
+    hold off
+    set(gca,'tickdir','out','box','off');
+    title('H_{gibbs}');
+end
 

@@ -80,13 +80,11 @@ if(numel(ps) ~= 2)
     error('polarCovKernel: wrong number of parameters!');
 end
 
-
 alpha = exp(min(20, ps(1)*2));
 dalpha = 2*alpha;
 
 dtau  = exp(min(20, ps(2)));
 tau   = dtau+4;
-
 
 K_0 = K./pi;
 mx = max(0,1-K_0);

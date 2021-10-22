@@ -3,7 +3,7 @@ if(isempty(params))
     results_group = 1;
     return;
 end
-params_group = params.Groups(groupNum);
+params_group  = params.Groups(groupNum);
 results_group = results.Groups(groupNum);
 
 %modified from computeGLMPrior

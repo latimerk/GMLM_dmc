@@ -5,10 +5,7 @@
 %
 % Takes in a negative log posterior function (return [nlpost, dnlpost] given vector of parameters)
 %   The negative is so that this function uses the same function as optimizers
-function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state, acceptAllImprovements)
-    if(nargin < 5)
-        acceptAllImprovements  = false;
-    end
+function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state)
     
     %% generate initial momentum
     p_init = generateMomentum(M);
@@ -25,11 +22,6 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     w = w_init;
     p = p_init;
     
-    if(acceptAllImprovements)
-        w_opt = w_init;
-        nlpost_opt = nlpost_0;
-        results_opt = results_init;
-    end
     
     try
         for tt = 1:HMC_state.steps
@@ -53,12 +45,6 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
                 break;
             end
             
-            
-            if(acceptAllImprovements && nlpost < nlpost_opt && nlpost > -1e10)
-                w_opt = w_init;
-                nlpost_opt = nlpost_0;
-                results_opt = results_init;
-            end
 
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
@@ -89,11 +75,6 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
 %         fprintf('>>end error message<<\n');
         fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
         
-        if(acceptAllImprovements && nlpost_opt < nlpost_0)
-            w_new    = w_opt;
-            results  = results_opt;
-            accepted = true;
-        end
         
         return;
     end
@@ -101,11 +82,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     %% check for acceptance
     u = log(rand);
     
-    if(acceptAllImprovements && nlpost_opt < nlpost_0)
-        w_new    = w_opt;
-        results  = results_opt;
-        accepted = true;
-    elseif(u < log_p_accept)
+    if(u < log_p_accept)
         w_new = w;
         accepted = true;
     else

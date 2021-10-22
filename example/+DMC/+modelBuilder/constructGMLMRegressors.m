@@ -39,10 +39,10 @@ bases_default = DMC.modelBuilder.setupBasis('delta_t', delta_t_default, 'bins_po
 p = inputParser;
 p.CaseSensitive = false;
 
-p.addRequired('Neurons'     ,    @isstruct);
-p.addRequired('TaskInfo'     ,     @isstruct);
-p.addRequired('stimulusConfig',   @(sc) isnumeric(sc) & size(sc, 1) == ND  & size(sc, 3) == 2);
-p.addOptional('dynHspkConfig' ,   [], @(dc) isempty(dc) | (isnumeric(dc) & size(dc, 1) == ND  & size(dc, 3) == 2));
+p.addRequired('Neurons'       , @isstruct);
+p.addRequired('TaskInfo'      , @isstruct);
+p.addRequired('stimulusConfig', @(sc) isnumeric(sc) & size(sc, 1) == ND  & size(sc, 3) == 2);
+p.addOptional('dynHspkConfig' , [], @(dc) isempty(dc) | (isnumeric(dc) & size(dc, 1) == ND  & size(dc, 3) == 2));
 
 p.addParameter('includeLeverDynHspk' , false, @islogical);
 
@@ -126,6 +126,19 @@ if(includeLeverDynHspk)
     GMLMstructure.Groups(jj).dim_T = [size(bases.spkHist.B, 2) size(GMLMstructure.Groups(jj).X_shared{2}, 2)];
     GMLMstructure.Groups(jj).factor_idx = 1:2;
 end
+
+%% setup rescaling MH step
+%parameters for an MH step to quickly traverse the scaler part of each component of tensor
+MH_scaleSettings.sig =  0.2;
+MH_scaleSettings.N   = 5; % I used to sample 10 because I could, but 5 ought to be more than enough
+MH_scaleSettings.sample_every = 1;
+
+for jj = 1:numel(GMLMstructure.Groups)
+    GMLMstructure.Groups(jj).gibbs_step.dim_H = 0;
+    GMLMstructure.Groups(jj).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum,  MH_scaleSettings);
+end
+
+%%
 
 %loop over neurons
 tr_idx  = 1; %running index of current trial

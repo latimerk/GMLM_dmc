@@ -46,8 +46,6 @@ if(~isempty(trial_weights))
     optStruct.trial_weights(:) = trial_weights;
 end
 
-nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct);
-
 % if(sampleHyperparameters)
 %     TotalParameters = obj.getNumberOfParameters(-1) + obj.dim_H(-1);
 % else
@@ -75,7 +73,7 @@ for jj = 1:obj.dim_J
 end
 
 TotalParameters = numel(obj.vectorizeParams(paramStruct, optStruct));
-M = ones(TotalParameters,1);
+%M = ones(TotalParameters,1);
 M = obj.vectorizeParams(paramStruct_2, optStruct);
 
 %% initialize space for samples
@@ -86,14 +84,6 @@ samples.errors        = false(TotalSamples,1);
 samples.accepted      = false(TotalSamples,1);
 samples.e             = nan(2,TotalSamples);
 
-if(~isinf(HMC_settings.MH_scale.sample_every) && ~isnan(HMC_settings.MH_scale.sample_every))
-    warning(sprintf('Metropolis-Hasting rescaling step enabled: This is only valid for zero-mean Gaussian priors!\nMake sure that your priors are valid or disable this step by setting HMC_settings.MH_scale.sample_every = nan\n'));
-    nMH = sum(obj.dim_R);
-else
-    nMH = 0;
-end
-samples.MH.accepted      = nan(nMH, TotalSamples);
-samples.MH.log_p_accept  = nan(nMH, TotalSamples);
 
 if(obj.gpuDoublePrecision)
     dataType = 'double';
@@ -102,6 +92,7 @@ else
 end
 
 samples.H       = nan(obj.dim_H,            TotalSamples, 'double');
+samples.H_gibbs = nan(obj.dim_H_gibbs,      TotalSamples, 'double');
 samples.W       = nan(obj.dim_P,            TotalSamples, dataType);
 samples.B       = nan(obj.dim_B, obj.dim_P, TotalSamples, dataType);
 samples.log_post = nan(1, TotalSamples);
@@ -109,6 +100,7 @@ samples.log_like = nan(1, TotalSamples);
 
 for jj = 1:obj.dim_J
     samples.Groups(jj).H = nan(obj.dim_H(jj),                TotalSamples, 'double');
+    samples.Groups(jj).H_gibbs = nan(obj.dim_H_gibbs(jj),    TotalSamples, 'double');
     samples.Groups(jj).V = nan(obj.dim_P    , obj.dim_R(jj), TotalSamples, dataType);
     samples.Groups(jj).T = cell(obj.dim_S(jj), 1);
     for ss = 1:obj.dim_S(jj)
@@ -158,9 +150,11 @@ resultStruct = obj.computeLogPosterior(paramStruct, optStruct);
 samples.W(:,1)   = paramStruct.W(:);
 samples.B(:,:,1) = paramStruct.B;
 samples.H(:,1)   = paramStruct.H(:);
+samples.H_gibbs(:,1)   = paramStruct.H_gibbs(:);
 
 for jj = 1:obj.dim_J
     samples.Groups(jj).H(:,1) = paramStruct.Groups(jj).H;
+    samples.Groups(jj).H_gibbs(:,1) = paramStruct.Groups(jj).H_gibbs;
     samples.Groups(jj).V(:,:,1) = paramStruct.Groups(jj).V;
     for ss = 1:obj.dim_S(jj)
         samples.Groups(jj).T{ss}(:,:,1) = paramStruct.Groups(jj).T{ss};
@@ -198,23 +192,21 @@ for sample_idx = start_idx:TotalSamples
         %fprintf("done.\n");
     end
     
-    %% run MH rescaling step
-    % the decompositions have some directions of unidentifiability in the likelihood (V*T' = (V*R)*(T*R^-1)')
-    % These optional steps do some fast MH proposals to quickly move around in that space, and does not require any likelihood computations.
-    if(mod(sample_idx,HMC_settings.MH_scale.sample_every) == 0 && HMC_settings.MH_scale.N > 0)
-        MH_accepted_c = nan(size(samples.MH.accepted,1),HMC_settings.MH_scale.N);
-        MH_log_p      = nan(size(samples.MH.accepted,1),HMC_settings.MH_scale.N);
-        for ii = 1:HMC_settings.MH_scale.N
-            [paramStruct, MH_accepted_c(:,ii), MH_log_p(:,ii)] = obj.scalingMHStep(paramStruct, HMC_settings.MH_scale, optStruct);
+    %% run any Gibbs steps - can be defined for the whole GMLM or tensor groups
+    if(~isempty(obj.GMLMstructure.gibbs_step) && optStruct.H_gibbs)
+        paramStruct = obj.GMLMstructure.gibbs_step.sample_func(obj, paramStruct, optStruct, sample_idx);
+    end
+    for jj = 1:obj.dim_J
+        if(~isempty(obj.GMLMstructure.Groups(jj).gibbs_step) && optStruct.Groups(jj).H_gibbs)
+            paramStruct = obj.GMLMstructure.Groups(jj).gibbs_step.sample_func(obj, paramStruct, optStruct, sample_idx, jj);
         end
-        samples.MH.accepted(:,sample_idx) = nanmean(MH_accepted_c,2);
-        samples.MH.log_p_accept(:,sample_idx) = nanmean(MH_log_p,2);
     end
     
     %% get HMC sample
     % run HMC step
     w_init = obj.vectorizeParams(paramStruct, optStruct);
-    [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, M, nlpostFunction, HMC_state, sample_idx < HMC_settings.N_acceptAllImprovements);
+    nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct);
+    [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, M, nlpostFunction, HMC_state);
     if(samples.accepted(sample_idx))
         paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct);
     end
@@ -224,9 +216,11 @@ for sample_idx = start_idx:TotalSamples
     samples.W(:,  sample_idx) = paramStruct.W(:);
     samples.B(:,:,sample_idx) = paramStruct.B(:,:);
     samples.H(:,  sample_idx) = paramStruct.H(:);
+    samples.H_gibbs(:,  sample_idx) = paramStruct.H_gibbs(:);
     
     for jj = 1:obj.dim_J
         samples.Groups(jj).H(:,sample_idx) = paramStruct.Groups(jj).H;
+        samples.Groups(jj).H_gibbs(:,sample_idx) = paramStruct.Groups(jj).H_gibbs;
         samples.Groups(jj).V(:,:,sample_idx) = paramStruct.Groups(jj).V;
         
         for ss = 1:obj.dim_S(jj)
@@ -258,10 +252,9 @@ for sample_idx = start_idx:TotalSamples
             ww = max(2,sample_idx-99):sample_idx;
         end
         
-        mean_MH_accepted = nanmean(samples.MH.accepted(:,ww),'all');
         
         fprintf('HMC step %d / %d (accept per. = %.1f in last %d steps, curr log post = %e, (log like = %e)\n', sample_idx, TotalSamples, mean(samples.accepted(ww))*100, numel(ww), samples.log_post(sample_idx), samples.log_like(sample_idx));
-        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d, mean MH accepted = %.3f\n', HMC_state.stepSize.e, HMC_state.steps, nansum(samples.errors),  mean_MH_accepted);
+        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n', HMC_state.stepSize.e, HMC_state.steps, nansum(samples.errors));
         clear ww;
         
         if(~isnan(figNum) && ~isinf(figNum))
@@ -297,7 +290,7 @@ summary.PSISLOO_PK = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
 % ll = samples.trialLL(:,ss_idx);
 for ii = 1:obj.dim_trialLL(1)
     for jj = 1:obj.dim_trialLL(2)
-        ll_c = double(samples_file.trialLL(ii,jj,ss_idx));
+        ll_c = squeeze(double(samples_file.trialLL(ii,jj,ss_idx)))';
         T_n(ii,jj) = -kgmlm.utils.logMeanExp(ll_c,2);
         V_n(ii,jj) = mean(ll_c.^2,2) - mean(ll_c,2).^2;
 
