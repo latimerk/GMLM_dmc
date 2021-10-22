@@ -30,9 +30,6 @@ if(mod(sampleNum, MH_scaleSettings.sample_every) ~= 0 || totalScale < 2 || MH_sc
     return;
 end
 
-% if(sampleNum < 100)
-%     return;
-% end
 
 for nn = 1:MH_scaleSettings.N
     MH_ctr = 1;
@@ -80,7 +77,8 @@ for nn = 1:MH_scaleSettings.N
             %the second sum is for the change of variables to by P(T,U, T*U*V) because we have the product of the scale fixed
             %  The probability density we sample over then become P(T,U| T*U*V) \propto P(T, U, T*U*V)
 
-        log_p_accept(MH_ctr, nn) = results2.Groups(groupNum).log_prior_VT - results.Groups(groupNum).log_prior_VT + chi_correction + sum(log_scale); % log_scale is log(q(pg|pg2)/q(pg2|pg)) - this isn't 0 because of the log normal transform!
+        log_q_rat = 2*sum(log_scale); %sum(log(lognpdf(exp(-log_scale), 0, sd)) - log(lognpdf(scale_T, 0, sd)));
+        log_p_accept(MH_ctr, nn) = results2.Groups(groupNum).log_prior_VT - results.Groups(groupNum).log_prior_VT + chi_correction + log_q_rat; 
         if(log(rand) < log_p_accept(MH_ctr, nn))
             acceptedProps(MH_ctr, nn) = true;
             params  = params2;
