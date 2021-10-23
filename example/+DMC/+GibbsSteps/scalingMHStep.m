@@ -77,7 +77,7 @@ for nn = 1:MH_scaleSettings.N
             %the second sum is for the change of variables to by P(T,U, T*U*V) because we have the product of the scale fixed
             %  The probability density we sample over then become P(T,U| T*U*V) \propto P(T, U, T*U*V)
 
-        log_q_rat = 2*sum(log_scale); %sum(log(lognpdf(exp(-log_scale), 0, sd)) - log(lognpdf(scale_T, 0, sd)));
+        log_q_rat = sum(log_scale); %sum(log(lognpdf(c, log_c + log_scale , sd)) - log(lognpdf(c*exp(log_scale), log(c) , sd))); % c is original vector length
         log_p_accept(MH_ctr, nn) = results2.Groups(groupNum).log_prior_VT - results.Groups(groupNum).log_prior_VT + chi_correction + log_q_rat; 
         if(log(rand) < log_p_accept(MH_ctr, nn))
             acceptedProps(MH_ctr, nn) = true;
