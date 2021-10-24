@@ -1367,6 +1367,8 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda_v,
     const unsigned int rr_start  = blockIdx.y * blockDim.y + threadIdx.y;
 
     if(row < lambda_v.x && rr_start < lambda_v.y) {
+        unsigned int part = (threadIdx.x + threadIdx.y * blockDim.x)*XF.N;
+        
         size_t iX_row = row; //if full run
         if(ridx_sa_all.y > 0) {
             //if sparse run
@@ -1414,7 +1416,7 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda_v,
 
                         lv_aa *= tc;
                         if(compute_dT_any && XF.N > 1) {
-                            t_array[dd + threadIdx.x*XF.N] = tc;
+                            t_array[dd + part] = tc;
                         }
                         else if(tc == 0 ) {
                             break;
@@ -1431,7 +1433,7 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda_v,
                                 FPTYPE tt = 1;
                                 for(unsigned int dd2 = 0; dd2 < XF.N; dd2++) {
                                     if(dd2 != dd) {
-                                        tt *= t_array[dd2 + threadIdx.x*XF.N];
+                                        tt *= t_array[dd2 + part];
                                     }
                                 }
                                 lambda_d[dd](row, rr, aa) += tt;
@@ -1477,7 +1479,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, 
             }
         }
 
-        size_t size_shared = (compute_dT_any && params->dim_D() > 1) ? (sizeof(FPTYPE) * params->dim_D() * block_size.x) : 0;
+        size_t size_shared = (compute_dT_any && params->dim_D() > 1) ? (sizeof(FPTYPE) * params->dim_D() * (block_size.x * block_size.y)) : 0;
         kernel_getGroupRate<<<grid_size, block_size, size_shared, stream>>>( lambda_v->device(),  GPUData<FPTYPE>::assembleKernels(lambda_d), 
                                                                              GPUData<FPTYPE>::assembleKernels(XF),  GPUData<FPTYPE>::assembleKernels(params->F),  GPUData<int>::assembleKernels(iX),
                                                                             isShared->device(), isSharedIdentity->device(),
