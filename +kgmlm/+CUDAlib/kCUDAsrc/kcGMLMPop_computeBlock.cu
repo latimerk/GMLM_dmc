@@ -273,7 +273,7 @@ __global__ void kernel_sum_trialLL(GPUData_kernel<FPTYPE> trialLL, GPUData_kerne
                 trialLL(id_t_trial[mm], pp) = ll_total;
             }
             if(compute_dW) {
-                dW_trial(id_t_trial[mm], pp) = dll_total;
+                dW_trial(mm, pp) = dll_total;
             }
         }
         //no need to compute sum; set results to 0
@@ -282,7 +282,7 @@ __global__ void kernel_sum_trialLL(GPUData_kernel<FPTYPE> trialLL, GPUData_kerne
                 trialLL(id_t_trial[mm], pp) = 0;
             }
             if(compute_dW) {
-                dW_trial(id_t_trial[mm], pp) = 0;
+                dW_trial(mm, pp) = 0;
             }
         }
     }
@@ -381,11 +381,16 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLMPop_comput
     switchToDevice();
          //launch kernel to sum dLL -> dW, dB for each trial?
          //         or kernel to sum up dLL->dW and GEMV for dB?
+         
     if(opts->compute_dW) {
         dim3 block_size;
         block_size.x = min(dataset->dim_P(), static_cast<size_t>(1024));
         dim3 grid_size;
         grid_size.x = dataset->dim_P() / block_size.x + ((dataset->dim_P() % block_size.x == 0)? 0:1);
+
+      /*  output_stream << results->dW->getDevice() << "  " << dataset->dW_trial->getDevice() << "  " << params->trial_weights->getDevice() << "\n";
+        msg->printMsgTxt(output_stream);*/
+
 
         kernel_sum_dW<<<grid_size, block_size, 0, stream>>>(results->dW->device(), dataset->dW_trial->device(), params->trial_weights->device());
         checkCudaErrors("GPUGMLMPop_computeBlock::computeDerivatives errors:  kernel_sum_dW launch failed");
