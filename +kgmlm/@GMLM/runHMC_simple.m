@@ -184,7 +184,7 @@ if(exist(HMC_settings.samplesFile, 'file'))
         continue_opt = startsWith(continue_opt, 'y', 'IgnoreCase', true);
     end
     if(continue_opt)
-        fprintf('Continuing... will overwrite file.\n');
+        fprintf('Deleting temporary storage file and continuing...\n');
     else
         error('Temporary file for storing trial log likelihood samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s', HMC_settings.samplesFile);
     end

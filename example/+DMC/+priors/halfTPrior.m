@@ -9,7 +9,9 @@ dlp_log_x  = zeros(size(log_x));
 d2lp_log_x = zeros(size(log_x));
 
 if(nargin < 3 || isempty(scale))
-    scale = ones(size(log_x));
+    log_scale = 0;
+else
+    log_scale = log(scale);
 end
 
 for ii = 1:numel(log_x)
@@ -18,16 +20,16 @@ for ii = 1:numel(log_x)
     else
         nu_c = nu(ii);
     end
-    if(isscalar(scale))
-        scale_c = scale;
+    if(isscalar(log_scale))
+        log_scale_c = log_scale;
     else
-        scale_c = scale(ii);
+        log_scale_c = log_scale(ii);
     end
     
-    if(log_x(ii)*2 - log(nu_c) - 2*log(scale_c) > 30)
+    if(log_x(ii)*2 - log(nu_c) - 2*log_scale_c > 30)
         %% numerically safer(?)
         %log hyperprior
-        lp_log_x(ii) = -(nu_c + 1)/2 .* (log_x(ii)*2 - log(nu_c) - 2*log(scale_c)) + log_x(ii); %the plus log_x(ii) is for the exp transform
+        lp_log_x(ii) = -(nu_c + 1)/2 .* (log_x(ii)*2 - log(nu_c) - 2*log_scale_c) + log_x(ii); %the plus log_x(ii) is for the exp transform
         if(nargout > 1)
             dlp_log_x(ii) = -(nu_c + 1) + 1; 
         end
@@ -36,7 +38,7 @@ for ii = 1:numel(log_x)
         end
     else
         %log hyperprior
-        sig2 = exp(2 * log_x(ii) - 2*log(scale_c));
+        sig2 = exp(2 * log_x(ii) - 2*log_scale_c);
         lp_log_x(ii) = -(nu_c + 1)/2. * log1p(sig2 / nu_c)  + log_x(ii); %the plus log_x(ii) is for the exp transform
         if(nargout > 1)
             %derivative of log hyperprior (w.r.t. H)
@@ -46,5 +48,5 @@ for ii = 1:numel(log_x)
             d2lp_log_x(ii) = -(nu_c + 1) * 2 * sig2 * nu_c ./ (nu_c + sig2).^2; 
         end
     end
-    lp_log_x(ii) = lp_log_x(ii) + log(2) + gammaln((nu_c + 1) / 2) - gammaln(nu_c/2) - 1/2*log(pi*nu_c) - log(scale_c); % log normalization constant
+    lp_log_x(ii) = lp_log_x(ii) + log(2) + gammaln((nu_c + 1) / 2) - gammaln(nu_c/2) - 1/2*log(pi*nu_c) - log_scale_c; % log normalization constant
 end

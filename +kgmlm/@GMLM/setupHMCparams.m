@@ -48,8 +48,8 @@ if(~debugSettings)
     
     HMC_settings.M_est.first_sample  = [1001 4001 ]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
     HMC_settings.M_est.samples       = [4000 19001];
-%     HMC_settings.M_est.first_sample  = [101 501  1001 2001 4001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-%     HMC_settings.M_est.samples       = [500 1000 2000 4000 19001];
+    HMC_settings.M_est.first_sample  = [101 501  1001 2001 4001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+    HMC_settings.M_est.samples       = [500 1000 2000 4000 19001];
     
     HMC_settings.stepSize.schedule   = [2     4000;
                                         4001 24000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
