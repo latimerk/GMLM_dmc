@@ -18,22 +18,22 @@ load(fname, 'Neurons', 'TaskInfo'); %see exampleGMLM_DMC_task.m for more info on
 
 %which parts of the trial we will keep (UNITS ARE BINS)
 timeBeforeSample     = 0; %time before sample stimulus on that will be include
-timeAfterTestOrLever = ceil(50/TaskInfo.binSize_ms); %time after lever release OR test stim off that will be kept
+timeAfterTestOrResponse = ceil(50/TaskInfo.binSize_ms); %time after response OR test stim off that will be kept
 
 GPU_to_use = 0;
 gpuDoublePrecision = true;
 
 %% setup basis functions & task setup
 ND = numel(TaskInfo.Directions);
-bases = DMC.modelBuilder.setupBasis('bins_post_lever', timeAfterTestOrLever, 'delta_t', TaskInfo.binSize_ms/1e3, 'plotBases', false);
+bases = DMC.modelBuilder.setupBasis('bins_post_response', timeAfterTestOrResponse, 'delta_t', TaskInfo.binSize_ms/1e3, 'plotBases', false);
 [stimulus_config, stimPrior_setup] = DMC.modelBuilder.getModelSetup(TaskInfo, 'dirTuningType', 'cosine', 'dirSameSampleTest', true, 'includeCategory', true);
 
 %% setup design matrix for ONE cell
 cellToFit = 1;
-[GLMstructure, trials] = DMC.modelBuilder.constructGLMdesignMatrix(Neurons, TaskInfo, cellToFit, stimulus_config, 'timeBeforeSample_bins', timeBeforeSample, 'timeAfterTestOrLever_bins', timeAfterTestOrLever, 'bases', bases);
+[GLMstructure, trials] = DMC.modelBuilder.constructGLMdesignMatrix(Neurons, TaskInfo, cellToFit, stimulus_config, 'timeBeforeSample_bins', timeBeforeSample, 'timeAfterTestOrResponse_bins', timeAfterTestOrResponse, 'bases', bases);
 
 %% setup prior distribution over filters
-[prior_function_stim, prior_function_lever, prior_function_spkHist, prior_function_glmComplete, levPrior_setup, spkHistPrior_setup] = DMC.modelBuilder.setupPriorFunctions(stimPrior_setup, bases);
+[prior_function_stim, prior_function_response, prior_function_spkHist, prior_function_glmComplete, levPrior_setup, spkHistPrior_setup] = DMC.modelBuilder.setupPriorFunctions(stimPrior_setup, bases);
 
 GLMstructure.prior.dim_H          = stimPrior_setup.NH + levPrior_setup.NH + spkHistPrior_setup.NH;
 GLMstructure.prior.log_prior_func = prior_function_glmComplete;

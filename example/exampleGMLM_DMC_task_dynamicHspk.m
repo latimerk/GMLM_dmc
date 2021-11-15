@@ -23,7 +23,7 @@ load(fname, 'Neurons', 'TaskInfo');
 
 %which parts of the trial we will keep (UNITS ARE BINS)
 timeBeforeSample     = 0; %time before sample stimulus on that will be include
-timeAfterTestOrLever = ceil(50/TaskInfo.binSize_ms); %time after lever release OR test stim off that will be kept
+timeAfterTestOrResponse = ceil(50/TaskInfo.binSize_ms); %time after response OR test stim off that will be kept
 
 GPUs_to_use = 0; %the device numbers to use. This can be a vector of GPUs: data will be divided across them.
                  %Setting "GPUs_to_use = 2" will use device number 2 (zero indexed), not two GPUs;
@@ -33,15 +33,15 @@ gpuDoublePrecision = true; %use single or double precision on the GPU
 
 %% setup basis functions & task setup
 ND = numel(TaskInfo.Directions);
-bases = DMC.modelBuilder.setupBasis('bins_post_lever', timeAfterTestOrLever, 'delta_t', TaskInfo.binSize_ms/1e3, 'plotBases', false);
+bases = DMC.modelBuilder.setupBasis('bins_post_response', timeAfterTestOrResponse, 'delta_t', TaskInfo.binSize_ms/1e3, 'plotBases', false);
 [stimulus_config, stimPrior_setup]   = DMC.modelBuilder.getModelSetup(TaskInfo, 'dirTuningType', 'cosine', 'dirSameSampleTest', true, 'includeCategory', true);
 [dynHspk_config, dynHspkPrior_setup] = DMC.modelBuilder.getModelSetup(TaskInfo, 'dirTuningType', 'none', 'includeCategory', false);
 
 %% parse data
-[GMLMstructure, trials] = DMC.modelBuilder.constructGMLMRegressors(Neurons, TaskInfo, stimulus_config, dynHspk_config, 'includeLeverDynHspk', true, 'timeBeforeSample_bins', timeBeforeSample, 'timeAfterTestOrLever_bins', timeAfterTestOrLever, 'bases', bases);
+[GMLMstructure, trials] = DMC.modelBuilder.constructGMLMRegressors(Neurons, TaskInfo, stimulus_config, dynHspk_config, 'includeResponseDynHspk', true, 'timeBeforeSample_bins', timeBeforeSample, 'timeAfterTestOrResponse_bins', timeAfterTestOrResponse, 'bases', bases);
 
 %% setup prior distributions for model parameters (used for MCMC inference, or MAP if you wish to specificy an init point to the MAP_MLE function that has proper hyperparameters)
-[prior_function_stim, prior_function_lever, prior_function_spkHist, prior_function_glmComplete, levPrior_setup, spkHistPrior_setup, prior_function_dynHspk] = DMC.modelBuilder.setupPriorFunctions(stimPrior_setup, bases, dynHspkPrior_setup);
+[prior_function_stim, prior_function_response, prior_function_spkHist, prior_function_glmComplete, responsePrior_setup, spkHistPrior_setup, prior_function_dynHspk] = DMC.modelBuilder.setupPriorFunctions(stimPrior_setup, bases, dynHspkPrior_setup);
 
 GMLMstructure.prior.dim_H          = spkHistPrior_setup.NH;
 GMLMstructure.prior.log_prior_func = prior_function_spkHist;
@@ -49,8 +49,8 @@ GMLMstructure.prior.log_prior_func = prior_function_spkHist;
 GMLMstructure.Groups(1).prior.dim_H          = stimPrior_setup.NH;
 GMLMstructure.Groups(1).prior.log_prior_func = prior_function_stim;
 
-GMLMstructure.Groups(2).prior.dim_H          = levPrior_setup.NH;
-GMLMstructure.Groups(2).prior.log_prior_func = prior_function_lever;
+GMLMstructure.Groups(2).prior.dim_H          = responsePrior_setup.NH;
+GMLMstructure.Groups(2).prior.log_prior_func = prior_function_response;
 
 % the dynamic hspk terms
     % stimulus
@@ -58,15 +58,29 @@ GMLMstructure.Groups(3).prior.dim_H          = dynHspkPrior_setup.NH;
 GMLMstructure.Groups(3).prior.log_prior_func = prior_function_dynHspk;
 
     % touch-bar
-GMLMstructure.Groups(4).prior.dim_H          = levPrior_setup.NH;
-GMLMstructure.Groups(4).prior.log_prior_func = prior_function_lever;
+GMLMstructure.Groups(4).prior.dim_H          = responsePrior_setup.NH;
+GMLMstructure.Groups(4).prior.log_prior_func = prior_function_response;
+
+
+
+MH_scaleSettings.sig =  0.2;
+MH_scaleSettings.N   = 5; % I used to sample 10 because I could, but 5 ought to be more than enough
+MH_scaleSettings.sample_every = 1;
+GMLMstructure.Groups(1).gibbs_step.dim_H = 0;
+GMLMstructure.Groups(1).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum, opts, results) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, stimPrior_setup, opts, results);
+GMLMstructure.Groups(2).gibbs_step.dim_H = 0;
+GMLMstructure.Groups(2).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum, opts, results) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, responsePrior_setup, opts, results);
+GMLMstructure.Groups(3).gibbs_step.dim_H = 0;
+GMLMstructure.Groups(3).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum, opts, results) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, stimPrior_setup, opts, results);
+GMLMstructure.Groups(4).gibbs_step.dim_H = 0;
+GMLMstructure.Groups(4).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum, opts, results) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, responsePrior_setup, opts, results);
 %% build the GMLM object
 
 gmlm = kgmlm.GMLM(GMLMstructure, trials, TaskInfo.binSize_ms./1e3);
 gmlm.setDimR('Stimulus', 7);
-gmlm.setDimR('Lever', 3);
+gmlm.setDimR('Response', 3);
 gmlm.setDimR('StimDynamicSpikeHistory', 1);
-gmlm.setDimR('LeverDynamicSpikeHistory', 1);
+gmlm.setDimR('ResponseDynamicSpikeHistory', 1);
 
 return;
 

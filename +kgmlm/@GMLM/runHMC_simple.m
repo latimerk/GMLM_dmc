@@ -269,7 +269,7 @@ start_idx = 2;
 for sample_idx = start_idx:TotalSamples
     %% set paramStruct to MAP estimate (should only be done early in warmup if at all)
     
-    if(ismember(sample_idx, HMC_settings.fitMAP))
+    if(isfield(HMC_settings, "fitMAP") && ismember(sample_idx, HMC_settings.fitMAP))
         fprintf("Attempting to accelerate mixing by finding MAP estimate given current hyperparameters...\n");
         paramStruct = obj.computeMAP(paramStruct, "optStruct", optStruct, "alternating_opt", false, "max_iters", 5, "max_quasinewton_steps", 250);
         %fprintf("done.\n");

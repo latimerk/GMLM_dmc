@@ -20,7 +20,7 @@ function [GLMstructure, trials] = constructGLMdesignMatrix(Neurons, TaskInfo, ce
 %
 %   Parameters:
 %       timeBeforeSample_bins (default in getDefaultTrialSettings) - number of bins before sample onset to include in trial window for analysis 
-%       timeAfterTestOrLever_bins (default in getDefaultTrialSettings) - number of bins before after touch-bar release OR test stimulus offset to include in trial window for analysis 
+%       timeAfterTestOrResponse_bins (default in getDefaultTrialSettings) - number of bins before after touch-bar release OR test stimulus offset to include in trial window for analysis 
 %       bases (struct) - the basis sets to use for the temporal filters (see setupBasis)
 
 
@@ -28,7 +28,7 @@ function [GLMstructure, trials] = constructGLMdesignMatrix(Neurons, TaskInfo, ce
 ND = numel(TaskInfo.Directions);
 
 [timeBeforeSample_default, timeAfterTestOrLever_default, delta_t_default] = DMC.modelBuilder.getDefaultTrialSettings(TaskInfo, false, false, false);
-bases_default = DMC.modelBuilder.setupBasis('delta_t', delta_t_default, 'bins_post_lever', timeAfterTestOrLever_default);
+bases_default = DMC.modelBuilder.setupBasis('delta_t', delta_t_default, 'bins_post_response', timeAfterTestOrLever_default);
 
 p = inputParser;
 p.CaseSensitive = false;
@@ -39,7 +39,7 @@ p.addRequired('cellToFit'     ,     @(aa) isnumeric(aa) & fix(aa) == aa & aa > 0
 p.addRequired('stimulusConfig',   @(sc) isnumeric(sc) & size(sc, 1) == ND  & size(sc, 3) == 2);
 
 p.addParameter('timeBeforeSample_bins',     timeBeforeSample_default,     @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
-p.addParameter('timeAfterTestOrLever_bins', timeAfterTestOrLever_default, @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
+p.addParameter('timeAfterTestOrResponse_bins', timeAfterTestOrLever_default, @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
 p.addParameter('bases'  ,  bases_default,    @isstruct);
 
 parse(p, Neurons, TaskInfo, cellToFit, stimulusConfig, varargin{:});
@@ -60,10 +60,10 @@ N_lev_cov    = size(bases.response.B, 2);
 N_hspk_cov   = size(bases.spkHist.B, 2);
 
 if(N_hspk_cov > 0)
-    GLMstructure.group_names = ["stim", "lever", "hspk", "const"];
+    GLMstructure.group_names = ["stim", "response", "hspk", "const"];
     GLMstructure.dim_Ks = [N_stim_cov, N_lev_cov, N_hspk_cov, 1];
 else
-    GLMstructure.group_names = ["stim", "lever",  "const"];
+    GLMstructure.group_names = ["stim", "response",  "const"];
     GLMstructure.dim_Ks = [N_stim_cov, N_lev_cov, 1];
 end
 
@@ -82,10 +82,10 @@ trials = struct('X', cell(totalTrials,1), 'Y', []);
 for mm = 1:totalTrials
     trStart = Neurons(cellToFit).sampleTime(mm) - timeBeforeSample_bins;
     if(~isnan(Neurons(cellToFit).leverTime(mm)))
-        %if lever released
+        %if touch-bar released
         trEnd = Neurons(cellToFit).leverTime(mm) + timeAfterTestOrLever_bins;
     else
-        %if lever not released and entire test stim viewed
+        %if touch-bar not released and entire test stim viewed
         trEnd = Neurons(cellToFit).testTime(mm) + ceil(TaskInfo.StimLength_ms/TaskInfo.binSize_ms) + timeAfterTestOrLever_bins;
     end
     trLength = trEnd - trStart + 1;
@@ -122,14 +122,14 @@ for mm = 1:totalTrials
 
     trials(mm).X{1} = sampleStimRegressors + testStimRegressors;
     
-    %% get lever timing info
+    %% get response timing info
     trials(mm).X{2} = zeros(trLength, N_lev_cov);
-    if(~isnan(Neurons(cellToFit).leverTime(mm))) %if lever release happens
-        lever_tts = (1:trLength) - timeBeforeSample_bins - (Neurons(cellToFit).leverTime(mm) - Neurons(cellToFit).sampleTime(mm)) - bases.response.tts(1);
-        %the lever timing from the bases is important here: activity reflects lever release BEFORE it happens (filter is acausal)
+    if(~isnan(Neurons(cellToFit).leverTime(mm))) %if touch-bar release happens
+        response_tts = (1:trLength) - timeBeforeSample_bins - (Neurons(cellToFit).leverTime(mm) - Neurons(cellToFit).sampleTime(mm)) - bases.response.tts(1);
+        %the touch-bar timing from the bases is important here: activity reflects touch-bar release BEFORE it happens (filter is acausal)
         %I ignored it for the stimulus timing because I know how those filters were setup
-        valid_tts = lever_tts > 0 & lever_tts <= size(bases.stim.B, 1);
-        trials(mm).X{2}( valid_tts, :) =  bases.response.B( lever_tts(valid_tts), :); 
+        valid_tts = response_tts > 0 & response_tts <= size(bases.stim.B, 1);
+        trials(mm).X{2}( valid_tts, :) =  bases.response.B( response_tts(valid_tts), :); 
     end
 
     %% get spike hist

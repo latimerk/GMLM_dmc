@@ -14,7 +14,7 @@
 function [basisStruct] = setupBasis(varargin)
 %% sets up the basis sets for the DMC task
 %     input key, val pairs
-%         bins_post_lever = number of time bins for the lever filter basis to cover post release (default in DMC.modelBuilder.getDefaultTrialSettings)
+%         bins_post_response = number of time bins for the response filter basis to cover post release (default in DMC.modelBuilder.getDefaultTrialSettings)
 %         delta_t         = bin size in SECONDS (default in DMC.modelBuilder.getDefaultTrialSettings)
 %         stimBasis_len   = stim basis length in MILLISECONDS (why the different units? I don't know) default = 1500 ms
 %         stimBasis_N     = number of stim basis vectors (default = 24)
@@ -25,8 +25,8 @@ p = inputParser;
 p.CaseSensitive = false;
 
 % set the desired and optional input arguments
-[~,bins_post_lever_default, delta_t_default] = DMC.modelBuilder.getDefaultTrialSettings([], false, false, false);
-addParameter(p, 'bins_post_lever', bins_post_lever_default, @isnumeric);
+[~,bins_post_response_default, delta_t_default] = DMC.modelBuilder.getDefaultTrialSettings([], false, false, false);
+addParameter(p, 'bins_post_response', bins_post_response_default, @isnumeric);
 addParameter(p, 'delta_t', delta_t_default, @isnumeric);
 addParameter(p, 'plotBases', false, @islogical)
 addParameter(p, 'stimBasis_len', 1500, @(aa)(isnumeric(aa) & aa > 0))
@@ -36,7 +36,7 @@ addParameter(p, 'stimBasis_N', 24, @(aa)(isnumeric(aa) & aa > 0))
 % parse the input
 parse(p,varargin{:});
 % then set/get all the inputs out of this structure
-bins_post_lever     = p.Results.bins_post_lever;
+bins_post_response     = p.Results.bins_post_response;
 delta_t             = p.Results.delta_t;
 plotBases           = p.Results.plotBases;
 TT                  = p.Results.stimBasis_len;
@@ -81,13 +81,13 @@ basisStruct.stim.B   = stim((tt_0+1):end,:);
 basisStruct.stim.tts = tts_0((tt_0+1):end);
 basisStruct.stim.tts_0 = basisStruct.stim.tts * (delta_t_default*1e3);
 
-%% lever basis
-N_lev = find(peaks > 300/downsampleRate,1,'first'); %select number of basis, lever length should be only 
-lever_0 = circshift(basis_0(end:-1:1,1:N_lev),[bins_post_lever+20/downsampleRate 0]);
-lever = orth(lever_0); %orthogonalizes for numerical reasons
-tt_v = sum(lever.^2,2)>1e-8;
-basisStruct.response.B_0 = lever_0(tt_v, :);
-basisStruct.response.B   = lever(tt_v,:);
+%% response basis
+N_lev = find(peaks > 300/downsampleRate,1,'first'); %select number of basis, response length should be only 
+response_0 = circshift(basis_0(end:-1:1,1:N_lev),[bins_post_response+20/downsampleRate 0]);
+response = orth(response_0); %orthogonalizes for numerical reasons
+tt_v = sum(response.^2,2)>1e-8;
+basisStruct.response.B_0 = response_0(tt_v, :);
+basisStruct.response.B   = response(tt_v,:);
 basisStruct.response.tts = tts_0(tt_v);
 basisStruct.response.tts_0 = basisStruct.response.tts * (delta_t_default*1e3);
 
@@ -144,13 +144,13 @@ if(plotBases)
     
     subplot(2,3,2);
     plot(basisStruct.response.tts_0, basisStruct.response.B_0);
-    xlabel('time from lever release onset (ms)');
-    title('lever filter basis');
+    xlabel('time from response release onset (ms)');
+    title('response filter basis');
     
     subplot(2,3,5);
     plot(basisStruct.response.tts_0 , basisStruct.response.B);
-    xlabel('time from lever release (ms)');
-    title('orthormalized lever filter basis');
+    xlabel('time from response release (ms)');
+    title('orthormalized response filter basis');
     
     subplot(2,3,3);
     plot(basisStruct.spkHist.tts_0, basisStruct.spkHist.B_0);

@@ -1,49 +1,50 @@
-function [lp_H, dlp_H_hyper, d2lp_H_hyper] = halfTPrior(H, nu, A)
-%H is assumed to be log of a standard deviation (or similary exp transformed positive parameters)
+function [lp_log_x, dlp_log_x, d2lp_log_x] = halfTPrior(log_x, nu, scale)
+% x = exp(log_x) is a standard deviation (or similary exp transformed positive parameters) with distribution half-t distribution of scale and nu degrees of
+% freedom
 %
-%from Gelman (2006)  "Prior distributions for variance parameters in hierarchical models (Comment on Article by Browne and Draper)" Bayesian Analysis, pg 520
 %when nu = 1, is half cauchy
 
-lp_H = zeros(size(H));
-dlp_H_hyper = zeros(size(H));
-d2lp_H_hyper = zeros(size(H));
+lp_log_x   = zeros(size(log_x));
+dlp_log_x  = zeros(size(log_x));
+d2lp_log_x = zeros(size(log_x));
 
-if(nargin < 3 || isempty(A))
-    A = ones(size(H));
+if(nargin < 3 || isempty(scale))
+    scale = ones(size(log_x));
 end
 
-for ii = 1:numel(H)
+for ii = 1:numel(log_x)
     if(isscalar(nu))
         nu_c = nu;
     else
         nu_c = nu(ii);
     end
-    if(isscalar(A))
-        A_c = A;
+    if(isscalar(scale))
+        scale_c = scale;
     else
-        A_c = A(ii);
+        scale_c = scale(ii);
     end
     
-    if(H(ii)*2 - log(nu_c) - 2*log(A_c) > 30)
+    if(log_x(ii)*2 - log(nu_c) - 2*log(scale_c) > 30)
         %% numerically safer(?)
         %log hyperprior
-        lp_H(ii) = -(nu_c + 1)/2 .* (H(ii)*2 - log(nu_c) - 2*log(A_c)) + H(ii); %the plus H is for the exp transform
+        lp_log_x(ii) = -(nu_c + 1)/2 .* (log_x(ii)*2 - log(nu_c) - 2*log(scale_c)) + log_x(ii); %the plus log_x(ii) is for the exp transform
         if(nargout > 1)
-            dlp_H_hyper(ii) = -(nu_c + 1) + 1; 
+            dlp_log_x(ii) = -(nu_c + 1) + 1; 
         end
         if(nargout > 2)
-            d2lp_H_hyper(ii) = 0; 
+            d2lp_log_x(ii) = 0; 
         end
     else
         %log hyperprior
-        sig2 = exp(2 * H(ii) - 2*log(A_c));
-        lp_H(ii) = -(nu_c + 1)/2. * log1p(sig2 / nu_c)  + H(ii); %the plus H is for the exp transform
+        sig2 = exp(2 * log_x(ii) - 2*log(scale_c));
+        lp_log_x(ii) = -(nu_c + 1)/2. * log1p(sig2 / nu_c)  + log_x(ii); %the plus log_x(ii) is for the exp transform
         if(nargout > 1)
             %derivative of log hyperprior (w.r.t. H)
-            dlp_H_hyper(ii) = -(nu_c + 1) * (sig2 / (sig2 + nu_c)) + 1;
+            dlp_log_x(ii) = -(nu_c + 1) * (sig2 / (sig2 + nu_c)) + 1;
         end
         if(nargout > 2)
-            d2lp_H_hyper(ii) = -(nu_c + 1) * 2 * sig2 * nu_c ./ (nu_c + sig2).^2; 
+            d2lp_log_x(ii) = -(nu_c + 1) * 2 * sig2 * nu_c ./ (nu_c + sig2).^2; 
         end
     end
+    lp_log_x(ii) = lp_log_x(ii) + log(2) + gammaln((nu_c + 1) / 2) - gammaln(nu_c/2) - 1/2*log(pi*nu_c) - log(scale_c); % log normalization constant
 end

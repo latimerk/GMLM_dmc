@@ -11,7 +11,7 @@
 %   License (version 3 or later); please refer to the file
 %   License.txt, included with the software, for details.
 %
-function [GMLMstructure, trials] = constructGMLMRegressors(Neurons, TaskInfo, stimulusConfig, varargin)
+function [GMLMstructure, trials] = constructGMLMRegressors_alt(Neurons, TaskInfo, stimulusConfig, varargin)
 % Inputs:
 %   Neurons (struct)  - the data structure holding the trial information for each cell
 %   TaskInfo (struct) - the data structure holding the task information (directions and categories of the stimuli, bin size)
@@ -21,9 +21,9 @@ function [GMLMstructure, trials] = constructGMLMRegressors(Neurons, TaskInfo, st
 %                                                      If EMPTY, no stimulus-timed dynamic spike history is included
 %
 %   Parameters:
-%       includeResponseDynHspk (default = FALSE) - include the response-timed dynamic spike history components
+%       includeLeverDynHspk (default = FALSE) - include the lever-timed dynamic spike history components
 %       timeBeforeSample_bins (default in getDefaultTrialSettings) - number of bins before sample onset to include in trial window for analysis 
-%       timeAfterTestOrResponse_bins (default in getDefaultTrialSettings) - number of bins before after touch-bar release OR test stimulus offset to include in trial window for analysis 
+%       timeAfterTestOrLever_bins (default in getDefaultTrialSettings) - number of bins before after touch-bar release OR test stimulus offset to include in trial window for analysis 
 %       bases (struct) - the basis sets to use for the temporal filters (see setupBasis)
 
 %  NOTE: this current function assumes cells may be recorded individually.
@@ -33,8 +33,8 @@ function [GMLMstructure, trials] = constructGMLMRegressors(Neurons, TaskInfo, st
 % process args
 ND = numel(TaskInfo.Directions);
 
-[timeBeforeSample_default, timeAfterTestOrResponse_default, delta_t_default] = DMC.modelBuilder.getDefaultTrialSettings(TaskInfo, false, false, false);
-bases_default = DMC.modelBuilder.setupBasis('delta_t', delta_t_default, 'bins_post_response', timeAfterTestOrResponse_default);
+[timeBeforeSample_default, timeAfterTestOrLever_default, delta_t_default] = DMC.modelBuilder.getDefaultTrialSettings(TaskInfo, false, false, false);
+bases_default = DMC.modelBuilder.setupBasis('delta_t', delta_t_default, 'bins_post_lever', timeAfterTestOrLever_default);
 
 p = inputParser;
 p.CaseSensitive = false;
@@ -44,19 +44,19 @@ p.addRequired('TaskInfo'      , @isstruct);
 p.addRequired('stimulusConfig', @(sc) iscell(sc) | (isnumeric(sc) & size(sc, 1) == ND  & size(sc, 3) == 2));
 p.addOptional('dynHspkConfig' , [], @(dc) isempty(dc) | (isnumeric(dc) & size(dc, 1) == ND  & size(dc, 3) == 2));
 
-p.addParameter('includeResponseDynHspk' , false, @islogical);
+p.addParameter('includeLeverDynHspk' , false, @islogical);
 
 p.addParameter('timeBeforeSample_bins',     timeBeforeSample_default,     @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
-p.addParameter('timeAfterTestOrResponse_bins', timeAfterTestOrResponse_default, @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
+p.addParameter('timeAfterTestOrLever_bins', timeAfterTestOrLever_default, @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
 p.addParameter('bases'  ,  bases_default,    @isstruct);
 
 parse(p, Neurons, TaskInfo, stimulusConfig, varargin{:});
 dynHspkConfig     = p.Results.dynHspkConfig;
 
-includeResponseDynHspk = p.Results.includeResponseDynHspk;
+includeLeverDynHspk = p.Results.includeLeverDynHspk;
 
 timeBeforeSample_bins     = p.Results.timeBeforeSample_bins;
-timeAfterTestOrResponse_bins = p.Results.timeAfterTestOrResponse_bins;
+timeAfterTestOrLever_bins = p.Results.timeAfterTestOrLever_bins;
 bases     = p.Results.bases;
 
 includeStimDynHspk = ~isempty(dynHspkConfig);
@@ -84,12 +84,12 @@ N_tensor_groups = NS + 1;
 if(includeStimDynHspk)
     N_tensor_groups = N_tensor_groups + 1;
 end
-if(includeResponseDynHspk)
+if(includeLeverDynHspk)
     N_tensor_groups = N_tensor_groups + 1;
 end
 
 %sets up main structure
-GMLMstructure.dim_B = size(bases.spkHist.B, 2); % specify size of the linear term
+GMLMstructure.dim_B = size(bases.spkHist.B, 2) + size(bases.stim.B,2) + size(bases.stim_test.B,2); % specify size of the linear term
 GMLMstructure.Groups = struct('X_shared', cell(N_tensor_groups,1), 'dim_R_max', [], 'dim_A', [], 'name', [], 'dim_names', []); % tensor coefficient groups
 
 for ss = 1:NS
@@ -107,10 +107,10 @@ for ss = 1:NS
     GMLMstructure.Groups(ss).factor_idx = 1:2; %factor setup: here all dims are their own factor
 end
 
-GMLMstructure.Groups(NS+1).name = "Response";
+GMLMstructure.Groups(NS+1).name = "Lever";
 GMLMstructure.Groups(NS+1).dim_names = "timing";
 GMLMstructure.Groups(NS+1).dim_A = 1;
-GMLMstructure.Groups(NS+1).dim_R_max = 3; % max allocated space for rank
+GMLMstructure.Groups(NS+1).dim_R_max = 6; % max allocated space for rank
 GMLMstructure.Groups(NS+1).X_shared{1} = bases.response.B;
 GMLMstructure.Groups(NS+1).dim_T = size(bases.response.B, 2);
 GMLMstructure.Groups(NS+1).factor_idx = 1;
@@ -126,9 +126,9 @@ if(includeStimDynHspk)
     GMLMstructure.Groups(jj).dim_T = [size(bases.spkHist.B, 2) size(GMLMstructure.Groups(jj).X_shared{2}, 2) size(GMLMstructure.Groups(jj).X_shared{3}, 2) ];
     GMLMstructure.Groups(jj).factor_idx = 1:3;
 end
-if(includeResponseDynHspk)
+if(includeLeverDynHspk)
     jj = jj + 1;
-    GMLMstructure.Groups(jj).name = "ResponseDynamicSpikeHistory";
+    GMLMstructure.Groups(jj).name = "LeverDynamicSpikeHistory";
     GMLMstructure.Groups(jj).dim_names = ["kernel", "timing"];
     GMLMstructure.Groups(jj).dim_A = 1;
     GMLMstructure.Groups(jj).dim_R_max = 1; % max allocated space for rank
@@ -175,16 +175,16 @@ for nn = 1:numel(Neurons)
         %get current trial length
         trStart = Neurons(nn).sampleTime(mm) - timeBeforeSample_bins;%NOTE: all timings here will be relative to this sample stim onset time
         if(~isnan(Neurons(nn).leverTime(mm)))
-            %if response released
-            trEnd = Neurons(nn).leverTime(mm) + timeAfterTestOrResponse_bins;
+            %if lever released
+            trEnd = Neurons(nn).leverTime(mm) + timeAfterTestOrLever_bins;
         else
-            %if response not released and entire test stim viewed
-            trEnd = Neurons(nn).testTime(mm) + stimLength_bins + timeAfterTestOrResponse_bins;
+            %if lever not released and entire test stim viewed
+            trEnd = Neurons(nn).testTime(mm) + stimLength_bins + timeAfterTestOrLever_bins;
         end
         trLength = trEnd - trStart + 1;
         tt_idx_local = (1:trLength) + Neurons(nn).sampleTime(mm) - 1 + timeBeforeSample_bins;
         
-        %% setup stim & response groups for the trial
+        %% setup stim & lever groups for the trial
         trials(tr_idx).Groups = struct('X_local', cell(N_tensor_groups,1), 'iX_shared', []);
         
         for jj = 1:N_tensor_groups
@@ -216,12 +216,30 @@ for nn = 1:numel(Neurons)
             trials(tr_idx).Groups(ss).iX_shared{2}(:, 2) = Neurons(nn).testDir(mm) + ND; %test cat info should be in a the second block of the xstim regressors (hence the + ND)
         end
         
-        %% get response timing info
+        %% get lever timing info
         trials(tr_idx).Groups(NS+1).iX_shared{1}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).leverTime(mm)  - trStart, bases.response.tts);
-        %the response timing from the bases is important here: activity reflects response release BEFORE it happens (filter is acausal)
+        %the lever timing from the bases is important here: activity reflects lever release BEFORE it happens (filter is acausal)
 
+        
+        %% get spike observations
+        trials(tr_idx).Y = Neurons(nn).Y(tt_idx_local, mm);
+        
         %% get spike hist
-        trials(tr_idx).X_lin = squeeze(Y_c(tt_idx_local, mm, :));
+        sample_onset = zeros(size(trials(tr_idx).Groups(1).iX_shared{1},1), size(bases.stim.B,2));
+        test_onset   = zeros(size(trials(tr_idx).Groups(1).iX_shared{1},1), size(bases.stim_test.B,2));
+        
+        tts_sample = trials(tr_idx).Groups(ss).iX_shared{1}(:,1);
+        vv_sample = tts_sample > 0 &  tts_sample <= size(bases.stim.B,1);
+        tts_test = trials(tr_idx).Groups(ss).iX_shared{1}(:,2);
+        vv_test = tts_test > 0 &  tts_test <= size(bases.stim_test.B,1);
+        
+        sample_onset(vv_sample,:) = bases.stim.B(tts_sample(vv_sample), :);
+        test_onset(vv_test,:) = bases.stim_test.B(tts_test(vv_test), :);
+        
+        trials(tr_idx).X_lin = zeros(numel(trials(tr_idx).Y), GMLMstructure.dim_B);
+        trials(tr_idx).X_lin(:, 1:size(Y_c,3))  = squeeze(Y_c(tt_idx_local, mm, :));
+        trials(tr_idx).X_lin(:, size(Y_c,3) + (1:size(bases.stim.B,2))) = sample_onset;
+        trials(tr_idx).X_lin(:, size(Y_c,3) + size(bases.stim.B,2) + (1:size(bases.stim_test.B,2))) = test_onset;
         
         %% get any dynamic hspk terms
         
@@ -234,14 +252,12 @@ for nn = 1:numel(Neurons)
             trials(tr_idx).Groups(jj).iX_shared{3}(:, 1) = Neurons(nn).sampleDir(mm);
             trials(tr_idx).Groups(jj).iX_shared{3}(:, 2) = Neurons(nn).testDir(mm) + ND; 
         end
-        if(includeResponseDynHspk)
+        if(includeLeverDynHspk)
             jj = jj + 1;
             trials(tr_idx).Groups(jj).X_local{1}      = trials(tr_idx).X_lin;
             trials(tr_idx).Groups(jj).iX_shared{2}(:, 1) = getEventTimingsInBasis(trLength, Neurons(nn).leverTime(mm) - trStart, bases.response.tts);
         end
         
-        %% get spike observations
-        trials(tr_idx).Y = Neurons(nn).Y(tt_idx_local, mm);
         
         %% add trial length to running index
         tr_idx  = tr_idx  + 1;

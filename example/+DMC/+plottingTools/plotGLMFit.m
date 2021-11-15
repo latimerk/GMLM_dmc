@@ -67,15 +67,15 @@ end
 title('sample stim: total tuning');
 xlabel('time from stim onset (ms)');
 
-%% plot lever filter
-leverFilter = bases.response.B*paramStruct.Ks{2};
+%% plot response filter
+responseFilter = bases.response.B*paramStruct.Ks{2};
 
 subplot(NR, NC, NC + 1);
 hold on
-plot(bases.response.tts_0 * TaskInfo.binSize_ms, leverFilter);
-title('lever filter');
+plot(bases.response.tts_0 * TaskInfo.binSize_ms, responseFilter);
+title('response filter');
 ylabel('log gain');
-xlabel('time from lever release (ms)');
+xlabel('time from response release (ms)');
 
 
 %% plot spkHist filter

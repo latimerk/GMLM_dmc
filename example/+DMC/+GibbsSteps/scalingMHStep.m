@@ -1,24 +1,26 @@
 % A tensor component-wise rescaling Metropolis-Hastings step.
 % Useful for slighlty faster HMC mixing - plain HMC doesn't force any components to be normalized/orthogonal and this explores the scaling dimension faster.
 % Important: This step assumes that the prior distributions are normal with mean 0!
-function [params, acceptedProps, log_p_accept] = scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, stimPrior_setup)
+function [params, acceptedProps, log_p_accept] = scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, prior_setup, opts, results)
 
 
 log_p_accept = nan(100,MH_scaleSettings.N);
 acceptedProps = nan(100,MH_scaleSettings.N);
 
-opts    = gmlm.getComputeOptionsStruct(false);
-results = gmlm.getEmptyResultsStruct(opts);
+if(nargin < 9)
+    opts    = gmlm.getComputeOptionsStruct(false);
+    results = gmlm.getEmptyResultsStruct(opts);
+end
 
-if(optStruct.Groups(groupNum).dV && nargin > 6 && isfield(stimPrior_setup, 'V') && isfield(stimPrior_setup.V, 'mu'))
-    scalable_V = all(stimPrior_setup.V.mu == 0, 'all');
+if(optStruct.Groups(groupNum).dV && nargin > 6 && isfield(prior_setup, 'V') && isfield(prior_setup.V, 'mu'))
+    scalable_V = all(prior_setup.V.mu == 0, 'all');
 else
     scalable_V = optStruct.Groups(groupNum).dV ;
 end
 scalable_T = optStruct.Groups(groupNum).dT;
 for ss = 1:gmlm.dim_S(groupNum)
-    if(scalable_T(ss) && nargin > 6 &&isfield(stimPrior_setup, 'T') && isfield(stimPrior_setup.T, 'mu'))
-        scalable_T(ss) = all(stimPrior_setup.T(ss).mu == 0, 'all');
+    if(scalable_T(ss) && nargin > 6 &&isfield(prior_setup, 'T') && isfield(prior_setup.T, 'mu'))
+        scalable_T(ss) = all(prior_setup.T(ss).mu == 0, 'all');
     end
 end
 
@@ -28,6 +30,12 @@ Ts = Ts(:)';
 totalScale = scalable_V + sum(scalable_T);
 if(mod(sampleNum, MH_scaleSettings.sample_every) ~= 0 || totalScale < 2 || MH_scaleSettings.sig <= 0)
     return;
+end
+if(scalable_V)
+    order = [Ts 0];
+else
+    order = Ts;
+    order(end) = -order(end);
 end
 
 
@@ -44,13 +52,6 @@ for nn = 1:MH_scaleSettings.N
         scale_T = exp(     log_scale); %effictively, this proposal is a random walk on the norms of the T vectors: this proposal is thus a log norm with mu = log(norm(T(:,rr)), sig = sd
         scale_V = exp(-sum(log_scale));
         
-        if(scalable_V)
-            order = [Ts 0];
-        else
-            order = Ts;
-            order(end) = -order(end);
-        end
-
         dim_T = zeros(totalScale, 1);
 
         params2 = params;

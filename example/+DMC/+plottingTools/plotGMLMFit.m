@@ -7,8 +7,8 @@ for jj = 1:numel(paramStruct.Groups)
     if(strcmpi(paramStruct.Groups(jj).name, 'stimulus'))
         stimGroup = jj;
     end
-    if(strcmpi(paramStruct.Groups(jj).name, 'lever'))
-        leverGroup = jj;
+    if(strcmpi(paramStruct.Groups(jj).name, 'response'))
+        responseGroup = jj;
     end
 end
 
@@ -179,8 +179,8 @@ for ii = 1:numel(exampleNeurons)
     linkaxes(ax) %scale components the same to visualize relative contribution
 end
 
-%% plot lever and spk history filter for example neurons
-lev_filters = (bases.response.B*paramStruct.Groups(leverGroup).T{1})*paramStruct.Groups(leverGroup).V';
+%% plot response and spk history filter for example neurons
+lev_filters = (bases.response.B*paramStruct.Groups(responseGroup).T{1})*paramStruct.Groups(responseGroup).V';
 spkHist_filters = bases.spkHist.B * paramStruct.B;
 
 figure(4);
@@ -188,15 +188,15 @@ clf;
 NR = 2;
 NC = numel(exampleNeurons);
 for ii = 1:numel(exampleNeurons)
-    %lever filter
+    %response filter
     subplot(NR, NC, ii );
-    plot(bases.lever.tts_0, lev_filters(:, exampleNeurons(ii)));
+    plot(bases.response.tts_0, lev_filters(:, exampleNeurons(ii)));
     if(ii == 1)
-        xlabel('time from lever release (ms)');
+        xlabel('time from response release (ms)');
         ylabel('log gain');
     end
     
-    title(sprintf('cell %d\nbaseline log rate = %.2f\nlever filter', exampleNeurons(ii), paramStruct.W(exampleNeurons(ii))));
+    title(sprintf('cell %d\nbaseline log rate = %.2f\nresponse filter', exampleNeurons(ii), paramStruct.W(exampleNeurons(ii))));
     
     subplot(NR, NC, ii + NC);
     plot(bases.spkHist.tts_0, spkHist_filters(:, exampleNeurons(ii)));
