@@ -39,9 +39,9 @@ for jj = 1:length(samples.Groups)
     end
 end
   
-  
+N_main = 1 + plotH_gibbs + plotH;
 
-NR = max(1+length(samples.Groups), 1 + plotH_gibbs + plotH);
+NR = max(1+length(samples.Groups), N_main);
 NC = 5;
 subplot(NR,NC,1)
 plot(1:TotalSamples,samples.W)
@@ -61,7 +61,7 @@ subplot(NR,NC,3)
 if(sample > 200)
     plot(    sampleStart:TotalSamples, samples.log_post(sampleStart:end))
 else
-    semilogy(sampleStart:TotalSamples, samples.log_post(sampleStart:end))
+    plot(sampleStart:TotalSamples, samples.log_post(sampleStart:end))
 end
 xlabel('sample');
 ylabel('log posterior');
@@ -79,6 +79,9 @@ set(gca,'tickdir','out','box','off');
 
 subplot(NR,NC,5)
 semilogy(1:TotalSamples,samples.e)
+hold on
+semilogy(1:TotalSamples,samples.e_alt,'--')
+semilogy(1:TotalSamples,samples.e_alt2,':')
 xlabel('sample');
 ylabel('HMC step size');
 set(gca,'tickdir','out','box','off');
@@ -94,9 +97,9 @@ for jj = 1:length(samples.Groups)
         plot(1:TotalSamples,squeeze(samples.Groups(jj).T{ss}(:,1,:)));
         set(gca,'tickdir','out','box','off');
         title(sprintf('dim = %s',paramStruct.Groups(jj).dim_names(ss)));
-    end    
+    end   
         
-    if(numel(samples.Groups(jj).T) == 1 && size(paramStruct.Groups(jj).T{1},2) > 1)
+    if(numel(samples.Groups(jj).T) == 1 && size(paramStruct.Groups(jj).T{1},2) > 1 && jj >= N_main)
         
         subplot(NR,NC,3+jj*NC)
         plot(1:TotalSamples,squeeze(samples.Groups(jj).V(:,2,:)))
@@ -108,6 +111,18 @@ for jj = 1:length(samples.Groups)
         set(gca,'tickdir','out','box','off');
         title(sprintf('dim = %s, second component', paramStruct.Groups(jj).dim_names(1)));
     end
+    
+%     if(numel(samples.Groups(jj).T) >= 2 || (numel(samples.Groups(jj).T) == 1 && jj >= N_main))
+        if(jj >= N_main)
+            sp_idx = 5;
+        else
+            sp_idx = 4;
+        end
+        subplot(NR,NC,sp_idx+jj*NC)
+        semilogy(1:TotalSamples, samples.Groups(jj).N)
+        set(gca,'tickdir','out','box','off');
+        title(sprintf('component magnitudes'));
+%     end
 end
 
 
@@ -121,7 +136,7 @@ if(plotH)
     for jj = 1:length(samples.Groups)
         if(~isempty(samples.Groups(jj).H))
             NH = size(samples.Groups(jj).H, 1);
-            plot(1:TotalSamples,samples.Groups(jj).H(1:min(NH,5), :))
+            plot(1:TotalSamples,samples.Groups(jj).H(1:min(NH,12), :))
         end
     end
     hold off

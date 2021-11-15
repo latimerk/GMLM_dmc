@@ -287,7 +287,7 @@ for sample_idx = start_idx:TotalSamples
     end
     %%
     if(isfield(obj.GMLMstructure, 'doM') && obj.GMLMstructure.doH)
-        var_struct  = obj.devectorizeParams(zeros(size(M)), paramStruct, optStruct);
+        var_struct  = obj.devectorizeParams(inf(size(M)), paramStruct, optStruct);
         if(isfield(obj.GMLMstructure, 'getPriorVar') && ~isempty(obj.GMLMstructure.getPriorVar))
             var_struct = obj.GMLMstructure.getPriorVar(paramStruct);
         end

@@ -61,47 +61,49 @@ GPUGMLMPop<FPTYPE>::~GPUGMLMPop() {
 }
  
  template <class FPTYPE>
-void GPUGMLMPop<FPTYPE>::computeLogLikelihood_async(const GPUGMLMPop_params<FPTYPE> * params, const GPUGMLMPop_computeOptions<FPTYPE> * opts) {
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood_async(const GPUGMLMPop_params<FPTYPE> * params, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_) {
+    opts = opts_;
+
     std::vector<bool> isSparse;
     //load params to each block
     for(auto bb: gpu_blocks) {
-        isSparse.push_back(bb->loadParams(params, opts));
+        isSparse.push_back(bb->loadParams(params, opts.get()));
     }
 
     //call bits of LL computation
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeRateParts(opts, isSparse[bb]);
+        gpu_blocks[bb]->computeRateParts(opts.get(), isSparse[bb]);
     }
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeLogLike(opts, isSparse[bb]);
+        gpu_blocks[bb]->computeLogLike(opts.get(), isSparse[bb]);
     }
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeDerivatives(opts,  isSparse[bb]);
+        gpu_blocks[bb]->computeDerivatives(opts.get(),  isSparse[bb]);
     }
           
     //gather to host
     for(auto bb: gpu_blocks) {
-        bb->gatherResults(opts);
+        bb->gatherResults(opts.get());
     }
 }
 template <class FPTYPE>
-void GPUGMLMPop<FPTYPE>::computeLogLikelihood_gather(const GPUGMLMPop_computeOptions<FPTYPE> * opts, GPUGMLMPop_results<FPTYPE> * results, const bool reset_needed_0) {
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood_gather( GPUGMLMPop_results<FPTYPE> * results, const bool reset_needed_0) {
     //sync everything
     syncStreams();
             
     //put results in user-supplied struct
     bool reset_needed = reset_needed_0;
     for(auto bb: gpu_blocks) {
-        bool results_added = bb->addResultsToHost(results, opts, reset_needed);
+        bool results_added = bb->addResultsToHost(results, opts.get(), reset_needed);
         if(reset_needed && results_added) {
             reset_needed = false;
         }
     }
 }
 template <class FPTYPE>
-void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * params, const GPUGMLMPop_computeOptions<FPTYPE> * opts, GPUGMLMPop_results<FPTYPE> * results) {
-    computeLogLikelihood_async(params, opts);
-    computeLogLikelihood_gather(opts, results);
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * params, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_, GPUGMLMPop_results<FPTYPE> * results) {
+    computeLogLikelihood_async(params, opts_);
+    computeLogLikelihood_gather(results);
 }  
 
 template <class FPTYPE>
