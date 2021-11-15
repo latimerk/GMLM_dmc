@@ -498,7 +498,7 @@ classdef GMLM < handle
     % methods for dimension information (Public)
     % mostly to help me with my notation
     methods (Access = public)
-        
+
         function [pp] = dim_P(obj) %number of neurons
             if(obj.populationData)
                 pp = size(obj.trials(1).Y,2);
@@ -787,7 +787,7 @@ classdef GMLM < handle
             
             rr_m = obj.dim_R_max(groupIdx);
             if(dim_R_new > rr_m)
-                error("given dim_R is greater than maximum allocated rank (dim_R_new = %d, dim_R_max = %d)", dim_R_new, rrm);
+                error("given dim_R is greater than maximum allocated rank (dim_R_new = %d, dim_R_max = %d)", dim_R_new, rr_m);
             end
             
             obj.GMLMstructure.Groups(groupIdx).dim_R = dim_R_new;
@@ -1775,13 +1775,15 @@ classdef GMLM < handle
     %methods for computing log likelihood (and derivatives) on GPU (Public)
     methods (Access = public)    
         
-        function [results] = computeLogLikelihood(obj, params, opts)
+        function [results] = computeLogLikelihood(obj, params, opts, results)
             if(~obj.isOnGPU())
                 error("GMLM is not on GPU.");
             end
             
             %allocate space for results
-            results = obj.getEmptyResultsStruct(opts);
+            if(nargin < 4)
+                results = obj.getEmptyResultsStruct(opts);
+            end
             
             %send to GPU
             if(obj.populationData)
@@ -1792,18 +1794,41 @@ classdef GMLM < handle
             results.log_likelihood = sum(results.trialLL, 'all');
         end
         
-        function [results] = computeLogPosterior(obj, params, opts)
+        function [results] = computeLogPosterior(obj, params, opts, results)
+            if(~obj.isOnGPU())
+                error("GMLM is not on GPU.");
+            end
             %gets log likelihood
-            results = obj.computeLogLikelihood(params, opts);
+            if(nargin < 4)  
+                results = obj.getEmptyResultsStruct(opts);
+            end
+
+            % sends LL computation to GPU
+            if(obj.populationData)
+                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            else
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            end
             
             %adds the prior
+            if(nargin >= 4)
+                results = obj.clearResultsStruct(results);
+            end
             results = obj.computeLogPrior(params, opts, results);
+
+            % gets GPU results
+            if(obj.populationData)
+                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+            else
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+            end
+            results.log_likelihood = sum(results.trialLL, 'all');
             
             %sums up results
             results.log_post = results.log_likelihood + results.log_prior;
         end
         
-        function [nlog_like, ndl_like, params, results] = vectorizedNLL_func(obj, w_c, params, opts)
+        function [nlog_like, ndl_like, params, results] = vectorizedNLL_func(obj, w_c, params, opts, results)
             if(nargout > 1)
                 opts_0 = opts;
             else
@@ -1813,7 +1838,11 @@ classdef GMLM < handle
 
             params = obj.devectorizeParams(w_c, params, opts);
 
-            results    = obj.computeLogLikelihood(params, opts_0);
+            if(nargin < 5)
+                results    = obj.computeLogLikelihood(params, opts_0);
+            else
+                results    = obj.computeLogPrior(params, opts_0, results);
+            end
             nlog_like  = -results.log_likelihood;
 
             if(nargout > 1)
@@ -1822,7 +1851,7 @@ classdef GMLM < handle
             end
         end
         
-        function [nlog_post, ndl_post, params, results] = vectorizedNLPost_func(obj, w_c, params, opts)
+        function [nlog_post, ndl_post, params, results] = vectorizedNLPost_func(obj, w_c, params, opts, results)
             if(nargout > 1)
                 opts_0 = opts;
             else
@@ -1832,12 +1861,38 @@ classdef GMLM < handle
 
             params = obj.devectorizeParams(w_c, params, opts);
 
-            results    = obj.computeLogPosterior(params, opts_0);
+            if(nargin < 5)
+                results    = obj.computeLogPosterior(params, opts_0);
+            else
+                results    = obj.computeLogPosterior(params, opts_0, results);
+            end
             nlog_post  = -results.log_post;
 
             if(nargout > 1)
                 ndl_post =  obj.vectorizeResults(results, opts_0);
                 ndl_post = -ndl_post;
+            end
+        end
+        
+        function [nlog_prior, ndl_prior, params, results] = vectorizedNLPrior_func(obj, w_c, params, opts, results)
+            if(nargout > 1)
+                opts_0 = opts;
+            else
+                opts_0 = obj.getComputeOptionsStruct("enableAll", false, "includeHyperparameters", true);
+            end
+
+            params = obj.devectorizeParams(w_c, params, opts);
+
+            if(nargin < 5)
+                results    = obj.computeLogPrior(params, opts_0);
+            else
+                results    = obj.computeLogPrior(params, opts_0, results);
+            end
+            nlog_prior  = -results.log_prior;
+
+            if(nargout > 1)
+                ndl_prior =  obj.vectorizeResults(results, opts_0);
+                ndl_prior = -ndl_prior;
             end
         end
     end
@@ -1846,7 +1901,7 @@ classdef GMLM < handle
     %externally defined methods for inference
     methods (Access = public)
         [params_mle, results_mle, params_init]                         = computeMLE(obj, varargin);
-        [params_map, results_map]                                      = computeMAP(obj, params_init, varargin);
+        [params_map, results_map, hess_est]                            = computeMAP(obj, params_init, varargin);
         [params_mle, results_test_mle, results_train_mle, params_init] = computeMLE_crossValidated(obj, foldIDs, varargin);
         [params_map, results_test_map, results_train_map]              = computeMAP_crossValidated(obj, foldIDs, params_init, varargin);
         
@@ -1959,6 +2014,29 @@ classdef GMLM < handle
                 end
                 
                 results.Groups(jj).log_prior_VT = nan;
+            end
+        end
+        function [results] = clearResultsStruct(obj, results)
+            fs = ["trialLL", "dW", "dB", "dH", "log_likelihood", "log_prior", "log_prior_WB", "log_post"];
+            for ii = 1:numel(fs)
+                if(isfield(results, fs(ii)))
+                    results.(fs(ii))(:) = 0;
+                end
+            end
+            fs2 = ["dV", "dH", "log_prior_VT"];
+            if(isfield(results.Groups, "dT"))
+                for jj = 1:numel(results.Groups)
+                    for ss = 1:numel(results.Groups(jj).dT)
+                        results.Groups(jj).dT{ss}(:) = 0;
+                    end
+                end
+            end
+            for ii = 1:numel(fs2)
+                if(isfield(results.Groups, fs2(ii)))
+                    for jj = 1:numel(results.Groups)
+                        results.Groups(jj).(fs2(ii))(:) = 0;
+                    end
+                end
             end
         end
         

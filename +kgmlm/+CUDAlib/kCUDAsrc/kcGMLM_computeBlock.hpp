@@ -50,6 +50,8 @@ class GPUGMLM_computeBlock : GPUGL_base {
         size_t dim_J;
         
         bool results_set = false;
+
+        cudaEvent_t LL_event;
         
     public:
         //Primary constructor takes in the GMLM setup (as the full GPUGMLM class does), but only the specific block data

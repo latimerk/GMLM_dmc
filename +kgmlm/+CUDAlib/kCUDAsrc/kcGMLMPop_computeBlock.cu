@@ -70,6 +70,7 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLMPop_struct
     //setup the dataset structure
     dataset = new GPUGMLMPop_dataset_GPU<FPTYPE>(GMLMPopstructure, block, max_trials_, stream, cusparseHandle_Groups, msg);
     //dataset = NULL;
+    checkCudaErrors(cudaEventCreate(&LL_event), "GPUGMLMPop_computeBlock errors: could not create LL event!");
 }
 
 template <class FPTYPE>
@@ -79,6 +80,9 @@ GPUGMLMPop_computeBlock<FPTYPE>::~GPUGMLMPop_computeBlock() {
     delete results;
     delete params;
     delete dataset;
+
+    checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLMPop_computeBlock errors: could not clear LL event!");
+
 
     //destroy cublas handles
     checkCudaErrors(cublasDestroy(cublasHandle), "GPUGMLMPop_computeBlock errors: failed to destroy cublas handle." );
@@ -109,7 +113,7 @@ bool GPUGMLMPop_computeBlock<FPTYPE>::loadParams(const GPUGMLMPop_params<FPTYPE>
 
         //for each group, multiply coefficients by X*T -> XT
         for(int jj = 0; jj < dim_J && jj < dataset->dim_J(); jj++) {
-            dataset->Groups[jj]->multiplyCoefficients(isSparseRun, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj]);
+            dataset->Groups[jj]->multiplyCoefficients(isSparseRun, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], params->paramsLoaded_event);
         }
     }
     else {
@@ -295,6 +299,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
          //launch kernel to sum lambda for each trial
     
     //X_lin*B + W + log_dt + sum(lambda) -> LL for each neuron
+    checkCudaErrors(dataset->waitForGroups_LL(stream), "GPUGMLM_computeBlock::computeLogLike errors:  waitForGroups_LL failed");
 
     dim3 block_size;
     if(params->dim_P() > 8) {
@@ -347,6 +352,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
                                                                  dataset->normalizingConstants_trial->device());
         checkCudaErrors("GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_sum_trialLL launch failed");
     }
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_computeBlock::computeLogLike errors: could not add LL event to stream!");
 }
 
 /* Kernel for each neuron
@@ -398,7 +404,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLMPop_comput
     }
     //for each Group
     for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj]);
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
     }         
 }
        

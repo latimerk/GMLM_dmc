@@ -493,6 +493,8 @@ class GPUGMLM {
                  *         GPUGMLM_GPUportion's are summed on host and returned
                  *
                  */
+        void computeLogLikelihood_async(const GPUGMLM_params<FPTYPE> * params, const GPUGMLM_computeOptions<FPTYPE> * opts);
+        void computeLogLikelihood_gather(const GPUGMLM_computeOptions<FPTYPE> * opts, GPUGMLM_results<FPTYPE> * results, const bool reset_needed_0 = true);
         
 };
 

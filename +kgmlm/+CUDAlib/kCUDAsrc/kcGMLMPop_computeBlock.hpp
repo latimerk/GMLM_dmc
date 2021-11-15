@@ -53,6 +53,7 @@ class GPUGMLMPop_computeBlock : GPUGL_base {
         
         bool results_set = false;
         
+        cudaEvent_t LL_event;
     public:
         //Primary constructor takes in the GMLMPop setup (as the full GPUGMLMPop class does), but only the specific block data
         GPUGMLMPop_computeBlock(const GPUGMLMPop_structure_args<FPTYPE> * GMLMPopstructure, const GPUGMLMPop_GPU_block_args <FPTYPE> * block, const size_t max_trials_, std::shared_ptr<GPUGL_msg> msg_);

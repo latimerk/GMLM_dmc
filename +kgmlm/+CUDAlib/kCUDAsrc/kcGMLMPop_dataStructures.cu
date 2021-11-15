@@ -77,6 +77,8 @@ GPUGMLMPop_parameters_GPU<FPTYPE>::GPUGMLMPop_parameters_GPU(const GPUGMLMPop_st
     B = new GPUData<FPTYPE>(ce, GPUData_HOST_PAGELOCKED, stream, GMLMPopstructure->dim_B, GMLMPopstructure->dim_P);
     checkCudaErrors(ce, "GPUGMLMPop_parameters_GPU errors: could not allocate space for B!" );
 
+    checkCudaErrors(cudaEventCreate(&paramsLoaded_event), "GPUGMLMPop_parameters_GPU errors: could not create event!");
+
     //setup each group
     Groups.resize(GMLMPopstructure->Groups.size());
     for(int jj = 0; jj < GMLMPopstructure->Groups.size(); jj++) {
@@ -168,6 +170,7 @@ template <class FPTYPE>
 GPUGMLMPop_parameters_GPU<FPTYPE>::~GPUGMLMPop_parameters_GPU() {
     switchToDevice();
     checkCudaErrors("Error in start of GPUGMLMPop_parameters_GPU destructor!");
+    checkCudaErrors(cudaEventDestroy(paramsLoaded_event), "GPUGMLMPop_parameters_GPU errors: could not free event!");
     
     cudaSafeFree(trial_weights_temp , "GPUGMLMPop_parameters_GPU errors: could not free trial_weights_temp");
     cudaSafeFree(trial_included_temp, "GPUGMLMPop_parameters_GPU errors: could not free trial_included_temp");
@@ -305,12 +308,14 @@ void GPUGMLMPop_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLMPop_params<FPTYPE
         else {
             reset_sizes = true;
         }
-        checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
+        //checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
+        checkCudaErrors(cudaEventRecord(paramsLoaded_event, stream), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not add event to stream for sparse run!");
     }    
     else {
         // this says all trial weights are 1 (normal log likelihood computation)
         trial_weights  = trial_weights_0;
         reset_sizes = true;
+        checkCudaErrors(cudaEventRecord(paramsLoaded_event), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not record event!");
     }
 
     if(reset_sizes) {
@@ -1185,6 +1190,8 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             spi_buffer_size[dd] = buffer; 
         }
     }
+
+    checkCudaErrors(cudaEventCreate(&LL_event), "GPUGMLMPop_dataset_Group_GPU errors: could not create LL event!");
 }
 
 // destructor
@@ -1220,6 +1227,7 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::~GPUGMLMPop_dataset_GPU() {
 
 template <class FPTYPE>
 GPUGMLMPop_dataset_Group_GPU<FPTYPE>::~GPUGMLMPop_dataset_Group_GPU() {
+    checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLMPop_dataset_Group_GPU errors: could not clear LL event!");
     cudaSafeFreeVector(X, "GPUGMLMPop_dataset_Group_GPU errors: could not free X[dd]");
     cudaSafeFreeVector(XF, "GPUGMLMPop_dataset_Group_GPU errors: could not free iX[dd]");
     cudaSafeFreeVector(iX, "GPUGMLMPop_dataset_Group_GPU errors: could not free iX[dd]");
@@ -1282,7 +1290,7 @@ __global__ void kernel_getGroupX_local_full(GPUData_kernel<FPTYPE> X_temp, const
 
 //functions to multiply the tensor coefficients by the current parameters
 template <class FPTYPE>
-void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle) {
+void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded) {
     checkCudaErrors(set_dim_R(params->dim_R(), stream), "GPUGMLMPop_dataset_Group_GPU errors: could not set dim_R!");
     if(params->dim_R() == 0) {
         return;
@@ -1291,6 +1299,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSpa
         output_stream << "GPUGMLMPop_dataset_Group_GPU errors: dim_R too large for pre-allocated space!";
         msg->callErrMsgTxt(output_stream);
     }
+    checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded, 0), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
 
     if(isSparseRun) {
         checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
@@ -1503,6 +1512,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, 
                               parent->lambda->getData_gpu() + groupNum*parent->lambda->getInc_gpu(), parent->lambda->getLD_gpu());
         checkCudaErrors(ce, "GPUGMLMPop_dataset_Group_GPU::getGroupRate errors:  lambda_v * V' -> lambda(:, :, groupNum) failed");
     }
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
 }
 
 //=============================================================================================================================================================
@@ -1569,10 +1579,11 @@ __global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> X_temp, cons
 }
 
 template <class FPTYPE>
-void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle) {
+void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event) {
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
+    checkCudaErrors(cudaStreamWaitEvent(stream, LL_event, 0), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
 
     if(opts->compute_dV) {
         //for each neuron

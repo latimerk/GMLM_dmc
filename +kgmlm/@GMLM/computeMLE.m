@@ -69,6 +69,7 @@ function [params_mle, results_mle, params_init] = computeMLE(obj,  varargin)
     end
     results_mle = obj.computeLogLikelihood(params_mle, opts_empty);
     fprintf('Starting MLE optimization. log like = %.5e\n', results_mle.log_likelihood);
+    results_0 = cell(numel(optSetup),1);
     
     %% do optimization
     for aa = 1:max_iters
@@ -76,7 +77,11 @@ function [params_mle, results_mle, params_init] = computeMLE(obj,  varargin)
         for ss = 1:numel(optSetup)
             start_time_part = tic;
             w_init = obj.vectorizeParams(params_mle, optSetup(ss));
-            nllFunc = @(ww)obj.vectorizedNLL_func(ww, params_mle, optSetup(ss));
+
+            if(aa == 1)
+                results_0{ss} = obj.getEmptyResultsStruct(optSetup(ss));
+            end
+            nllFunc = @(ww)obj.vectorizedNLL_func(ww, params_mle, optSetup(ss), results_0{ss});
             try
                 [w_fit, fval]  = fminunc(nllFunc, w_init, fminunc_opts);
             catch

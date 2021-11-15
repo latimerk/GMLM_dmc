@@ -527,6 +527,8 @@ class GPUGMLMPop {
                  *         GPUGMLMPop_GPUportion's are summed on host and returned
                  *
                  */
+        void computeLogLikelihood_async(const GPUGMLMPop_params<FPTYPE> * params, const GPUGMLMPop_computeOptions<FPTYPE> * opts);
+        void computeLogLikelihood_gather(const GPUGMLMPop_computeOptions<FPTYPE> * opts, GPUGMLMPop_results<FPTYPE> * results, const bool reset_needed_0 = true);
         
 };
 

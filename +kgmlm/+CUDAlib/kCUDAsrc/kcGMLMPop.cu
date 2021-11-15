@@ -60,8 +60,8 @@ GPUGMLMPop<FPTYPE>::~GPUGMLMPop() {
     }
 }
  
-template <class FPTYPE>
-void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * params, const GPUGMLMPop_computeOptions<FPTYPE> * opts, GPUGMLMPop_results<FPTYPE> * results) {
+ template <class FPTYPE>
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood_async(const GPUGMLMPop_params<FPTYPE> * params, const GPUGMLMPop_computeOptions<FPTYPE> * opts) {
     std::vector<bool> isSparse;
     //load params to each block
     for(auto bb: gpu_blocks) {
@@ -73,11 +73,9 @@ void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * 
         gpu_blocks[bb]->computeRateParts(opts, isSparse[bb]);
     }
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->syncStreams();
         gpu_blocks[bb]->computeLogLike(opts, isSparse[bb]);
     }
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->syncStreams();
         gpu_blocks[bb]->computeDerivatives(opts,  isSparse[bb]);
     }
           
@@ -85,18 +83,25 @@ void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * 
     for(auto bb: gpu_blocks) {
         bb->gatherResults(opts);
     }
-
+}
+template <class FPTYPE>
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood_gather(const GPUGMLMPop_computeOptions<FPTYPE> * opts, GPUGMLMPop_results<FPTYPE> * results, const bool reset_needed_0) {
     //sync everything
     syncStreams();
             
     //put results in user-supplied struct
-    bool reset_needed = true;
+    bool reset_needed = reset_needed_0;
     for(auto bb: gpu_blocks) {
         bool results_added = bb->addResultsToHost(results, opts, reset_needed);
         if(reset_needed && results_added) {
             reset_needed = false;
         }
     }
+}
+template <class FPTYPE>
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * params, const GPUGMLMPop_computeOptions<FPTYPE> * opts, GPUGMLMPop_results<FPTYPE> * results) {
+    computeLogLikelihood_async(params, opts);
+    computeLogLikelihood_gather(opts, results);
 }  
 
 template <class FPTYPE>

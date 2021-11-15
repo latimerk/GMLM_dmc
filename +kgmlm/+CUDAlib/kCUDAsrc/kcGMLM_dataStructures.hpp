@@ -66,6 +66,8 @@ private:
     
     logLikeType logLikeSettings;
     GPUData<FPTYPE> * logLikeParams;
+
+    cudaEvent_t	paramsLoaded_event; 	
     
     //each group
     std::vector<GPUGMLM_parameters_Group_GPU<FPTYPE> *> Groups;
@@ -408,6 +410,17 @@ public:
     
     //void setupTrialWeights(const GPUGMLM_parameters_GPU<FPTYPE> * params, const cudaStream_t stream_main);
     //void setupGroupCoefficients(const GPUGMLM_parameters_GPU<FPTYPE> * params, const std::vector<cudaStream_t> stream_Groups);
+
+    inline cudaError_t waitForGroups_LL(cudaStream_t stream) {
+        cudaError_t ce = cudaSuccess;
+        for(auto jj : Groups) {
+            ce = cudaStreamWaitEvent(stream, jj->LL_event, 0);
+            if(ce != cudaSuccess) {
+                break;
+            }
+        }
+        return ce;
+    }
     
     //dimensions
     inline size_t dim_J() const { //number of coefficient tensor groups
@@ -489,6 +502,7 @@ protected:
     std::vector<GPUData<char> *>  spi_buffer;
     std::vector<size_t> spi_buffer_size;
     
+    cudaEvent_t LL_event;
 public:
     //constructor
     GPUGMLM_dataset_Group_GPU(const int groupNum_, const GPUGMLM_structure_Group_args<FPTYPE> * GMLMGroupStructure, const std::vector<GPUGMLM_trial_args <FPTYPE> *> trials, const std::vector<int> trial_load_order, const GPUGMLM_dataset_GPU<FPTYPE> * parent_, const cudaStream_t stream, const cusparseHandle_t & cusparseHandle);
@@ -497,9 +511,9 @@ public:
     ~GPUGMLM_dataset_Group_GPU();
     
     
-    void multiplyCoefficients(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle);
+    void multiplyCoefficients(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded);
     void getGroupRate(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream);
-    void computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle);
+    void computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event);
 
     //dimensions
     inline size_t dim_P() const  {

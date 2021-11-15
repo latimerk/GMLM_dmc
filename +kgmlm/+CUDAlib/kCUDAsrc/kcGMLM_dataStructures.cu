@@ -77,6 +77,8 @@ GPUGMLM_parameters_GPU<FPTYPE>::GPUGMLM_parameters_GPU(const GPUGMLM_structure_a
     B = new GPUData<FPTYPE>(ce, GPUData_HOST_PAGELOCKED, stream, GMLMstructure->dim_B, dim_P_);
     checkCudaErrors(ce, "GPUGMLM_parameters_GPU errors: could not allocate space for B!" );
 
+    checkCudaErrors(cudaEventCreate(&paramsLoaded_event), "GPUGMLM_parameters_GPU errors: could not create event!");
+
     //setup each group
     Groups.resize(GMLMstructure->Groups.size());
     for(int jj = 0; jj < GMLMstructure->Groups.size(); jj++) {
@@ -173,6 +175,9 @@ GPUGMLM_parameters_GPU<FPTYPE>::~GPUGMLM_parameters_GPU() {
     switchToDevice();
     checkCudaErrors("Error in start of GPUGMLM_parameters_GPU destructor!");
     
+
+    checkCudaErrors(cudaEventDestroy(paramsLoaded_event), "GPUGMLM_parameters_GPU errors: could not free event!");
+
     cudaSafeFree(trial_weights_temp , "GPUGMLM_parameters_GPU errors: could not free trial_weights_temp");
     cudaSafeFree(trial_included_temp, "GPUGMLM_parameters_GPU errors: could not free trial_included_temp");
     cudaSafeFree(trial_weights_0    , "GPUGMLM_parameters_GPU errors: could not free trial_weights_0");
@@ -313,12 +318,14 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         else {
             reset_sizes = true;
         }
-        checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
+        //checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
+        checkCudaErrors(cudaEventRecord(paramsLoaded_event, stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not add event to stream for sparse run!");
     }
     else {
         // this says all trial weights are 1 (normal log likelihood computation)
         trial_weights  = trial_weights_0;
         reset_sizes = true;
+        checkCudaErrors(cudaEventRecord(paramsLoaded_event), "GPUGMLM_parameters_GPU::copyToGPU errors: could not record event!");
     }
 
     if(reset_sizes) {
@@ -1233,12 +1240,16 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
             spi_buffer_size[dd] = buffer; 
         }
     }
+
+
+    checkCudaErrors(cudaEventCreate(&LL_event), "GPUGMLM_dataset_Group_GPU errors: could not create LL event!");
 }
 
 // destructor
 template <class FPTYPE>
 GPUGMLM_dataset_GPU<FPTYPE>::~GPUGMLM_dataset_GPU() {
     cudaSafeFree(Y, "GPUGMLM_dataset_GPU errors: could not free Y");
+
     
     cudaSafeFree(X_lin, "GPUGMLM_dataset_GPU errors: could not free X_lin");
     cudaSafeFree(X_lin_temp, "GPUGMLM_dataset_GPU errors: could not free X_lin_temp");
@@ -1274,6 +1285,7 @@ GPUGMLM_dataset_GPU<FPTYPE>::~GPUGMLM_dataset_GPU() {
 
 template <class FPTYPE>
 GPUGMLM_dataset_Group_GPU<FPTYPE>::~GPUGMLM_dataset_Group_GPU() {
+    checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLM_dataset_Group_GPU errors: could not clear LL event!");
     cudaSafeFreeVector(X, "GPUGMLM_dataset_Group_GPU errors: could not free X[dd]");
     cudaSafeFreeVector(XF, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
     cudaSafeFreeVector(iX, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
@@ -1339,7 +1351,7 @@ __global__ void kernel_getGroupX_local_full(GPUData_kernel<FPTYPE> X_temp, const
 
 //functions to multiply the tensor coefficients by the current parameters
 template <class FPTYPE>
-void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle) {
+void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded) {
     checkCudaErrors(set_dim_R(params->dim_R(), stream), "GPUGMLM_dataset_Group_GPU errors: could not set dim_R!");
     if(params->dim_R() == 0) {
         return;
@@ -1348,8 +1360,8 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
         output_stream << "GPUGMLM_dataset_Group_GPU errors: dim_R too large for pre-allocated space!";
         msg->callErrMsgTxt(output_stream);
     }
+    checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded, 0), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
     
-
     if(isSparseRun) {
         checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
     }
@@ -1553,6 +1565,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
                                                                             parent->ridx_a_all_c->device(), dim_A);
         checkCudaErrors("GPUGMLM_dataset_Group_GPU::getGroupRate errors:  kernel_getGroupRate launch failed");
     }
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
 }
 
 //=============================================================================================================================================================
@@ -1627,10 +1640,12 @@ __global__ void kernel_dLL_mult(GPUData_kernel<FPTYPE> lambda_d, const GPUData_k
 }
 
 template <class FPTYPE>
-void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle) {
+void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event) {
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
+
+    checkCudaErrors(cudaStreamWaitEvent(stream, LL_event, 0), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
 
     if(opts->compute_dV) {
         //for each neuron

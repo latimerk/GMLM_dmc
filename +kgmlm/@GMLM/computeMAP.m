@@ -18,7 +18,7 @@
 %       params_map  : the parameter struct at the optimal value
 %       results_map : the final results struct at params_mle
 %       
-function [params_map, results_map] = computeMAP(obj, params_init, varargin)
+function [params_map, results_map, hess_est] = computeMAP(obj, params_init, varargin)
 
     p = inputParser;
     p.CaseSensitive = false;
@@ -56,6 +56,7 @@ function [params_map, results_map] = computeMAP(obj, params_init, varargin)
     params_map  = params_init;
     results_map = obj.computeLogPosterior(params_map, opts_empty);
     fprintf('Starting MAP optimization. log post = %.5e\n', results_map.log_post);
+    results_0 = cell(numel(optSetup),1);
     
     %% do optimization
     for aa = 1:max_iters
@@ -63,14 +64,26 @@ function [params_map, results_map] = computeMAP(obj, params_init, varargin)
         for ss = 1:numel(optSetup)
             start_time_part = tic;
             w_init = obj.vectorizeParams(params_map, optSetup(ss));
-            nllFunc = @(ww)obj.vectorizedNLPost_func(ww, params_map, optSetup(ss));
+
+            if(aa == 1)
+                results_0{ss} = obj.getEmptyResultsStruct(optSetup(ss));
+            end
+            nllFunc = @(ww)obj.vectorizedNLPost_func(ww, params_map, optSetup(ss), results_0{ss});
             try
-                [w_fit, fval]  = fminunc(nllFunc, w_init, fminunc_opts);
+                if(aa == max_iters && nargout > 2)
+                    [w_fit, fval, ~, ~, ~, hess_est]  = fminunc(nllFunc, w_init, fminunc_opts);
+                else
+                    [w_fit, fval]  = fminunc(nllFunc, w_init, fminunc_opts);
+                end
             catch
                 fprintf('optimization failure! Trying a different fminunc setting.\n');
                 fminunc_opts2 = fminunc_opts;
                 fminunc_opts2.MaxIterations = ceil(fminunc_opts2.MaxIterations/5);
-                [w_fit, fval]  = fminunc(nllFunc, w_init, fminunc_opts2);
+                if(aa == max_iters && nargout > 2)
+                    [w_fit, fval, ~, ~, ~, hess_est]  = fminunc(nllFunc, w_init, fminunc_opts2);
+                else
+                    [w_fit, fval, ~, ~, ~, hess_est]  = fminunc(nllFunc, w_init, fminunc_opts2);
+                end
             end
             params_map = obj.devectorizeParams(w_fit, params_map, optSetup(ss));
             

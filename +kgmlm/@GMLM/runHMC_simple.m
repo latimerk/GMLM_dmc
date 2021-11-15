@@ -46,18 +46,29 @@ if(~isempty(trial_weights))
     optStruct.trial_weights(:) = trial_weights;
 end
 
-% if(sampleHyperparameters)
-%     TotalParameters = obj.getNumberOfParameters(-1) + obj.dim_H(-1);
-% else
-%     TotalParameters = obj.getNumberOfParameters(-1);
-% end
+optStruct_no_dH = optStruct;
+optStruct_no_dH.dH = false;
+for jj = 1:numel(optStruct_no_dH.Groups)
+    optStruct_no_dH.Groups(jj).dH = false;
+end
 
-H_var = (1/10)^2; %initial momentum term for hyperparams
+
+optStruct_dH = optStruct_empty;
+optStruct_dH.dH = optStruct.dH;
+for jj = 1:numel(optStruct_dH.Groups)
+    optStruct_dH.Groups(jj).dH = optStruct.Groups(jj).dH;
+end
+
+H_var = (1/5)^2; %initial momentum term for hyperparams
+
+W_scale = 1^2;%1./obj.dim_P;
+B_scale = 1^2;%1./obj.dim_P;
+
 
 paramStruct_2 = paramStruct;
-paramStruct_2.W(:) = 1;
+paramStruct_2.W(:) = W_scale;
 if(isfield(paramStruct_2, 'B'))
-    paramStruct_2.B(:) = 1;
+    paramStruct_2.B(:) = B_scale;
 end
 if(isfield(paramStruct_2, 'H'))
     paramStruct_2.H(:) = H_var;
@@ -72,9 +83,51 @@ for jj = 1:obj.dim_J
     end
 end
 
+paramStruct_H = paramStruct;
+paramStruct_H.W(:) = 0;
+if(isfield(paramStruct_H, 'B'))
+    paramStruct_H.B(:) = 0;
+end
+if(isfield(paramStruct_H, 'H'))
+    paramStruct_H.H(:) = 1;
+end
+for jj = 1:obj.dim_J
+    if(isfield(paramStruct_H.Groups(jj), 'H'))
+        paramStruct_H.Groups(jj).H(:) = 1;
+    end
+    paramStruct_H.Groups(jj).V(:) = 0;
+    for ss = 1:obj.dim_S(jj)
+         paramStruct_H.Groups(jj).T{ss}(:) = 0;
+    end
+end
+
+paramStruct_P = paramStruct;
+paramStruct_P.W(:) = 1;
+if(isfield(paramStruct_P, 'B'))
+    paramStruct_P.B(:) = 1;
+end
+if(isfield(paramStruct_P, 'H'))
+    paramStruct_P.H(:) = 0;
+end
+for jj = 1:obj.dim_J
+    if(isfield(paramStruct_P.Groups(jj), 'H'))
+        paramStruct_P.Groups(jj).H(:) = 0;
+    end
+    paramStruct_P.Groups(jj).V(:) = 1;
+    for ss = 1:obj.dim_S(jj)
+         paramStruct_P.Groups(jj).T{ss}(:) = 1;
+    end
+end
+
 TotalParameters = numel(obj.vectorizeParams(paramStruct, optStruct));
 %M = ones(TotalParameters,1);
 M = obj.vectorizeParams(paramStruct_2, optStruct);
+if(isfield(HMC_settings, "M_init"))
+    M = obj.vectorizeParams(HMC_settings.M_init, optStruct);
+end
+
+M_H   = obj.vectorizeParams(paramStruct_H, optStruct);
+M_P   = obj.vectorizeParams(paramStruct_P, optStruct);
 
 %% initialize space for samples
 TotalSamples = HMC_settings.nWarmup + HMC_settings.nSamples;
@@ -83,6 +136,15 @@ samples.log_p_accept  = nan(  TotalSamples,1);
 samples.errors        = false(TotalSamples,1);
 samples.accepted      = false(TotalSamples,1);
 samples.e             = nan(2,TotalSamples);
+
+samples.log_p_accept_alt  = nan(  TotalSamples,1);
+samples.log_p_accept_alt2 = nan(  TotalSamples,1);
+samples.errors_alt        = false(TotalSamples,1);
+samples.errors_alt2       = false(TotalSamples,1);
+samples.accepted_alt      = false(TotalSamples,1);
+samples.accepted_alt2     = false(TotalSamples,1);
+samples.e_alt             = nan(2,TotalSamples);
+samples.e_alt2            = nan(2,TotalSamples);
 
 
 if(obj.gpuDoublePrecision)
@@ -99,6 +161,7 @@ samples.log_post = nan(1, TotalSamples);
 samples.log_like = nan(1, TotalSamples);
 
 for jj = 1:obj.dim_J
+    samples.Groups(jj).N = nan(obj.dim_R(jj), TotalSamples, dataType);
     samples.Groups(jj).H = nan(obj.dim_H(jj),                TotalSamples, 'double');
     samples.Groups(jj).H_gibbs = nan(obj.dim_H_gibbs(jj),    TotalSamples, 'double');
     samples.Groups(jj).V = nan(obj.dim_P    , obj.dim_R(jj), TotalSamples, dataType);
@@ -114,8 +177,13 @@ samples_block.idx     = nan(samplesBlockSize, 1);
 samples_block.trialLL = nan([obj.dim_trialLL(1), obj.dim_trialLL(2), samplesBlockSize], dataType);
 
 if(exist(HMC_settings.samplesFile, 'file'))
-    continue_opt = input(sprintf('Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ', HMC_settings.samplesFile), 's');
-    if(startsWith(continue_opt, 'y', 'IgnoreCase', true))
+    if(isfield(HMC_settings, 'delete_temp_file'))
+        continue_opt = HMC_settings.delete_temp_file;
+    else
+        continue_opt = input(sprintf('Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ', HMC_settings.samplesFile), 's');
+        continue_opt = startsWith(continue_opt, 'y', 'IgnoreCase', true);
+    end
+    if(continue_opt)
         fprintf('Continuing... will overwrite file.\n');
     else
         error('Temporary file for storing trial log likelihood samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s', HMC_settings.samplesFile);
@@ -145,7 +213,15 @@ HMC_state.stepSize.x_t     = 0;
 HMC_state.stepSize.H_sum   = 0;
 HMC_state.steps            = min(HMC_settings.stepSize.maxSteps, ceil(HMC_settings.stepSize.stepL / HMC_state.stepSize.e));
 
+HMC_state_alt = HMC_state;
+HMC_state_alt.steps            = min(HMC_settings.stepSize_alt.maxSteps, ceil(HMC_settings.stepSize_alt.stepL / HMC_state_alt.stepSize.e));
+HMC_state_alt2 = HMC_state;
+HMC_state_alt2.steps            = min(HMC_settings.stepSize_alt2.maxSteps, ceil(HMC_settings.stepSize_alt2.stepL / HMC_state_alt2.stepSize.e));
+
 %% adds the initial point to the samples
+resultStruct_empty = obj.getEmptyResultsStruct(optStruct_empty);
+resultStruct_dH = obj.getEmptyResultsStruct(optStruct_dH);
+resultStruct_no_dH = obj.getEmptyResultsStruct(optStruct_no_dH);
 resultStruct = obj.computeLogPosterior(paramStruct, optStruct);
 samples.W(:,1)   = paramStruct.W(:);
 samples.B(:,:,1) = paramStruct.B;
@@ -153,12 +229,17 @@ samples.H(:,1)   = paramStruct.H(:);
 samples.H_gibbs(:,1)   = paramStruct.H_gibbs(:);
 
 for jj = 1:obj.dim_J
+    samples.Groups(jj).N(:, 1) = sum(paramStruct.Groups(jj).V.^2,1);
+    
     samples.Groups(jj).H(:,1) = paramStruct.Groups(jj).H;
     samples.Groups(jj).H_gibbs(:,1) = paramStruct.Groups(jj).H_gibbs;
     samples.Groups(jj).V(:,:,1) = paramStruct.Groups(jj).V;
     for ss = 1:obj.dim_S(jj)
         samples.Groups(jj).T{ss}(:,:,1) = paramStruct.Groups(jj).T{ss};
+        
+        samples.Groups(jj).N(:, 1) = samples.Groups(jj).N(:, 1).*sum(paramStruct.Groups(jj).T{ss}.^2,1)';
     end
+    samples.Groups(jj).N(:, 1) = sqrt(samples.Groups(jj).N(:, 1));
 end
 
 samples_block.idx(1) = 1;
@@ -167,6 +248,8 @@ samples_block.trialLL(:, :, 1) = resultStruct.trialLL;
 samples.log_post(1) = resultStruct.log_post;
 samples.log_like(1) = resultStruct.log_likelihood;
 samples.e(:,1)      = HMC_state.stepSize.e;
+samples.e_alt(:,1)      = HMC_state_alt.stepSize.e;
+samples.e_alt2(:,1)      = HMC_state_alt2.stepSize.e;
 
 samples.log_p_accept(1) = log(1);
 
@@ -192,20 +275,61 @@ for sample_idx = start_idx:TotalSamples
         %fprintf("done.\n");
     end
     
+    
     %% run any Gibbs steps - can be defined for the whole GMLM or tensor groups
     if(~isempty(obj.GMLMstructure.gibbs_step) && optStruct.H_gibbs)
-        paramStruct = obj.GMLMstructure.gibbs_step.sample_func(obj, paramStruct, optStruct, sample_idx);
+        paramStruct = obj.GMLMstructure.gibbs_step.sample_func(obj, paramStruct, optStruct, sample_idx, optStruct_empty, resultStruct_empty);
     end
     for jj = 1:obj.dim_J
         if(~isempty(obj.GMLMstructure.Groups(jj).gibbs_step) && optStruct.Groups(jj).H_gibbs)
-            paramStruct = obj.GMLMstructure.Groups(jj).gibbs_step.sample_func(obj, paramStruct, optStruct, sample_idx, jj);
+            paramStruct = obj.GMLMstructure.Groups(jj).gibbs_step.sample_func(obj, paramStruct, optStruct, sample_idx, jj, optStruct_empty, resultStruct_empty);
+        end
+    end
+    %%
+    if(isfield(obj.GMLMstructure, 'doM') && obj.GMLMstructure.doH)
+        var_struct  = obj.devectorizeParams(zeros(size(M)), paramStruct, optStruct);
+        if(isfield(obj.GMLMstructure, 'getPriorVar') && ~isempty(obj.GMLMstructure.getPriorVar))
+            var_struct = obj.GMLMstructure.getPriorVar(paramStruct);
+        end
+        for jj = 1:obj.dim_J
+            if(isfield(obj.GMLMstructure.Groups(jj), 'getPriorVar') && ~isempty(obj.GMLMstructure.Groups(jj).getPriorVar))
+                var_struct.Groups(jj) = obj.GMLMstructure.Groups(jj).getPriorVar(paramStruct.Groups(jj));
+            end
+        end
+        M_c_0 = M(M_P > 0);
+        M_c_1 = obj.vectorizeParams(var_struct, optStruct_no_dH);
+        M_c = max(M_c_0, 1./M_c_1);
+        
+        w_init = obj.vectorizeParams(paramStruct, optStruct_no_dH);
+        nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct_no_dH, resultStruct_no_dH);
+        [samples.accepted_alt(sample_idx), samples.errors_alt(sample_idx), w_new, samples.log_p_accept_alt(sample_idx), ~] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpostFunction, HMC_state_alt);
+        if(samples.accepted_alt(sample_idx))
+            paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct_no_dH);
+        end
+        
+        HMC_state_alt = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state_alt, HMC_settings.stepSize_alt, samples.log_p_accept_alt(sample_idx));
+        samples.e_alt(:,sample_idx) = [HMC_state_alt.stepSize.e; HMC_state_alt.stepSize.e_bar];
+    end
+    
+    if(isfield(obj.GMLMstructure, 'doH') && obj.GMLMstructure.doH)
+        M_c = M(M_H > 0);
+        if(~isempty(M_c))
+            w_init = obj.vectorizeParams(paramStruct, optStruct_dH);
+            nlpriorFunction = @(ww) obj.vectorizedNLPrior_func(ww, paramStruct, optStruct_dH, resultStruct_dH);
+            [samples.accepted_alt2(sample_idx), samples.errors_alt2(sample_idx), w_new, samples.log_p_accept_alt2(sample_idx), ~] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpriorFunction, HMC_state_alt2);
+            if(samples.accepted_alt2(sample_idx))
+                paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct_dH);
+            end
+
+            HMC_state_alt2 = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state_alt2, HMC_settings.stepSize_alt2, samples.log_p_accept_alt2(sample_idx));
+            samples.e_alt2(:,sample_idx) = [HMC_state_alt2.stepSize.e; HMC_state_alt2.stepSize.e_bar];
         end
     end
     
     %% get HMC sample
     % run HMC step
     w_init = obj.vectorizeParams(paramStruct, optStruct);
-    nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct);
+    nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct, resultStruct);
     [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, M, nlpostFunction, HMC_state);
     if(samples.accepted(sample_idx))
         paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct);
@@ -222,10 +346,13 @@ for sample_idx = start_idx:TotalSamples
         samples.Groups(jj).H(:,sample_idx) = paramStruct.Groups(jj).H;
         samples.Groups(jj).H_gibbs(:,sample_idx) = paramStruct.Groups(jj).H_gibbs;
         samples.Groups(jj).V(:,:,sample_idx) = paramStruct.Groups(jj).V;
+        samples.Groups(jj).N(:, sample_idx) = sum(paramStruct.Groups(jj).V.^2,1);
         
         for ss = 1:obj.dim_S(jj)
             samples.Groups(jj).T{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
+            samples.Groups(jj).N(:, sample_idx) = samples.Groups(jj).N(:, sample_idx).*sum(paramStruct.Groups(jj).T{ss}.^2,1)';
         end
+        samples.Groups(jj).N(:, sample_idx) = sqrt(samples.Groups(jj).N(:, sample_idx));
     end
     samples.log_post(sample_idx)   = resultStruct.log_post;
     samples.log_like(sample_idx)   = resultStruct.log_likelihood;
@@ -254,7 +381,7 @@ for sample_idx = start_idx:TotalSamples
         
         
         fprintf('HMC step %d / %d (accept per. = %.1f in last %d steps, curr log post = %e, (log like = %e)\n', sample_idx, TotalSamples, mean(samples.accepted(ww))*100, numel(ww), samples.log_post(sample_idx), samples.log_like(sample_idx));
-        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n', HMC_state.stepSize.e, HMC_state.steps, nansum(samples.errors));
+        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n', HMC_state.stepSize.e, HMC_state.steps, sum(samples.errors, 'omitnan'));
         clear ww;
         
         if(~isnan(figNum) && ~isinf(figNum))
@@ -274,6 +401,7 @@ for sample_idx = start_idx:TotalSamples
         ww = start_idx:sample_idx;
         %diagonal only
         M = (1./var(vectorizedSamples(:,ww),[],2));
+
     end
 end
 
