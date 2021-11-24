@@ -104,39 +104,41 @@ public:
 template <class FPTYPE>
 class matlab_GPUGMLM_computeOptions : public kCUDA::GPUGMLM_computeOptions<FPTYPE> {
 public:
-    matlab_GPUGMLM_computeOptions(const matlab::data::StructArray & GMLM_results, const std::vector<FPTYPE> & trial_weights) {
+    matlab_GPUGMLM_computeOptions(const matlab::data::StructArray & GMLM_opts, const std::vector<FPTYPE> & trial_weights) {
 
-        this->compute_trialLL =  !(GMLM_results[0]["trialLL"].isEmpty());
+        const matlab::data::TypedArray<bool> trialLL = GMLM_opts[0]["trialLL"];
+        this->compute_trialLL =  trialLL[0];
         
         //checks for an assigned dW vector
-        this->compute_dW =  !(GMLM_results[0]["dW"].isEmpty());
+        const matlab::data::TypedArray<bool> dW = GMLM_opts[0]["dW"];
+        this->compute_dW =  dW[0];
         
         //checks for an assigned dB vector
-        this->compute_dB =  !(GMLM_results[0]["dB"].isEmpty());
+        const matlab::data::TypedArray<bool> dB = GMLM_opts[0]["dB"];
+        this->compute_dB =  dB[0];
         
         //sets up trial weights
         this->trial_weights = std::vector<FPTYPE>(trial_weights);
         
         //for each group
-        const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];
+        const matlab::data::StructArray Groups_mat = GMLM_opts[0]["Groups"];
         size_t dim_J  = Groups_mat.getNumberOfElements();
         this->Groups.resize(dim_J);
         for(int jj = 0; jj < dim_J; jj++) {
             this->Groups[jj] = new kCUDA::GPUGMLM_group_computeOptions;
             
             //checks for a dV matrix
-            this->Groups[jj]->compute_dV =  !(Groups_mat[jj]["dV"].isEmpty());
+            const matlab::data::TypedArray<bool> dV = Groups_mat[jj]["dV"];
+            this->Groups[jj]->compute_dV =  dV[0];
             
             //for the remaining dimensions, looks at all T
-            const matlab::data::CellArray dT_mats  = Groups_mat[jj]["dT"];
+            const matlab::data::TypedArray<bool> dT = Groups_mat[jj]["dT"];
             
-            size_t dim_S = dT_mats.getNumberOfElements();
+            size_t dim_S = dT.getNumberOfElements();
             this->Groups[jj]->compute_dT.resize(dim_S);
             for(int ss = 0; ss < dim_S; ss++) {
-                const matlab::data::Array dT_mat  = dT_mats[ss];
-                
                 //checks for a dT matrix
-                this->Groups[jj]->compute_dT[ss] =  !(dT_mat.isEmpty());
+                this->Groups[jj]->compute_dT[ss] =  dT[ss];
             }
         }
     }
@@ -166,7 +168,7 @@ private:
     
 
     template <class FPTYPE>
-    void runComputation(const uint64_t GMLM_ptr, const matlab::data::StructArray & GMLM_params, const matlab::data::StructArray & GMLM_results, const std::vector<FPTYPE> & trial_weights) {
+    void runComputation(const uint64_t GMLM_ptr, const matlab::data::StructArray & GMLM_params, const matlab::data::StructArray & GMLM_opts, const std::vector<FPTYPE> & trial_weights) {
         if(GMLM_ptr == 0) {
             matlabPtr->feval(u"error", 0,
                 std::vector<matlab::data::Array>({ factory.createScalar("gpu pointer is not initialized!") }));
@@ -177,7 +179,7 @@ private:
         //gets the model parameters
         kCUDA::GPUGMLM_params<FPTYPE>  * params = new matlab_GPUGMLM_params<FPTYPE>(GMLM_params, matlabPtr); //GMLM_params,matlabPtr, &factory
         //gets the compute options based on which fields are available in restults
-        kCUDA::GPUGMLM_computeOptions<FPTYPE>    * opts    = new matlab_GPUGMLM_computeOptions<FPTYPE>(GMLM_results, trial_weights);
+        kCUDA::GPUGMLM_computeOptions<FPTYPE>    * opts    = new matlab_GPUGMLM_computeOptions<FPTYPE>(GMLM_opts, trial_weights);
         
         //runs the log likelihood computation. After, the results will be in the matlab arrays as results holds the pointers to those arrays.
         gmlm_obj->computeLogLikelihood_async(params, opts);
@@ -211,7 +213,7 @@ public:
         }
         
         const matlab::data::StructArray GMLM_params  = inputs[2];
-        const matlab::data::StructArray GMLM_results = inputs[3];
+        const matlab::data::StructArray GMLM_opts    = inputs[3];
         
         
         if(gpu_ptr_a.getNumberOfElements() < 1 || gpu_ptr_a[0] == 0) {
@@ -230,7 +232,7 @@ public:
                     trial_weights[ii] = ww[ii];
                 }
             }
-            runComputation<double>(gpu_ptr_a[0], GMLM_params, GMLM_results, trial_weights);
+            runComputation<double>(gpu_ptr_a[0], GMLM_params, GMLM_opts, trial_weights);
         }
         else {
             std::vector<float> trial_weights;
@@ -243,7 +245,7 @@ public:
                     trial_weights[ii] = ww[ii];
                 }
             }
-            runComputation<float>(gpu_ptr_a[0], GMLM_params, GMLM_results, trial_weights);
+            runComputation<float>(gpu_ptr_a[0], GMLM_params, GMLM_opts, trial_weights);
         }
     }
 };

@@ -40,7 +40,7 @@ classdef kcGLM < handle
             end
             
             %% check for valid log like type
-            obj.validLogLikeTypes = ["poissExp", "sqErr"];
+            obj.validLogLikeTypes = ["poissExp", "sqErr", "truncatedPoissExp"];
             if(nargin < 4)
                 logLikeType = obj.validLogLikeTypes(1);
             end
@@ -423,6 +423,9 @@ classdef kcGLM < handle
                     log_like_per_trial(mm).log_like = tw(mm)*(-sum(exp(rr)) + rr'*obj.trials(mm).Y(vv) - sum(gammaln(obj.trials(mm).Y(vv)+1)));
                 elseif(ll_idx == 2) %sqErr
                     log_like_per_trial(mm).log_like = -tw(mm)*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2);
+                if(ll_idx == 3) %poissExp
+                    rr = log_like_per_trial(mm).log_rate + log(obj.bin_size);
+                    log_like_per_trial(mm).log_like = kgmlm.utils.truncatedPoiss(rr(:),  obj.trials(mm).Y(:));;
                 else
                     error("invalid likelihood setting");
                 end

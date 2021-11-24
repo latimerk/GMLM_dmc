@@ -192,6 +192,48 @@ __global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> LL, GPUData_kernel<F
                     d2LL_c = sqrt(static_cast<FPTYPE>(2.0));
                 }
             }
+
+            else if(logLikeSettings == ll_truncatedPoissExp) {
+                int Y_ci = floor(Y_c);
+                if(Y_ci > 0) { 
+                    log_rate += log_dt;
+                    if(log_rate > -30) {
+                        FPTYPE rate = safeExp(log_rate);
+                        FPTYPE expNrate = safeExp(-rate);
+                         LL_c = log(1 - expNrate);
+                        FPTYPE exm1 = safeExpm1(rate);
+                        dLL_c = rate/exm1;
+                        if(compute_d2K) {
+                            FPTYPE enxm1 = safeExpm1(-rate);
+                            d2LL_c = rate*(1-rate - expNrate)/(exm1 + enxm1);
+                        }
+                    }
+                    else { // more numerically save approximation in an extreme case
+                         LL_c = log_rate;
+                        dLL_c = 1;
+                        d2LL_c = 0;
+                    }
+                }
+                else if(Y_ci == 0) {
+                    FPTYPE rate = safeExp(log_rate + log_dt);
+                     LL_c = -rate;
+                    dLL_c = -rate;
+                    d2LL_c = -rate;
+                }
+                // negatives get censored by Poisson LL
+            }
+            else if(logLikeSettings == ll_poissExp) {
+                int Y_ci = floor(Y_c);
+                if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                    log_rate += log_dt;
+                    FPTYPE rate = safeExp(log_rate);
+                     LL_c = (-rate + Y_ci * log_rate);
+                    dLL_c = (-rate + Y_ci) ;
+                    if(compute_d2K) {
+                        d2LL_c = safeExp(static_cast<FPTYPE>(0.5)*log_rate);
+                    }
+                }
+            }
             else if(logLikeSettings == ll_poissExpRefractory) {
                 // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
                 int Y_ci = floor(Y_c);

@@ -57,7 +57,7 @@ if(~debugSettings)
     HMC_settings.stepSize_alt2.schedule   = HMC_settings.stepSize.schedule;
     HMC_settings.stepSize_alt3.schedule   = HMC_settings.stepSize.schedule;
     
-    HMC_settings.samplesFile = [TempFolder 'tmp_GMLM_samples.mat'];
+    HMC_settings.samplesFile = [TempFolder 'tmp_GMLM_samples.dat'];
     HMC_settings.samplesBlockSize = 1e3;
     
     HMC_settings.verbose   = false;
@@ -78,11 +78,8 @@ if(~debugSettings)
     HMC_settings.stepSize_alt.maxSteps  = alt_maxSteps; %max number of steps per sample
     HMC_settings.stepSize_alt2.stepL     = alt_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
     HMC_settings.stepSize_alt2.maxSteps  = alt_maxSteps; %max number of steps per sample
-    HMC_settings.stepSize_alt3.stepL     = alt_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize_alt3.maxSteps  = alt_maxSteps; %max number of steps per sample
     
-   % HMC_settings.fitMAP = [100 500 900]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
-    HMC_settings.fitMAP = []; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
+    HMC_settings.fitMAP = [50]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
     
 else
     if(nWarmup < 1500)
@@ -114,8 +111,7 @@ else
     HMC_settings.stepSize_alt.maxSteps  = 20; %max number of steps per sample
     HMC_settings.stepSize_alt2.stepL     = 0.2; %total steps to take is min(maxSteps , ceil(stepL/e))
     HMC_settings.stepSize_alt2.maxSteps  = 20; %max number of steps per sample
-    HMC_settings.stepSize_alt3.stepL     = 0.2; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize_alt3.maxSteps  = 20; %max number of steps per sample
+    HMC_settings.fitMAP = [50]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
 end
 
 %%

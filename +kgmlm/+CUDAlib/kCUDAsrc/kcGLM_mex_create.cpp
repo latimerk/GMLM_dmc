@@ -63,6 +63,9 @@ private:
             case kCUDA::ll_sqErr:
                 GLMstructure->logLikeSettings = kCUDA::ll_sqErr;
                 break;
+            case kCUDA::ll_truncatedPoissExp:
+                GLMstructure->logLikeSettings = kCUDA::ll_truncatedPoissExp;
+                break;
             default:
                 matlabPtr->feval(u"error", 0,
                     std::vector<matlab::data::Array>({ factory.createScalar("Invalid log likelihood type") }));

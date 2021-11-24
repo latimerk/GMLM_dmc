@@ -80,7 +80,7 @@ classdef GMLM < handle
             end
             
             %% check for valid log like type
-            obj.validLogLikeTypes = ["poissExp", "sqErr"];
+            obj.validLogLikeTypes = ["poissExp", "sqErr", "truncatedPoissExp"];
             if(nargin < 4)
                 logLikeType = obj.validLogLikeTypes(1);
             end
@@ -1220,11 +1220,22 @@ classdef GMLM < handle
                     for pp = 1:size(obj.trials(mm).Y, 2)
                         vv = obj.trials(mm).Y(:, pp) >= 0; %check for any censored values
                         rr = log_like_per_trial(mm).log_rate(vv, pp) + log(obj.bin_size);
-                        log_like_per_trial(mm).log_like_0(:, pp) = -exp(rr) + rr.*obj.trials(mm).Y(vv, pp) - (gammaln(obj.trials(mm).Y(vv, pp)+1));
+                        log_like_per_trial(mm).log_like_0(vv, pp) = -exp(rr) + rr.*obj.trials(mm).Y(vv, pp) - (gammaln(obj.trials(mm).Y(vv, pp)+1));
                     end
                     log_like_per_trial(mm).log_like   = tw(mm,:).*sum(log_like_per_trial(mm).log_like_0, 1);
                 elseif(ll_idx == 2) %sqErr
                     log_like_per_trial(mm).log_like = -tw(mm,:).*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2, 1);
+
+                elseif(ll_idx == 3) %truncated Poisson
+                    log_like_per_trial(mm).log_like_0  = zeros(size(obj.trials(mm).Y));
+                    
+                    for pp = 1:size(obj.trials(mm).Y, 2)
+                        rr = log_like_per_trial(mm).log_rate(:, pp) + log(obj.bin_size);
+
+                        log_like_per_trial(mm).log_like_0(:, pp) = kgmlm.utils.truncatedPoiss(rr, obj.trials(mm).Y(:, pp) );
+
+                    end
+                    log_like_per_trial(mm).log_like   = tw(mm,:).*sum(log_like_per_trial(mm).log_like_0, 1);
                 else
                     error("invalid likelihood setting");
                 end
@@ -1770,6 +1781,11 @@ classdef GMLM < handle
                 obj.gpus = [];
             end
         end
+        function [obj] = clearGPU_ptr(obj)
+            warning("clearGPU_ptr is only for debugging.");
+            obj.gpuObj_ptr = 0;
+            obj.gpus = [];
+        end
     end
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %methods for computing log likelihood (and derivatives) on GPU (Public)
@@ -1798,21 +1814,19 @@ classdef GMLM < handle
             if(~obj.isOnGPU())
                 error("GMLM is not on GPU.");
             end
-            %gets log likelihood
-            if(nargin < 4)  
-                results = obj.getEmptyResultsStruct(opts);
-            end
 
             % sends LL computation to GPU
             if(obj.populationData)
-                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
             else
-                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
             end
             
             %adds the prior
             if(nargin >= 4)
                 results = obj.clearResultsStruct(results);
+            else
+                results = obj.getEmptyResultsStruct(opts);
             end
             results = obj.computeLogPrior(params, opts, results);
 
@@ -2016,7 +2030,7 @@ classdef GMLM < handle
                 results.Groups(jj).log_prior_VT = nan;
             end
         end
-        function [results] = clearResultsStruct(obj, results)
+        function [results] = clearResultsStruct(obj, results) %#ok<INUSL> 
             fs = ["trialLL", "dW", "dB", "dH", "log_likelihood", "log_prior", "log_prior_WB", "log_post"];
             for ii = 1:numel(fs)
                 if(isfield(results, fs(ii)))

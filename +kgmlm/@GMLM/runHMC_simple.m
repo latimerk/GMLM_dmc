@@ -16,12 +16,12 @@ function [samples, summary, HMC_settings, paramStruct, M] = runHMC_simple(obj, p
 p = inputParser;
 p.CaseSensitive = false;
 
-addRequired(p, 'params_init',  @(aa)(isstruct(aa) | isempty(aa)));
-addRequired(p, 'settings', @isstruct);
-addParameter(p, 'figure' ,    nan, @isnumeric);
-addParameter(p, 'optStruct' ,   [], @(aa) isempty(aa) | obj.verifyComputeOptionsStruct(aa));
-addParameter(p, 'sampleHyperparameters', true, @islogical);
-addParameter(p, 'trial_weights'   ,  [], @(aa) isempty(aa) | (numel(aa) == obj.dim_M & isnumeric(aa)));
+addRequired(p, "params_init",  @(aa)(isstruct(aa) | isempty(aa)));
+addRequired(p, "settings", @isstruct);
+addParameter(p, "figure" ,    nan, @isnumeric);
+addParameter(p, "optStruct" ,   [], @(aa) isempty(aa) | obj.verifyComputeOptionsStruct(aa));
+addParameter(p, "sampleHyperparameters", true, @islogical);
+addParameter(p, "trial_weights"   ,  [], @(aa) isempty(aa) | (numel(aa) == obj.dim_M & isnumeric(aa)));
 
 parse(p, params_init, HMC_settings, varargin{:});
 % then set/get all the inputs out of this structure
@@ -33,14 +33,14 @@ sampleHyperparameters = p.Results.sampleHyperparameters;
 figNum = p.Results.figure;
     
 if(~obj.isOnGPU())
-    error('Must load gmlm onto GPU before running HMC!');
+    error("Must load gmlm onto GPU before running HMC!");
 end
 
 %% sets up the hmc momentum cov matrices
 if(isempty(optStruct))
-    optStruct = obj.getComputeOptionsStruct(true, 'trial_weights', ~isempty(trial_weights), 'includeHyperparameters', sampleHyperparameters);
+    optStruct = obj.getComputeOptionsStruct(true, "trial_weights", ~isempty(trial_weights), "includeHyperparameters", sampleHyperparameters);
 end
-optStruct_empty = obj.getComputeOptionsStruct(false, 'trial_weights', ~isempty(trial_weights), 'includeHyperparameters', sampleHyperparameters);
+optStruct_empty = obj.getComputeOptionsStruct(false, "trial_weights", ~isempty(trial_weights), "includeHyperparameters", sampleHyperparameters);
 if(~isempty(trial_weights))
     optStruct_empty.trial_weights(:) = trial_weights;
     optStruct.trial_weights(:) = trial_weights;
@@ -67,14 +67,14 @@ B_scale = 1^2;%1./obj.dim_P;
 
 paramStruct_2 = paramStruct;
 paramStruct_2.W(:) = W_scale;
-if(isfield(paramStruct_2, 'B'))
+if(isfield(paramStruct_2, "B"))
     paramStruct_2.B(:) = B_scale;
 end
-if(isfield(paramStruct_2, 'H'))
+if(isfield(paramStruct_2, "H"))
     paramStruct_2.H(:) = H_var;
 end
 for jj = 1:obj.dim_J
-    if(isfield(paramStruct_2.Groups(jj), 'H'))
+    if(isfield(paramStruct_2.Groups(jj), "H"))
         paramStruct_2.Groups(jj).H(:) = H_var;
     end
     paramStruct_2.Groups(jj).V(:) = 1;
@@ -85,14 +85,14 @@ end
 
 paramStruct_H = paramStruct;
 paramStruct_H.W(:) = 0;
-if(isfield(paramStruct_H, 'B'))
+if(isfield(paramStruct_H, "B"))
     paramStruct_H.B(:) = 0;
 end
-if(isfield(paramStruct_H, 'H'))
+if(isfield(paramStruct_H, "H"))
     paramStruct_H.H(:) = 1;
 end
 for jj = 1:obj.dim_J
-    if(isfield(paramStruct_H.Groups(jj), 'H'))
+    if(isfield(paramStruct_H.Groups(jj), "H"))
         paramStruct_H.Groups(jj).H(:) = 1;
     end
     paramStruct_H.Groups(jj).V(:) = 0;
@@ -103,14 +103,14 @@ end
 
 paramStruct_P = paramStruct;
 paramStruct_P.W(:) = 1;
-if(isfield(paramStruct_P, 'B'))
+if(isfield(paramStruct_P, "B"))
     paramStruct_P.B(:) = 1;
 end
-if(isfield(paramStruct_P, 'H'))
+if(isfield(paramStruct_P, "H"))
     paramStruct_P.H(:) = 0;
 end
 for jj = 1:obj.dim_J
-    if(isfield(paramStruct_P.Groups(jj), 'H'))
+    if(isfield(paramStruct_P.Groups(jj), "H"))
         paramStruct_P.Groups(jj).H(:) = 0;
     end
     paramStruct_P.Groups(jj).V(:) = 1;
@@ -148,13 +148,13 @@ samples.e_alt2            = nan(2,TotalSamples);
 
 
 if(obj.gpuDoublePrecision)
-    dataType = 'double';
+    dataType = "double";
 else
-    dataType = 'single';
+    dataType = "single";
 end
 
-samples.H       = nan(obj.dim_H,            TotalSamples, 'double');
-samples.H_gibbs = nan(obj.dim_H_gibbs,      TotalSamples, 'double');
+samples.H       = nan(obj.dim_H,            TotalSamples, "double");
+samples.H_gibbs = nan(obj.dim_H_gibbs,      TotalSamples, "double");
 samples.W       = nan(obj.dim_P,            TotalSamples, dataType);
 samples.B       = nan(obj.dim_B, obj.dim_P, TotalSamples, dataType);
 samples.log_post = nan(1, TotalSamples);
@@ -162,8 +162,8 @@ samples.log_like = nan(1, TotalSamples);
 
 for jj = 1:obj.dim_J
     samples.Groups(jj).N = nan(obj.dim_R(jj), TotalSamples, dataType);
-    samples.Groups(jj).H = nan(obj.dim_H(jj),                TotalSamples, 'double');
-    samples.Groups(jj).H_gibbs = nan(obj.dim_H_gibbs(jj),    TotalSamples, 'double');
+    samples.Groups(jj).H = nan(obj.dim_H(jj),                TotalSamples, "double");
+    samples.Groups(jj).H_gibbs = nan(obj.dim_H_gibbs(jj),    TotalSamples, "double");
     samples.Groups(jj).V = nan(obj.dim_P    , obj.dim_R(jj), TotalSamples, dataType);
     samples.Groups(jj).T = cell(obj.dim_S(jj), 1);
     for ss = 1:obj.dim_S(jj)
@@ -172,38 +172,43 @@ for jj = 1:obj.dim_J
 end
 
 %save trial log likelihoods to harddrive in a piece-wise manner (otherwise, I'd fill up RAM)
+DT = [obj.dim_trialLL(1) obj.dim_trialLL(2)];
 samplesBlockSize      = min(HMC_settings.samplesBlockSize, TotalSamples);
 samples_block.idx     = nan(samplesBlockSize, 1);
-samples_block.trialLL = nan([obj.dim_trialLL(1), obj.dim_trialLL(2), samplesBlockSize], dataType);
+samples_block.trialLL = nan([samplesBlockSize DT(1) DT(2)], dataType);
 
-if(exist(HMC_settings.samplesFile, 'file'))
-    if(isfield(HMC_settings, 'delete_temp_file'))
+if(exist(HMC_settings.samplesFile, "file"))
+    if(isfield(HMC_settings, "delete_temp_file"))
         continue_opt = HMC_settings.delete_temp_file;
     else
-        continue_opt = input(sprintf('Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ', HMC_settings.samplesFile), 's');
-        continue_opt = startsWith(continue_opt, 'y', 'IgnoreCase', true);
+        continue_opt = input(sprintf("Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ", HMC_settings.samplesFile), "s");
+        continue_opt = startsWith(continue_opt, "y", "IgnoreCase", true);
     end
     if(continue_opt)
-        fprintf('Deleting temporary storage file and continuing...\n');
+        fprintf("Deleting temporary storage file and continuing...\n");
     else
-        error('Temporary file for storing trial log likelihood samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s', HMC_settings.samplesFile);
+        error("Temporary file for storing trial log likelihood samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s", HMC_settings.samplesFile);
     end
 end
-a = 1; % dummy variable
-save(HMC_settings.samplesFile, 'a', '-nocompression', '-v7.3');
-samples_file = matfile(HMC_settings.samplesFile, 'Writable',true);
-samples_file.trialLL = zeros([obj.dim_trialLL(1), obj.dim_trialLL(2), samplesBlockSize], dataType);
-obj.temp_storage_file = HMC_settings.samplesFile;
 
-NB = ceil(TotalSamples / samplesBlockSize); % I'm trying here to pre-allocate space in the samples file without filling up RAM (there's probably a better way to do this, but I don't care)
-for ii = 1:NB
-    if(ii == NB)
-        idx = ((NB-1)*samplesBlockSize + 1):TotalSamples;
-    else
-        idx = (1:samplesBlockSize) + (NB-1)*samplesBlockSize;
+%makes space for trialLL without ever making the full matrix in RAM: this is a cludge around the compression that mafile puts in automatically
+fprintf("Preallocating HD space to store LLs for each trial...\n")
+
+obj.temp_storage_file = HMC_settings.samplesFile;
+fileID = fopen(HMC_settings.samplesFile, "w");
+Z = zeros(TotalSamples,1,dataType);
+for ii = 1:DT(1)
+    for jj = 1:DT(2)
+        fwrite(fileID, Z, dataType);
     end
-    samples_file.trialLL(:, :, idx) = nan([obj.dim_trialLL(1), obj.dim_trialLL(2), numel(idx)], dataType);
 end
+clear Z;
+fclose(fileID);
+
+samples_file = memmapfile(HMC_settings.samplesFile,...
+               "Format",{dataType,[TotalSamples DT(1) DT(2)],"trialLL"}, ...
+               "Writable", true);
+fprintf("Done.\n")
 
 %% initialize HMC state
 HMC_state.stepSize.e       = HMC_settings.stepSize.e_0;
@@ -243,7 +248,7 @@ for jj = 1:obj.dim_J
 end
 
 samples_block.idx(1) = 1;
-samples_block.trialLL(:, :, 1) = resultStruct.trialLL;
+samples_block.trialLL(1, :, :) = resultStruct.trialLL;
 
 samples.log_post(1) = resultStruct.log_post;
 samples.log_like(1) = resultStruct.log_likelihood;
@@ -253,7 +258,7 @@ samples.e_alt2(:,1)      = HMC_state_alt2.stepSize.e;
 
 samples.log_p_accept(1) = log(1);
 
-fprintf('Starting HMC for %d samples (%d warmup) with initial log posterior = %e, initial step size = %e, max HMC steps = %d\n', TotalSamples, HMC_settings.nWarmup, samples.log_post(1), HMC_state.stepSize.e, HMC_settings.stepSize.maxSteps);
+fprintf("Starting HMC for %d samples (%d warmup) with initial log posterior = %e, initial step size = %e, max HMC steps = %d\n", TotalSamples, HMC_settings.nWarmup, samples.log_post(1), HMC_state.stepSize.e, HMC_settings.stepSize.maxSteps);
 
 if(~isnan(figNum) && ~isinf(figNum))
     figure(figNum);
@@ -271,7 +276,7 @@ for sample_idx = start_idx:TotalSamples
     
     if(isfield(HMC_settings, "fitMAP") && ismember(sample_idx, HMC_settings.fitMAP))
         fprintf("Attempting to accelerate mixing by finding MAP estimate given current hyperparameters...\n");
-        paramStruct = obj.computeMAP(paramStruct, "optStruct", optStruct, "alternating_opt", false, "max_iters", 5, "max_quasinewton_steps", 250);
+        paramStruct = obj.computeMAP(paramStruct, "optStruct", optStruct, "alternating_opt", false, "max_iters", 5, "max_quasinewton_steps", 1000);
         %fprintf("done.\n");
     end
     
@@ -286,14 +291,14 @@ for sample_idx = start_idx:TotalSamples
         end
     end
     %%
-    if(isfield(obj.GMLMstructure, 'doM') && obj.GMLMstructure.doH)
+    if(isfield(HMC_settings, "sample_M") && HMC_settings.sample_M)
         var_struct  = obj.devectorizeParams(inf(size(M)), paramStruct, optStruct);
-        if(isfield(obj.GMLMstructure, 'getPriorVar') && ~isempty(obj.GMLMstructure.getPriorVar))
-            var_struct = obj.GMLMstructure.getPriorVar(paramStruct);
+        if(isfield(obj.GMLMstructure.HMC_setup, "getPriorVar") && ~isempty(obj.GMLMstructure.HMC_setup.getPriorVar))
+            var_struct = obj.GMLMstructure.HMC_setup.getPriorVar(paramStruct);
         end
         for jj = 1:obj.dim_J
-            if(isfield(obj.GMLMstructure.Groups(jj), 'getPriorVar') && ~isempty(obj.GMLMstructure.Groups(jj).getPriorVar))
-                var_struct.Groups(jj) = obj.GMLMstructure.Groups(jj).getPriorVar(paramStruct.Groups(jj));
+            if(isfield(obj.GMLMstructure.HMC_setup.Groups(jj), "getPriorVar") && ~isempty(obj.GMLMstructure.HMC_setup.Groups(jj).getPriorVar))
+                var_struct.Groups(jj) = obj.GMLMstructure.HMC_setup.Groups(jj).getPriorVar(paramStruct.Groups(jj));
             end
         end
         M_c_0 = M(M_P > 0);
@@ -311,7 +316,7 @@ for sample_idx = start_idx:TotalSamples
         samples.e_alt(:,sample_idx) = [HMC_state_alt.stepSize.e; HMC_state_alt.stepSize.e_bar];
     end
     
-    if(isfield(obj.GMLMstructure, 'doH') && obj.GMLMstructure.doH)
+    if(isfield(HMC_settings, "sample_H") && HMC_settings.sample_H)
         M_c = M(M_H > 0);
         if(~isempty(M_c))
             w_init = obj.vectorizeParams(paramStruct, optStruct_dH);
@@ -364,11 +369,11 @@ for sample_idx = start_idx:TotalSamples
     %temp storage of trialLL
     idx_c = mod(sample_idx-1, samplesBlockSize) + 1;
     samples_block.idx(       idx_c) = sample_idx;
-    samples_block.trialLL(:, :, idx_c) = resultStruct.trialLL;
+    samples_block.trialLL(idx_c, :, :) = resultStruct.trialLL;
     if(mod(sample_idx, samplesBlockSize) == 0 || sample_idx == TotalSamples)
         %save to file
         xx = ~isnan(samples_block.idx);
-        samples_file.trialLL(:,:,samples_block.idx(xx))  = samples_block.trialLL;
+        samples_file.Data.trialLL(samples_block.idx(xx),:,:)  = samples_block.trialLL;
     end
     
     %% print any updates
@@ -380,8 +385,8 @@ for sample_idx = start_idx:TotalSamples
         end
         
         
-        fprintf('HMC step %d / %d (accept per. = %.1f in last %d steps, curr log post = %e, (log like = %e)\n', sample_idx, TotalSamples, mean(samples.accepted(ww))*100, numel(ww), samples.log_post(sample_idx), samples.log_like(sample_idx));
-        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n', HMC_state.stepSize.e, HMC_state.steps, sum(samples.errors, 'omitnan'));
+        fprintf("HMC step %d / %d (accept per. = %.1f in last %d steps, curr log post = %e, (log like = %e)\n", sample_idx, TotalSamples, mean(samples.accepted(ww))*100, numel(ww), samples.log_post(sample_idx), samples.log_like(sample_idx));
+        fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n", HMC_state.stepSize.e, HMC_state.steps, sum(samples.errors, "omitnan"));
         clear ww;
         
         if(~isnan(figNum) && ~isinf(figNum))
@@ -408,32 +413,60 @@ end
 %% finish sampler
 ss_idx = (HMC_settings.nWarmup+1):sample_idx;
 
-fprintf('computing WAIC and PSIS-LOO... ');
-T_n = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
+fprintf("computing WAIC and PSIS-LOO... \n");
 V_n = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
+T_n = zeros(size(V_n));
 
-summary.PSISLOOS   = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
-summary.PSISLOO_PK = zeros(obj.dim_trialLL(1), obj.dim_trialLL(2));
+summary.PSISLOOS   = zeros(size(V_n));
+summary.PSISLOO_PK = zeros(size(V_n));
+
+blk_size = min(4, size(V_n,1));
+NB = ceil(size(V_n,2)/blk_size);
 
 % ll = samples.trialLL(:,ss_idx);
-for ii = 1:obj.dim_trialLL(1)
-    for jj = 1:obj.dim_trialLL(2)
-        ll_c = squeeze(double(samples_file.trialLL(ii,jj,ss_idx)))';
-        T_n(ii,jj) = -kgmlm.utils.logMeanExp(ll_c,2);
-        V_n(ii,jj) = mean(ll_c.^2,2) - mean(ll_c,2).^2;
+for ii = 1:size(V_n,2)
+    if(size(V_n,2) > 1)
+        fprintf("\tneuron block  %d / %d\n", ii, size(V_n,2));
+    end
 
-        [~,summary.PSISLOOS(ii,jj),summary.PSISLOO_PK(ii,jj)] = kgmlm.PSISLOO.psisloo(ll_c(:));
+    for kk = 1:NB
+        if(kk == 1 || mod(kk,20) == 0)
+            fprintf("\t\ttrial block  %d / %d\n", kk, NB);
+        end
+        if(kk < NB)
+            jj_idx = (kk-1)*blk_size + (1:blk_size);
+        else
+            jj_idx = ((kk-1)*blk_size + 1):size(V_n,1);
+        end
+
+        JJ = numel(jj_idx);
+        PL_c = zeros(JJ,1);
+        PLK_c = zeros(JJ,1);
+        ll_c = squeeze(double(samples_file.Data.trialLL(ss_idx,jj_idx,ii))); 
+
+        if(blk_size > 1)
+            parfor (jj = 1:JJ, blk_size)
+                [~,PL_c(jj),PLK_c(jj)] = kgmlm.PSISLOO.psisloo(ll_c(:,jj));
+            end
+        else
+            jj = 1;
+            [~,PL_c(jj),PLK_c(jj)] = kgmlm.PSISLOO.psisloo(ll_c(:,jj));
+        end
+        T_n(jj_idx,ii) = (-kgmlm.utils.logMeanExp(ll_c,1))';
+        V_n(jj_idx,ii) = (mean(ll_c.^2,1) - mean(ll_c,1).^2)';
+        summary.PSISLOOS(jj_idx,ii) = PL_c;
+        summary.PSISLOO_PK(jj_idx,ii) = PLK_c;
     end
 end
 summary.WAICS = T_n + V_n;
-summary.WAIC  = mean(summary.WAICS,'all');
-summary.PSISLOO = sum(summary.PSISLOOS,'all');
+summary.WAIC  = mean(summary.WAICS,"all");
+summary.PSISLOO = sum(summary.PSISLOOS,"all");
 
-badSamples   = sum(summary.PSISLOO_PK >= 0.7,'all');
+badSamples   = sum(summary.PSISLOO_PK >= 0.7,"all");
 if(badSamples > 0)
-    fprintf('Warning: PSISLOO PK large (>0.7) for %d / %d observations! \n', badSamples, numel(summary.PSISLOO_PK ));
+    fprintf("\tWarning: PSISLOO PK large (>0.7) for %d / %d observations! \n", badSamples, numel(summary.PSISLOO_PK ));
 else
-    fprintf('PSISLOO diagnostics passed (all PK < 0.7). \n');
+    fprintf("\tPSISLOO diagnostics passed (all PK < 0.7). \n");
 end
 
 ss_all = (HMC_settings.nWarmup+1):TotalSamples;
@@ -442,9 +475,9 @@ summary.earlyReject_prc = mean(samples.errors(ss_all));
 summary.HMC_state            = HMC_state;
 summary.acceptRate   = mean(samples.accepted(ss_all));
 
-fprintf('done.\n');   
+fprintf("done.\n");   
 
-delete(samples_file.Properties.Source); % delete the temporary storage file for trial log likelihoods
+delete(samples_file.Filename); % delete the temporary storage file for trial log likelihoods
 obj.temp_storage_file = [];
 end
 

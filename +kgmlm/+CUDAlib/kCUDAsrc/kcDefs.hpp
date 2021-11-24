@@ -227,6 +227,16 @@ inline __device__ double safeExp(double x, double d = 1.0) {
     double max_n = 90.0*d;
     return exp((x < max_n) ? x*d : max_n);
 }
+inline __device__ float safeExpm1(float x, float d = 1.0f) {
+//     return exp(min(88.7f,x));
+    float max_n = 20.0f*d;
+    return expm1((x < max_n) ? x*d : max_n);
+}
+inline __device__ double safeExpm1(double x, double d = 1.0) {
+//     return exp(min(90.0,x));
+    double max_n = 90.0*d;
+    return expm1((x < max_n) ? x*d : max_n);
+}
 
 
 // cuBLAS API errors

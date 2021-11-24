@@ -51,10 +51,10 @@ dirTuningType       = p.Results.dirTuningType;
 dirSameSampleTest   = p.Results.dirSameSampleTest;
 includeCategory     = p.Results.includeCategory;
 includeSubCategory  = p.Results.includeSubCategory;
-includeSubCatSampleTest  = p.Results.includeSubCategorySampleTest;
-includeCatSampleTest   = p.Results.includeCatSampleTest;
-includeOnset   = p.Results.includeOnset;
-includeOnsetSampleTest   = p.Results.includeOnsetSampleTest;
+includeSubCatSampleTest = p.Results.includeSubCategorySampleTest;
+includeCatSampleTest    = p.Results.includeCatSampleTest;
+includeOnset            = p.Results.includeOnset;
+includeOnsetSampleTest  = p.Results.includeOnsetSampleTest;
 bases   = p.Results.bases;
 
 %%
@@ -277,7 +277,7 @@ NG = NG_i + NG_g + ~isempty(dir_cols1) + ~isempty(dir_cols2);
 timing_idx = 1;
 stim_idx   = 2;
             
-stimPrior_setup.T(stim_idx).setup.parts = struct("type", cell(NG,1), "idx_hyperparams", [], "idx_params", [], "var", []);
+stimPrior_setup.T(stim_idx).setup.parts = struct("type", cell(NG,1), "idx_hyperparams", [], "idx_params", [], "var", [], "name", []);
 ctr = 1;
 for gg = 1:NG_i
     c_idx = coefs_ind_groups{gg, 1};
