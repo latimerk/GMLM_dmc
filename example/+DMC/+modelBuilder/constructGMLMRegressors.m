@@ -214,6 +214,9 @@ for nn = 1:numel(Neurons)
 
             %test stim direction
             trials(tr_idx).Groups(ss).iX_shared{2}(:, 2) = Neurons(nn).testDir(mm) + ND; %test cat info should be in a the second block of the xstim regressors (hence the + ND)
+
+            vv = trials(tr_idx).Groups(ss).iX_shared{1}(:, :) > 0 & trials(tr_idx).Groups(ss).iX_shared{1}(:, :) <= size(bases.stim.B,1);
+            trials(tr_idx).Groups(ss).iX_shared{2}(~vv) = 0;
         end
         
         %% get response timing info
@@ -233,6 +236,9 @@ for nn = 1:numel(Neurons)
             trials(tr_idx).Groups(jj).iX_shared{2}(:, 2) = getEventTimingsInBasis(trLength, Neurons(nn).testTime(mm)   - trStart, bases.stim.tts);
             trials(tr_idx).Groups(jj).iX_shared{3}(:, 1) = Neurons(nn).sampleDir(mm);
             trials(tr_idx).Groups(jj).iX_shared{3}(:, 2) = Neurons(nn).testDir(mm) + ND; 
+
+            %vv = trials(tr_idx).Groups(jj).iX_shared{2}(:, :) > 0 & trials(tr_idx).Groups(jj).iX_shared{2}(:, :) <= size(bases.stim.B,1);
+            %trials(tr_idx).Groups(jj).iX_shared{3}(~vv) = 0;
         end
         if(includeResponseDynHspk)
             jj = jj + 1;

@@ -388,7 +388,7 @@ classdef GMLM < handle
                                 
                                 if(tts(1) ~= dim_F(ff))
                                     new_size = [size(trials(tt).Groups(jj).X_local{ff},1), dim_F(ff), tts(end)];
-                                    if(numel(new_size)-1 ~= numel(tts) && ~all(tts == new_size(2:end))) 
+                                    if(numel(new_size)-1 ~= numel(tts) || ~all(tts == new_size(2:end))) 
                                         trials(tt).Groups(jj).X_local{ff} = reshape(trials(tt).Groups(jj).X_local{ff}, new_size);
                                     end
                                 end
@@ -405,6 +405,8 @@ classdef GMLM < handle
                 end
             end
             
+            
+
             %% check bin_size
             if(nargin < 3 || isempty(bin_size))
                 bin_size = 1;
@@ -416,6 +418,34 @@ classdef GMLM < handle
             
             %% save structs
             obj.GMLMstructure = GMLMstructure;
+            %goes through each trial
+            %  if there are shared regressors, eliminates any unused refs
+            for jj = 1:numel(GMLMstructure.Groups)
+                %if multiple coefs have shared regressors
+                ff = find(obj.isSharedRegressor(jj));
+
+                if(numel(ff) > 1)
+                    TT = cellfun(@(a) size(a,1), GMLMstructure.Groups(jj).X_shared);
+                    TT = TT(ff);
+
+                    for mm = 2:obj.dim_M
+                        vv = true(size(trials.Y,1), GMLMstructure.Groups(jj).dim_A, numel(ff));
+                        for ss = 1:numel(ff)
+                            vv_c = trials(mm).Groups(jj).iX_shared{ff(ss)} > 0 & trials(mm).Groups(jj).iX_shared{ff(1)} <= TT(ss);
+                            if(size(vv,2) > 1 && size(vv_c,2) == 1)
+                                vv(:,:,ss) = vv_c;
+                            else
+                                vv(:,:,ss) = vv_c;
+                            end
+                        end
+                        vv_a = all(vv,3);
+                        for ss = 1:numel(ff)
+                            trials(mm).Groups(jj).iX_shared{ff(ss)}(~vv(:,:,ss) & vv_a) = 0; % element is 0'd in at least one dimension
+                        end
+                    end
+                end
+            end
+
             obj.trials = trials;
             
             
@@ -466,6 +496,8 @@ classdef GMLM < handle
                     obj.max_params = obj.max_params + obj.dim_T(jj,ss)*obj.dim_R_max(jj);
                 end
             end
+
+           
             
             %% set that no GPU is currently in use
             obj.gpuObj_ptr = 0;
@@ -622,8 +654,15 @@ classdef GMLM < handle
         
         function [isShared] = isSharedRegressor(obj, idx, factor) % if the tensor dimension (given by dim) for a particular tensor coefficient group (given by idx) uses a shared regressor set, rather than locally defined, dense regressors for each trial
             idx = obj.getGroupIdx(idx);
-            factor = obj.getGroupFactorIdx(idx, factor);
-            isShared = ~isempty(obj.GMLMstructure.Groups(idx).X_shared{factor});
+            if(nargin < 3 || isempty(factor))
+                isShared = zeros(obj.dim_D(idx),1);
+                for ss = 1:obj.dim_D(idx)
+                    isShared(ss) =  ~isempty(obj.GMLMstructure.Groups(idx).X_shared{ss});
+                end
+            else
+                factor = obj.getGroupFactorIdx(idx, factor);
+                isShared = ~isempty(obj.GMLMstructure.Groups(idx).X_shared{factor});
+            end
         end
         
         function [hh] = dim_H(obj, idx) %number of hyperparams (that can be sampled by HMC): hyperparams on W and B if idx is not given, hyperparams on T and V if idx gives a tensor group, and all hyperparams in model if idx = -1 

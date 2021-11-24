@@ -1,7 +1,7 @@
 %% A quick and dirty diagnotistic script to check log likelihood derivatives to make sure the optimized CUDA code is actually working. Runs through a bunch of setup scenarios.
 % I've occasionally noticed failures that are due to a random dataset/parameters being numerically unstable (exploding values). This doesn't mean the derivative
 % is incorrect.
-function [params] = runDerivativeChecks(testType, isPop, deviceNumbers, dim_A, shrink_dim_R, pauseAtParts)
+function [params] = runDerivativeChecks(testType, isPop, deviceNumbers, dim_A, shrink_dim_R, pauseAtParts, params)
 
 if(nargin < 2 || isempty(isPop))
     isPop = false;
@@ -104,7 +104,9 @@ else
 end
 
 %% test comps
-params     = gmlm.getRandomParamStruct();
+if(nargin < 7 || isempty(params))
+    params     = gmlm.getRandomParamStruct();
+end
 % params.Groups(1).T{1} = params.Groups(1).T{1}./10;
 % params.Groups(1).T{2} = params.Groups(1).T{2}./10;
 % params.Groups(1).T{3} = params.Groups(1).T{3}./10;
