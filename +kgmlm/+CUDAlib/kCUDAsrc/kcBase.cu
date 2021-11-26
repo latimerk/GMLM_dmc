@@ -517,52 +517,66 @@ cudaError_t GPUData<FPTYPE>::copyHostToGPU(const cudaStream_t stream) {
 
 /* kernel for a quick MM operation X*B where X is tall * skinny and B is small
 *     Trying to get a speedup from CUBLAS in regions where its slow.
+*       TODO: replace with TSM2X lib?
 */
-
 template <class FPTYPE>
 __global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<FPTYPE> X, const GPUData_kernel<FPTYPE> F, const FPTYPE alpha, const FPTYPE beta, const cublasOperation_t op_A, const cublasOperation_t op_B)   {
     int rr_start = blockIdx.y * blockDim.y + threadIdx.y;
     size_t row   = blockIdx.x * blockDim.x + threadIdx.x;
     size_t A     = blockIdx.z * blockDim.z + threadIdx.z;
     if(row < XF.x && A < X.z) {
-        if(op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
+        FPTYPE ll;
+        FPTYPE t, y, c;
+        for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
+            ll = 0;
+            c = 0;
+            if(op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
                 for(int tt = 0; tt < F.x; tt++) {
-                    ll += X(row, tt, A) * F(tt, rr, A);
+                   // ll += X(row, tt, A) * F(tt, rr, A);
+                    y  = X(row, tt, A) * F(tt, rr, A) - c;
+                    t = ll + y;
+                    c = (t - ll) - y;
+                    ll = t;
                 }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
             }
-        }
-        else if(op_A == CUBLAS_OP_N) {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
+            else if(op_A == CUBLAS_OP_N) {
                 for(int tt = 0; tt < F.y; tt++) {
-                    ll += X(row, tt, A) * F(rr, tt, A);
+                    //ll += X(row, tt, A) * F(rr, tt, A);
+                    y = X(row, tt, A) * F(rr, tt, A) - c;
+                    t = ll + y;
+                    c = (t - ll) - y;
+                    ll = t;
                 }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
             }
-        }
-        else if(op_B == CUBLAS_OP_N) {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
+            else if(op_B == CUBLAS_OP_N) {
                 for(int tt = 0; tt < F.x; tt++) {
-                    ll += X(tt, row, A) * F(tt, rr, A);
+                    //ll += X(tt, row, A) * F(tt, rr, A);
+                    y  = X(tt, row, A) * F(tt, rr, A) - c;
+                    t = ll + y;
+                    c = (t - ll) - y;
+                    ll = t;
                 }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
             }
-        }
-        else {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
+            else {
                 for(int tt = 0; tt < F.y; tt++) {
-                    ll += X(tt, row, A) * F(rr, tt, A);
+                    //ll += X(tt, row, A) * F(rr, tt, A);
+                    y  = X(tt, row, A) * F(rr, tt, A) - c;
+                    t = ll + y;
+                    c = (t - ll) - y;
+                    ll = t;
                 }
+            }
+            if(beta == 0) {
+                XF(row, rr, A) = alpha*ll;
+            }
+            else {
                 XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
             }
         }
     }
 }
+
+
 
 
 
@@ -606,8 +620,9 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     }
 
     //for tall skinny op_A
-    if(rows_op_A >= 8192 && cols_op_A < 256 && cols_op_B > 1 && cols_op_B < 256) {
+    if(rows_op_A > 8192 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
         //for smaller dim_T_c, call my own makeshift GEMM that's somehow faster for the typical sized problem
+        // I should probably use a more efficient algorithm for this
         dim3 block_size;
         dim3 grid_size;
         if(cols_op_B > 8) { 
@@ -648,8 +663,9 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                           C->getData_gpu() + dd*C->getInc_gpu(), 1);
         }
     }
-    else if(rows_op_A < 256 && cols_op_A > 8192 && cols_op_B < 256) {
+    else if(rows_op_A <= 2048 && cols_op_A > 8192 && cols_op_B <= 256) {
         //A'*B for tall, skinny A&B is slow with GEMM, somehow faster with multiple GEMV calls - perverse but it's a bit speedup
+        // - I haven't found available code to implement better GEMMs for these irregular matrices (although a couple papers exist). Is it worth trying to implement those kernels myself?
         size_t op_B_ld     = (op_B == CUBLAS_OP_N) ? B->getLD_gpu() : static_cast<size_t>(1);
         size_t op_B_stride = (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->getLD_gpu();
                 

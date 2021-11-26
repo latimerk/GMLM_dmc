@@ -719,26 +719,32 @@ template <class FPTYPE>
 void GPUGMLMPop_results_Group_GPU<FPTYPE>::addToHost(const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, GPUGMLMPop_group_results<FPTYPE>* results_dest, const GPUGMLMPop_group_computeOptions * opts, const GPUGMLMPop_dataset_GPU<FPTYPE> * dataset, const bool reset) {
     //check the dims of the destination to see if they hold up
     //if reset, set destination memory to all 0's
-    if(reset) {
-        if(opts->compute_dV) {
-            if(!(dV->isEqualSize(results_dest->dV))) {
-                output_stream << "GPUGMLMPop_results_Group_GPU::addResults errors: results struct is the incorrect size!";
-                msg->callErrMsgTxt(output_stream);
-            }
-            results_dest->dV->assign(0);
-        }
-        if(results_dest->dim_S() != dim_S()) {
+    if(opts->compute_dV) {
+        if(!(dV->isEqualSize(results_dest->dV))) {
             output_stream << "GPUGMLMPop_results_Group_GPU::addResults errors: results struct is the incorrect size!";
             msg->callErrMsgTxt(output_stream);
         }
+    }
+    if(results_dest->dim_S() != dim_S()) {
+        output_stream << "GPUGMLMPop_results_Group_GPU::addResults errors: results struct is the incorrect size!";
+        msg->callErrMsgTxt(output_stream);
+    }
+    for(int ss = 0; ss < dim_S(); ss++) {
+        if(opts->compute_dT[ss]) {
+            if(!(dT[ss]->isEqualSize(results_dest->dT[ss]))) {
+                output_stream << "GPUGMLMPop_results_Group_GPU::addResults errors: results struct is the incorrect size!";
+                msg->callErrMsgTxt(output_stream);
+            }
+        }
+    }
+    if(reset) {
         for(int ss = 0; ss < dim_S(); ss++) {
             if(opts->compute_dT[ss]) {
-                if(!(dT[ss]->isEqualSize(results_dest->dT[ss]))) {
-                    output_stream << "GPUGMLMPop_results_Group_GPU::addResults errors: results struct is the incorrect size!";
-                    msg->callErrMsgTxt(output_stream);
-                }
                 results_dest->dT[ss]->assign(0);
             }
+        }
+        if(opts->compute_dV) {
+            results_dest->dV->assign(0);
         }
     }
 
@@ -1584,9 +1590,16 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
         return; //nothing to compute
     }
     checkCudaErrors(cudaStreamWaitEvent(stream, LL_event, 0), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
-
+    
     if(opts->compute_dV) {
         //for each neuron
+//         parent->dLL->printInfo(output_stream, "dLL");
+//         msg->printMsgTxt(output_stream);
+//         lambda_v->printInfo(output_stream, "lambda_v");
+//         msg->printMsgTxt(output_stream);
+//         results->dV->printInfo(output_stream, "results->dV");
+//         msg->printMsgTxt(output_stream);
+
          checkCudaErrors(parent->dLL->GEMM(results->dV, lambda_v, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL'*lambda_v -> dV failed");
     }
 
@@ -1601,6 +1614,11 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
     // compute lambda_v = dLL * V
     for(int dd = 0; dd < dim_D(); dd++) {
         if(compute_dF[dd]) {
+//             parent->dLL->printInfo(output_stream, "dLL");
+//             msg->printMsgTxt(output_stream);
+//             lambda_v->printInfo(output_stream, "lambda_v");
+//             msg->printMsgTxt(output_stream);
+
             checkCudaErrors(parent->dLL->GEMM(lambda_v, params->V, cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL*V -> lambda_v failed");
             break;
         }
@@ -1715,6 +1733,13 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
                 //nothing needed
             }
             else {
+//                 X_c->printInfo(output_stream, "X_c");
+//                 msg->printMsgTxt(output_stream);
+//                 phi_c->printInfo(output_stream, "phi_c");
+//                 msg->printMsgTxt(output_stream);
+//                 results->dF[dd]->printInfo(output_stream, "results->dF[dd]");
+//                 msg->printMsgTxt(output_stream);
+
                 checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
             }
             

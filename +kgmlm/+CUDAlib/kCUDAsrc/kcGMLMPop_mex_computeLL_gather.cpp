@@ -90,6 +90,9 @@ public:
                     const matlab::data::TypedArray<FPTYPE> dT_mat  = dT_mats[ss];
                     this->Groups[jj]->dT[ss]  = new GLData_matlab<FPTYPE>(dT_mat);
                 }
+                else {
+                    this->Groups[jj]->dT[ss]  = new GLData_matlab<FPTYPE>();
+                }
             }
         }
     }

@@ -234,7 +234,7 @@ classdef GMLM < handle
                             error("GMLM constructor: GMLMstructure.Groups().gibbs_step must be empty or structure with fields 'sample_func' and 'dim_H'");
                         end
                         
-                        if(~isa(GMLMstructure.Groups(jj).gibbs_step.sample_func,'function_handle'))
+                        if(~isa(GMLMstructure.Groups(jj).gibbs_step.sample_func,'function_handle') && ~isempty(GMLMstructure.Groups(jj).gibbs_step.sample_func))
                             error("GMLM constructor: GMLMstructure.Groups().gibbs_step.sample_func must be a function handle");
                         end
                         
@@ -1881,11 +1881,14 @@ classdef GMLM < handle
             results.log_post = results.log_likelihood + results.log_prior;
         end
         
-        function [nlog_like, ndl_like, params, results] = vectorizedNLL_func(obj, w_c, params, opts, results)
+        function [nlog_like, ndl_like, params, results] = vectorizedNLL_func(obj, w_c, params, opts, results, makeDouble)
             if(nargout > 1)
                 opts_0 = opts;
             else
                 opts_0 = obj.getComputeOptionsStruct("enableAll", false, "includeHyperparameters", false);
+            end
+            if(nargin < 6 || isempty(makeDouble))
+                makeDouble = true; % to make fminunc happy
             end
             opts_0.compute_trialLL = true;
 
@@ -1894,21 +1897,30 @@ classdef GMLM < handle
             if(nargin < 5)
                 results    = obj.computeLogLikelihood(params, opts_0);
             else
-                results    = obj.computeLogPrior(params, opts_0, results);
+                results    = obj.computeLogLikelihood(params, opts_0, results);
             end
             nlog_like  = -results.log_likelihood;
+            if(makeDouble && ~isa(nlog_like, "double"))
+                nlog_like = double(nlog_like);
+            end
 
             if(nargout > 1)
                 ndl_like =  obj.vectorizeResults(results, opts_0);
                 ndl_like = -ndl_like;
+                if(makeDouble && ~isa(ndl_like, "double"))
+                    ndl_like = double(ndl_like);
+                end
             end
         end
         
-        function [nlog_post, ndl_post, params, results] = vectorizedNLPost_func(obj, w_c, params, opts, results)
+        function [nlog_post, ndl_post, params, results] = vectorizedNLPost_func(obj, w_c, params, opts, results, makeDouble)
             if(nargout > 1)
                 opts_0 = opts;
             else
                 opts_0 = obj.getComputeOptionsStruct("enableAll", false, "includeHyperparameters", false);
+            end
+            if(nargin < 6 || isempty(makeDouble))
+                makeDouble = true; % to make fminunc happy
             end
             opts_0.compute_trialLL = true;
 
@@ -1920,11 +1932,18 @@ classdef GMLM < handle
                 results    = obj.computeLogPosterior(params, opts_0, results);
             end
             nlog_post  = -results.log_post;
+            if(makeDouble && ~isa(nlog_post, "double"))
+                nlog_post = double(nlog_post);
+            end
 
             if(nargout > 1)
                 ndl_post =  obj.vectorizeResults(results, opts_0);
                 ndl_post = -ndl_post;
+                if(makeDouble && ~isa(ndl_post, "double"))
+                    ndl_post = double(ndl_post);
+                end
             end
+
         end
         
         function [nlog_prior, ndl_prior, params, results] = vectorizedNLPrior_func(obj, w_c, params, opts, results)

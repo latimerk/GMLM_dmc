@@ -232,6 +232,13 @@ class GPUData {
                     return 0;
             }  
         }
+
+        inline void printInfo(std::ostringstream & output_stream, const char * name = "GPUData") {
+            output_stream << "Info: " << name << "\n";
+            output_stream << "\t" << "size = (" << getSize(0) << ", " << getSize(1) << ", " << getSize(2) << ")\n";
+            output_stream << "\t" << "ld_gpu = " << getLD_gpu() << ", inc_gpu = " << getInc_gpu() << "\n";
+            output_stream << "\t" << "is_stacked_gpu = " << is_stacked_gpu << ", " << " page locked = " << isPageLocked() << "\n";
+        }
         
         //assigns a single value to all elements (HOST MEMORY ONLY!)
         inline void assign(FPTYPE val) {
