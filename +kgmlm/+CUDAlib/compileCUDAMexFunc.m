@@ -1,9 +1,10 @@
-function [fNames] = compileCUDAMexFunc(fName)
+function [fNames, fNames_grp] = compileCUDAMexFunc(fName)
 
+fNames_grp = {["kcGMLM_mex_create.cpp", "kcGMLM_mex_clear.cpp",  "kcGMLM_mex_computeLL.cpp", "kcGMLM_mex_computeLL_async.cpp", "kcGMLM_mex_computeLL_gather.cpp"], ...
+              ["kcGLM_mex_create.cpp", "kcGLM_mex_clear.cpp",  "kcGLM_mex_computeLL.cpp"], ...
+              ["kcGMLMPop_mex_create.cpp", "kcGMLMPop_mex_clear.cpp",  "kcGMLMPop_mex_computeLL.cpp", "kcGMLMPop_mex_computeLL_async.cpp", "kcGMLMPop_mex_computeLL_gather.cpp"]};
 
-fNames = ["kcGMLM_mex_create.cpp", "kcGMLM_mex_clear.cpp",  "kcGMLM_mex_computeLL.cpp", "kcGMLM_mex_computeLL_async.cpp", "kcGMLM_mex_computeLL_gather.cpp", ...
-          "kcGLM_mex_create.cpp", "kcGLM_mex_clear.cpp",  "kcGLM_mex_computeLL.cpp", ...
-          "kcGMLMPop_mex_create.cpp", "kcGMLMPop_mex_clear.cpp",  "kcGMLMPop_mex_computeLL.cpp", "kcGMLMPop_mex_computeLL_async.cpp", "kcGMLMPop_mex_computeLL_gather.cpp"];
+fNames = [fNames_grp{:}];
       
 if(nargin > 0 && numel(fName) > 1)
     for ii = 1:numel(fName)
@@ -11,7 +12,7 @@ if(nargin > 0 && numel(fName) > 1)
     end
 elseif(nargin > 0 && ~isempty(fName))
     if(isnumeric(fName))
-        fName = fNames{fName};
+        fName = fNames(fName);
     end
     [~, ~, ~, ~, sourceDir, objDir] = kgmlm.CUDAlib.myCUDAPaths();
         

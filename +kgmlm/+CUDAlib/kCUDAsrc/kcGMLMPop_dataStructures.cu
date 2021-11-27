@@ -944,9 +944,12 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     size_t dim_T_total = 1;
     std::vector<size_t> dim_F_c;
     dim_F_c.assign(dim_D(), 1);
+    size_t max_dim_F = 0;
     for(int ss = 0; ss < GMLMPopGroupStructure->dim_S(); ss++) {
         dim_T_total *= GMLMPopGroupStructure->dim_T[ss];
         dim_F_c[GMLMPopGroupStructure->factor_idx[ss]] *= GMLMPopGroupStructure->dim_T[ss];
+
+        max_dim_F = max(max_dim_F,  dim_F_c[GMLMPopGroupStructure->factor_idx[ss]]);
     }
 
     if(GMLMPopGroupStructure->dim_S() == 0 || dim_T_total == 0) {
@@ -1051,6 +1054,11 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
         }
 
     }
+
+    size_t NR_PER_BLOCK = min(NRS_DOUBLE, NRS_FLOAT);
+    size_t NBLOCKS = min(NRS_MAX_BLOCKS, max_dim_X_shared/ NR_PER_BLOCK + ((max_dim_X_shared % NR_PER_BLOCK == 0) ? 0 : 1));
+    buffer = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_F, GMLMPopGroupStructure->dim_R_max * NBLOCKS, true);
+    checkCudaErrors(ce, "GPUGMLMPop_dataset_Group_GPU errors: could not allocate space for buffer!" );
 
     checkCudaErrors(isShared->copyHostToGPU(stream), "GPUGMLMPop_dataset_Group_GPU errors: could not copy isShared to device!");
     checkCudaErrors(isSharedIdentity->copyHostToGPU(stream), "GPUGMLMPop_dataset_Group_GPU errors: could not copy isSharedIdentity to device!");
@@ -1245,6 +1253,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::~GPUGMLMPop_dataset_Group_GPU() {
     cudaSafeFree(lambda_v, "GPUGMLMPop_dataset_Group_GPU errors: could not free lambda_v");
     cudaSafeFreeVector(lambda_d, "GPUGMLMPop_dataset_Group_GPU errors: could not free lambda_d[dd]");
     cudaSafeFree(   phi_d, "GPUGMLMPop_dataset_Group_GPU errors: could not free phi_d");
+    cudaSafeFree(   buffer, "GPUGMLMPop_dataset_Group_GPU errors: could not free buffer");
 
     cudaSafeFreeVector(spi_rows, "GPUGMLMPop_dataset_Group_GPU errors: could not free spi_rows");
     cudaSafeFreeVector(spi_cols, "GPUGMLMPop_dataset_Group_GPU errors: could not free spi_cols");
@@ -1733,14 +1742,16 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
                 //nothing needed
             }
             else {
-//                 X_c->printInfo(output_stream, "X_c");
-//                 msg->printMsgTxt(output_stream);
-//                 phi_c->printInfo(output_stream, "phi_c");
-//                 msg->printMsgTxt(output_stream);
-//                 results->dF[dd]->printInfo(output_stream, "results->dF[dd]");
-//                 msg->printMsgTxt(output_stream);
+                // X_c->printInfo(output_stream, "X_c");
+                // msg->printMsgTxt(output_stream);
+                // phi_c->printInfo(output_stream, "phi_c");
+                // msg->printMsgTxt(output_stream);
+                // results->dF[dd]->printInfo(output_stream, "results->dF[dd]");
+                // msg->printMsgTxt(output_stream);
+                // buffer->printInfo(output_stream, "buffer");
+                // msg->printMsgTxt(output_stream);
 
-                checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
             }
             
             // matrix mults to get dT

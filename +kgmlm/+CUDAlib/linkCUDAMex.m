@@ -1,6 +1,11 @@
-function [] = linkCUDAMex(doReset)
-fNames = kgmlm.CUDAlib.compileCUDAMexFunc();
-    
+function [] = linkCUDAMex(lib_num, doReset)
+if(nargin < 1 || isempty(lib_num))
+    fNames = kgmlm.CUDAlib.compileCUDAMexFunc();
+else
+    [~,fNames_grp] = kgmlm.CUDAlib.compileCUDAMexFunc();
+    fNames = fNames_grp{lib_num};
+end
+
 clear mex;
 [~, CUDAdirectory, CUDAlibSubdirectory, MATLABdirectory, sourceDir, objDir, mexDir] = kgmlm.CUDAlib.myCUDAPaths();
 
@@ -45,7 +50,7 @@ for ii = 1:length(fNames)
     linkCUDAlibMex(fName);
 end
 
-if(nargin > 0 && doReset)
+if(nargin > 1 && doReset)
     if(ispc)
         mex('-outdir',mexDir,['-I' CUDAdirectory 'include/'], ... 
             ['-L' CUDAlibSubdirectory], '-lcudart', [sourceDir 'kcResetDevices.cpp']);

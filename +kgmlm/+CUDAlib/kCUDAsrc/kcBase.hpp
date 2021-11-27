@@ -25,6 +25,8 @@
 #include "kcShared.hpp"
 
 namespace kCUDA { 
+
+    
     
 const unsigned int MAX_DIM_D = 6;
     
@@ -254,7 +256,7 @@ class GPUData {
         }
         
         //op_A(A) * op_B(B) -> C,  A = this
-        cublasStatus_t GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0);
+        cublasStatus_t GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0, GPUData<FPTYPE> * BUFFER = NULL);
         cublasStatus_t GEMVs(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0);
         
         //resizes current data (within pre-allocated bounds - doesn't change memory size, just dims for computations)
@@ -463,6 +465,17 @@ class GPUGL_base  {
 
 
 
+#define FLOAT_T1 128
+#define DOUBLE_T1 128
+
+#define NRS_FLOAT 64
+#define NRS_DOUBLE 64
+#define NRS_MAX_BLOCKS (size_t)(1024)
+
+template <class FPTYPE>
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<FPTYPE> * A, const GPUData<FPTYPE> * B,  GPUData<FPTYPE> * C, const FPTYPE alpha, const FPTYPE beta);
+template <class FPTYPE>
+cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<FPTYPE> * A, const GPUData<FPTYPE> * B,  GPUData<FPTYPE> * C, GPUData<FPTYPE> * buffer, const FPTYPE alpha, const FPTYPE beta, const unsigned int depth);
 
 }; // end namespace
 #endif
