@@ -1092,8 +1092,9 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
 
     }
     
+    size_t max_rows = max(parent->max_trial_length * parent->max_trials_for_sparse_run, max_dim_X_shared);
     size_t NR_PER_BLOCK = min(NRS_DOUBLE, NRS_FLOAT);
-    size_t NBLOCKS = min(NRS_MAX_BLOCKS, max_dim_X_shared/ NR_PER_BLOCK + ((max_dim_X_shared % NR_PER_BLOCK == 0) ? 0 : 1));
+    size_t NBLOCKS = min(NRS_MAX_BLOCKS, max_rows/ NR_PER_BLOCK + ((max_rows % NR_PER_BLOCK == 0) ? 0 : 1));
     buffer = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_F, GMLMGroupStructure->dim_R_max * NBLOCKS, true);
     checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for buffer!" );
 
