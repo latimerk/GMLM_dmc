@@ -414,7 +414,7 @@ public:
     inline cudaError_t waitForGroups_LL(cudaStream_t stream) {
         cudaError_t ce = cudaSuccess;
         for(auto jj : Groups) {
-            ce = cudaStreamWaitEvent(stream, jj->LL_event);
+            ce = cudaStreamWaitEvent(stream, jj->group_LL_event);
             if(ce != cudaSuccess) {
                 break;
             }
@@ -503,7 +503,7 @@ protected:
     std::vector<GPUData<char> *>  spi_buffer;
     std::vector<size_t> spi_buffer_size;
     
-    cudaEvent_t LL_event;
+    cudaEvent_t group_LL_event;
 public:
     //constructor
     GPUGMLM_dataset_Group_GPU(const int groupNum_, const GPUGMLM_structure_Group_args<FPTYPE> * GMLMGroupStructure, const std::vector<GPUGMLM_trial_args <FPTYPE> *> trials, const std::vector<int> trial_load_order, const GPUGMLM_dataset_GPU<FPTYPE> * parent_, const cudaStream_t stream, const cusparseHandle_t & cusparseHandle);

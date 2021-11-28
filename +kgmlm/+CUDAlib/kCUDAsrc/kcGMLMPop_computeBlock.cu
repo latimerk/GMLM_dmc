@@ -353,6 +353,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
                   dataset->X_lin_temp->device(), opts->compute_dB, 
                    params->logLikeSettings, params->logLikeParams->device());
     checkCudaErrors("GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_getObs_LL launch failed");
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_computeBlock::computeLogLike errors: could not add LL event to stream!");
 
     //sum up the LL for each trial (and dLL to setup for dW, dB)
     if(opts->compute_trialLL || opts->compute_dW) {
@@ -373,7 +374,6 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
                                                                  dataset->normalizingConstants_trial->device());
         checkCudaErrors("GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_sum_trialLL launch failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_computeBlock::computeLogLike errors: could not add LL event to stream!");
 }
 
 /* Kernel for each neuron
@@ -403,6 +403,11 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLMPop_comput
          //launch kernel to sum dLL -> dW, dB for each trial?
          //         or kernel to sum up dLL->dW and GEMV for dB?
          
+    //for each Group
+    for(int jj = 0; jj < dim_J; jj++) {
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
+    }   
+    
     if(opts->compute_dW) {
         dim3 block_size;
         block_size.x = min(dataset->dim_P(), static_cast<size_t>(1024));
@@ -427,11 +432,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLMPop_comput
             ce = X_lin_c->GEMVs(results->dB, dataset->dLL, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N);
         }
         checkCudaErrors(ce, "GPUGMLMPop_computeBlock::computeDerivatives errors:  X_lin'*dLL -> dB failed");
-    }
-    //for each Group
-    for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
-    }         
+    }      
 }
        
 //explicitly create classes for single and double precision floating point for library

@@ -1206,7 +1206,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
         }
     }
 
-    checkCudaErrors(cudaEventCreate(&LL_event), "GPUGMLMPop_dataset_Group_GPU errors: could not create LL event!");
+    checkCudaErrors(cudaEventCreate(&group_LL_event), "GPUGMLMPop_dataset_Group_GPU errors: could not create LL event!");
 }
 
 // destructor
@@ -1242,7 +1242,7 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::~GPUGMLMPop_dataset_GPU() {
 
 template <class FPTYPE>
 GPUGMLMPop_dataset_Group_GPU<FPTYPE>::~GPUGMLMPop_dataset_Group_GPU() {
-    checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLMPop_dataset_Group_GPU errors: could not clear LL event!");
+    checkCudaErrors(cudaEventDestroy(group_LL_event), "GPUGMLMPop_dataset_Group_GPU errors: could not clear LL event!");
     cudaSafeFreeVector(X, "GPUGMLMPop_dataset_Group_GPU errors: could not free X[dd]");
     cudaSafeFreeVector(XF, "GPUGMLMPop_dataset_Group_GPU errors: could not free iX[dd]");
     cudaSafeFreeVector(iX, "GPUGMLMPop_dataset_Group_GPU errors: could not free iX[dd]");
@@ -1528,7 +1528,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, 
                               parent->lambda->getData_gpu() + groupNum*parent->lambda->getInc_gpu(), parent->lambda->getLD_gpu());
         checkCudaErrors(ce, "GPUGMLMPop_dataset_Group_GPU::getGroupRate errors:  lambda_v * V' -> lambda(:, :, groupNum) failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
+    checkCudaErrors(cudaEventRecord(group_LL_event, stream), "GPUGMLMPop_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
 }
 
 //=============================================================================================================================================================
@@ -1599,7 +1599,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
-    checkCudaErrors(cudaStreamWaitEvent(stream, LL_event, 0), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
+    checkCudaErrors(cudaStreamWaitEvent(stream, main_LL_event, 0), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
     
     if(opts->compute_dV) {
         //for each neuron

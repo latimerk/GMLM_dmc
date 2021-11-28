@@ -332,6 +332,7 @@ void GPUGMLM_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOptions<F
                   dataset->X_lin_temp->device(), opts->compute_dB, 
                    params->logLikeSettings, params->logLikeParams->device());
     checkCudaErrors("GPUGMLM_computeBlock::computeLogLike errors:  kernel_getObs_LL launch failed");
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_computeBlock::computeLogLike errors: could not add LL event to stream!");
 
     //sum up the LL for each trial (and dLL to setup for dW, dB)
     if(opts->compute_trialLL || opts->compute_dW) {
@@ -353,7 +354,6 @@ void GPUGMLM_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOptions<F
                                                                  dataset->normalizingConstants_trial->device());
         checkCudaErrors("GPUGMLM_computeBlock::computeLogLike errors:  kernel_sum_trialLL launch failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_computeBlock::computeLogLike errors: could not add LL event to stream!");
 }
 
 
@@ -385,6 +385,12 @@ void GPUGMLM_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOptio
         return;
     }
     switchToDevice();
+    
+    //for each Group
+    for(int jj = 0; jj < dim_J; jj++) {
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
+    } 
+    
          //launch kernel to sum dLL -> dW, dB for each trial?
          //         or kernel to sum up dLL->dW and GEMV for dB?
     if(opts->compute_dW) {
@@ -418,11 +424,7 @@ void GPUGMLM_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOptio
                 checkCudaErrors(ce, "GPUGMLM_computeBlock::computeDerivatives errors:  X_lin'*dLL -> dB failed");
             }
         }
-    }
-    //for each Group
-    for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
-    }         
+    }        
 }
         
 

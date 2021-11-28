@@ -1251,7 +1251,7 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
     }
 
 
-    checkCudaErrors(cudaEventCreate(&LL_event), "GPUGMLM_dataset_Group_GPU errors: could not create LL event!");
+    checkCudaErrors(cudaEventCreate(&group_LL_event), "GPUGMLM_dataset_Group_GPU errors: could not create LL event!");
 }
 
 // destructor
@@ -1294,7 +1294,7 @@ GPUGMLM_dataset_GPU<FPTYPE>::~GPUGMLM_dataset_GPU() {
 
 template <class FPTYPE>
 GPUGMLM_dataset_Group_GPU<FPTYPE>::~GPUGMLM_dataset_Group_GPU() {
-    checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLM_dataset_Group_GPU errors: could not clear LL event!");
+    checkCudaErrors(cudaEventDestroy(group_LL_event), "GPUGMLM_dataset_Group_GPU errors: could not clear LL event!");
     cudaSafeFreeVector(X, "GPUGMLM_dataset_Group_GPU errors: could not free X[dd]");
     cudaSafeFreeVector(XF, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
     cudaSafeFreeVector(iX, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
@@ -1575,7 +1575,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
                                                                             parent->ridx_a_all_c->device(), dim_A);
         checkCudaErrors("GPUGMLM_dataset_Group_GPU::getGroupRate errors:  kernel_getGroupRate launch failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
+    checkCudaErrors(cudaEventRecord(group_LL_event, stream), "GPUGMLM_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
 }
 
 //=============================================================================================================================================================
