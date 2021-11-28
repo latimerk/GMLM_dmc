@@ -454,6 +454,8 @@ class GPUGMLM {
     private: 
         std::ostringstream output_stream;
         std::shared_ptr<GPUGL_msg> msg;
+        std::shared_ptr<GPUGMLM_computeOptions<FPTYPE>> opts;
+        std::shared_ptr< GPUGMLM_params<FPTYPE>> params;
         
         std::vector<GPUGMLM_computeBlock<FPTYPE> *> gpu_blocks;
         
@@ -484,7 +486,7 @@ class GPUGMLM {
          *      results (GPUGMLM_results<FPTYPE>*)
          *          Any values in the results obj not selected by opts may be 0's or NaN's.
          */
-        void computeLogLikelihood(const GPUGMLM_params<FPTYPE> * params, const GPUGMLM_computeOptions<FPTYPE> * opts, GPUGMLM_results<FPTYPE>* results);
+        void computeLogLikelihood(std::shared_ptr< GPUGMLM_params<FPTYPE>> params_, std::shared_ptr<GPUGMLM_computeOptions<FPTYPE>> opts_, GPUGMLM_results<FPTYPE>* results);
                 /* GPUGMLM calls each GPU
                  *     GPUGMLM_GPUportion holds a set of trials, and set of compute blocks 
                  *         The GPUGMLM_computeBlocks iterate through the whole set of GPUGMLM_trials
@@ -493,8 +495,8 @@ class GPUGMLM {
                  *         GPUGMLM_GPUportion's are summed on host and returned
                  *
                  */
-        void computeLogLikelihood_async(const GPUGMLM_params<FPTYPE> * params, const GPUGMLM_computeOptions<FPTYPE> * opts);
-        void computeLogLikelihood_gather(const GPUGMLM_computeOptions<FPTYPE> * opts, GPUGMLM_results<FPTYPE> * results, const bool reset_needed_0 = true);
+        void computeLogLikelihood_async(std::shared_ptr< GPUGMLM_params<FPTYPE>> params_, std::shared_ptr<GPUGMLM_computeOptions<FPTYPE>> opts_);
+        void computeLogLikelihood_gather( GPUGMLM_results<FPTYPE> * results, const bool reset_needed_0 = true);
         
 };
 

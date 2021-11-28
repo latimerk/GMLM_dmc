@@ -1370,7 +1370,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
         output_stream << "GPUGMLM_dataset_Group_GPU errors: dim_R too large for pre-allocated space!";
         msg->callErrMsgTxt(output_stream);
     }
-    checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded, 0), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
+    checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
     
     if(isSparseRun) {
         checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
@@ -1609,6 +1609,7 @@ __global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> X_temp, cons
     if(row < X_temp.x) {
         size_t iX_row;
         iX_row = ridx_sa_all[row];
+        FPTYPE dL_c = dLL[row];
 
         //for each regressor (on this thread)
         for(unsigned int tt = tt_start; tt < X.y; tt += blockDim.y * gridDim.y) {
@@ -1620,10 +1621,10 @@ __global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> X_temp, cons
                 }
                 else {
                     if(isIdentity) {
-                        X_temp(row, tt, aa) = (idx_0 == tt) ?  dLL[row] : 0;
+                        X_temp(row, tt, aa) = (idx_0 == tt) ?  dL_c : 0;
                     }
                     else {
-                        X_temp(row, tt, aa) = X(idx_0, tt) * dLL[row];
+                        X_temp(row, tt, aa) = X(idx_0, tt) * dL_c;
                     }
                 }
             }
@@ -1650,12 +1651,12 @@ __global__ void kernel_dLL_mult(GPUData_kernel<FPTYPE> lambda_d, const GPUData_k
 }
 
 template <class FPTYPE>
-void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event) {
+void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event) {
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
 
-    checkCudaErrors(cudaStreamWaitEvent(stream, LL_event, 0), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
+    checkCudaErrors(cudaStreamWaitEvent(stream, main_LL_event, 0), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
 
     if(opts->compute_dV) {
         //for each neuron
@@ -1705,6 +1706,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 dim3 grid_size;
                 grid_size.x = parent->dim_N_temp  / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
                 grid_size.y = 1;
+                
 
                 kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), parent->dLL->device(),
                                             	iX[dd]->device(), 
@@ -1793,12 +1795,21 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
 
             checkCudaErrors(phi_c->resize(stream, X_c->getSize(0), results->dF[dd]->getSize(1), X_c->getSize(2)), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: setting size of phi_c failed");
 
+            /*output_stream << " dd = " << dd << "  ";
+            phi_c->printInfo(output_stream, "phi_c");
+            X_c->printInfo(output_stream, "X_c");
+            results->dF[dd]->printInfo(output_stream, "results->dF[dd]");
+            msg->printMsgTxt(output_stream);*/
+
             // matrix mult to get dF (local and shared)
             if((*isShared)[dd] && !isSparseRun && (*isSharedIdentity)[dd]) {
                 //nothing needed
             }
             else {
-                checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                int num = -20;
+                checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer, &num), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                //output_stream << " GEMM " << num << "\n";
+                //msg->printMsgTxt(output_stream);
             }
             
             // matrix mults to get dT

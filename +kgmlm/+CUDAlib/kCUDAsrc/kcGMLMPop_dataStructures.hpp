@@ -500,7 +500,7 @@ public:
     
     void multiplyCoefficients(const bool isSparseRun, const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded);
     void getGroupRate(const bool isSparseRun, const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle);
-    void computeDerivatives(GPUGMLMPop_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event);
+    void computeDerivatives(GPUGMLMPop_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event);
 
     //dimensions
     inline size_t dim_P() const  {

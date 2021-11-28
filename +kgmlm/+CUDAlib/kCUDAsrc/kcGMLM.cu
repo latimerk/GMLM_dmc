@@ -63,27 +63,30 @@ GPUGMLM<FPTYPE>::~GPUGMLM() {
 }
 
 template <class FPTYPE>
-void GPUGMLM<FPTYPE>::computeLogLikelihood_async(const GPUGMLM_params<FPTYPE> * params, const GPUGMLM_computeOptions<FPTYPE> * opts) {
+void GPUGMLM<FPTYPE>::computeLogLikelihood_async(std::shared_ptr<GPUGMLM_params<FPTYPE>> params_, std::shared_ptr<GPUGMLM_computeOptions<FPTYPE>> opts_) {
+    opts = opts_;
+    params = params_;
+
     std::vector<bool> isSparse;
     //load params to each block
     for(auto bb: gpu_blocks) {
-        isSparse.push_back(bb->loadParams(params, opts));
+        isSparse.push_back(bb->loadParams(params.get(), opts.get()));
     }
 
     //call bits of LL computation
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeRateParts(opts, isSparse[bb]);
+        gpu_blocks[bb]->computeRateParts(opts.get(), isSparse[bb]);
     }
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeLogLike(opts, isSparse[bb]);
+        gpu_blocks[bb]->computeLogLike(opts.get(), isSparse[bb]);
     }
     for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeDerivatives(opts,  isSparse[bb]);
+        gpu_blocks[bb]->computeDerivatives(opts.get(),  isSparse[bb]);
     }
           
     //gather to host
     for(auto bb: gpu_blocks) {
-        bb->gatherResults(opts);
+        bb->gatherResults(opts.get());
     }
     /*std::vector<bool> isSparse;
     //load params to each block
@@ -102,14 +105,14 @@ void GPUGMLM<FPTYPE>::computeLogLikelihood_async(const GPUGMLM_params<FPTYPE> * 
     }*/
 }
 template <class FPTYPE>
-void GPUGMLM<FPTYPE>::computeLogLikelihood_gather(const GPUGMLM_computeOptions<FPTYPE> * opts, GPUGMLM_results<FPTYPE> * results, const bool reset_needed_0) {
+void GPUGMLM<FPTYPE>::computeLogLikelihood_gather( GPUGMLM_results<FPTYPE> * results, const bool reset_needed_0) {
     //sync everything
     syncStreams();
             
     //put results in user-supplied struct
     bool reset_needed = reset_needed_0;
     for(auto bb: gpu_blocks) {
-        bool results_added = bb->addResultsToHost(results, opts, reset_needed);
+        bool results_added = bb->addResultsToHost(results, opts.get(), reset_needed);
         if(reset_needed && results_added) {
             reset_needed = false;
         }
@@ -117,9 +120,9 @@ void GPUGMLM<FPTYPE>::computeLogLikelihood_gather(const GPUGMLM_computeOptions<F
 }
  
 template <class FPTYPE>
-void GPUGMLM<FPTYPE>::computeLogLikelihood(const GPUGMLM_params<FPTYPE> * params, const GPUGMLM_computeOptions<FPTYPE> * opts, GPUGMLM_results<FPTYPE> * results) {
-    computeLogLikelihood_async(params, opts);
-    computeLogLikelihood_gather(opts, results);
+void GPUGMLM<FPTYPE>::computeLogLikelihood(std::shared_ptr< GPUGMLM_params<FPTYPE>> params_, std::shared_ptr<GPUGMLM_computeOptions<FPTYPE>> opts_, GPUGMLM_results<FPTYPE> * results) {
+    computeLogLikelihood_async(params_, opts_);
+    computeLogLikelihood_gather(results);
 }  
 
 template <class FPTYPE>

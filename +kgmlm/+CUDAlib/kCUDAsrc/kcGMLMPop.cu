@@ -61,13 +61,14 @@ GPUGMLMPop<FPTYPE>::~GPUGMLMPop() {
 }
  
  template <class FPTYPE>
-void GPUGMLMPop<FPTYPE>::computeLogLikelihood_async(const GPUGMLMPop_params<FPTYPE> * params, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_) {
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood_async(std::shared_ptr<GPUGMLMPop_params<FPTYPE>> params_, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_) {
     opts = opts_;
+    params = params_;
 
     std::vector<bool> isSparse;
     //load params to each block
     for(auto bb: gpu_blocks) {
-        isSparse.push_back(bb->loadParams(params, opts.get()));
+        isSparse.push_back(bb->loadParams(params.get(), opts.get()));
     }
 
     //call bits of LL computation
@@ -101,8 +102,8 @@ void GPUGMLMPop<FPTYPE>::computeLogLikelihood_gather( GPUGMLMPop_results<FPTYPE>
     }
 }
 template <class FPTYPE>
-void GPUGMLMPop<FPTYPE>::computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * params, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_, GPUGMLMPop_results<FPTYPE> * results) {
-    computeLogLikelihood_async(params, opts_);
+void GPUGMLMPop<FPTYPE>::computeLogLikelihood(std::shared_ptr<GPUGMLMPop_params<FPTYPE>> params_, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_, GPUGMLMPop_results<FPTYPE> * results) {
+    computeLogLikelihood_async(params_, opts_);
     computeLogLikelihood_gather(results);
 }  
 

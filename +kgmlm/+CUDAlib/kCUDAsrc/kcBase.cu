@@ -579,7 +579,7 @@ __global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<
 
 
 template <class FPTYPE>
-cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha, const FPTYPE beta,  GPUData<FPTYPE> * BUFFER) {
+cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha, const FPTYPE beta,  GPUData<FPTYPE> * BUFFER, int * multType) {
     
     cublasStatus_t ce = CUBLAS_STATUS_SUCCESS;
 
@@ -610,6 +610,9 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     size_t rows_op_B = (op_B == CUBLAS_OP_N) ? rows_B : cols_B; 
     size_t cols_op_B = (op_B == CUBLAS_OP_N) ? cols_B : rows_B; 
 
+
+    if(multType != NULL) {multType[0] = -1;};
+
     if(cols_C != cols_op_B || rows_C != rows_op_A || cols_op_A != rows_op_B
             || (depth_A > 1 && depth_A != depth)
             || (depth_B > 1 && depth_B != depth)
@@ -620,14 +623,17 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     //for tall skinny op_A
     if(rows_op_A / cols_op_A >= 4 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
         if( op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
+            if(multType != NULL) {multType[0] = 0;};
+
             cudaStream_t stream;
             ce = cublasGetStream(handle, &stream);
 
             if(ce == CUBLAS_STATUS_SUCCESS) {
-                ce = launchKernelTsm2<FPTYPE>(stream, this, B,  C, alpha, beta);
+                ce = launchKernelTsm2<FPTYPE>(stream, this, B,  C, alpha, beta, rows_A, depth);
             }
         }
         else {
+            if(multType != NULL) {multType[0] = 1;};
             //for smaller dim_T_c, call my own makeshift GEMM that's somehow faster for the typical sized problem
             // I should probably use a more efficient algorithm for this? (I don't think this case is important anymore - above TSM2 method is called in typical GMLM problems)
             dim3 block_size;
@@ -659,6 +665,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         }
     }
     else if(cols_op_B == 1) {
+        if(multType != NULL) {multType[0] = 10;};
        //GEMV is sometimes way faster then GEMM (even on the same problem size) - call it if it's all that's needed
         size_t op_B_stride = (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->getLD_gpu();
         for(int dd = 0; dd < depth && ce == CUBLAS_STATUS_SUCCESS; dd++) {
@@ -673,15 +680,17 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     }
     else if(cols_op_A / rows_op_A >= 4 && cols_op_A >= 2048  && cols_op_B <= 256) {
         if(op_A == CUBLAS_OP_T && op_B == CUBLAS_OP_N && BUFFER != NULL) {
+            if(multType != NULL) {multType[0] = 20;};
             // special case using a (somewhat) optimized kernel - much faster than just running cublasGEMM (and sometimes faster than the GEMVs below)
             cudaStream_t stream;
             ce = cublasGetStream(handle, &stream);
 
             if(ce == CUBLAS_STATUS_SUCCESS) {
-                ce = launchKerneltsTmts<FPTYPE>(stream, this, B,  C, BUFFER, alpha, beta, depth);
+                ce = launchKerneltsTmts<FPTYPE>(stream, this, B,  C, BUFFER, alpha, beta, cols_op_A, depth);
             }
         }
         else {
+            if(multType != NULL) {multType[0] = 21;};
             //A'*B for tall, skinny A&B is slow with GEMM, somehow faster with multiple GEMV calls - perverse but it's a bit speedup
             // - I haven't found available code to implement better GEMMs for these irregular matrices (although a couple papers exist). Is it worth trying to implement those kernels myself?
             size_t op_B_ld     = (op_B == CUBLAS_OP_N) ? B->getLD_gpu() : static_cast<size_t>(1);
@@ -701,6 +710,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         }
     }
     else if(depth > 1) {
+        if(multType != NULL) {multType[0] = 30;};
         //for largish size of C, call GEMM (single - run below)
         ce = cublasGEMMStridedBatched(handle,
                                   op_A,
@@ -717,6 +727,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                                   depth);
     }
     else {
+        if(multType != NULL) {multType[0] = 40;};
         ce = cublasGEMM(handle,
                           op_A,
                           op_B,
@@ -784,7 +795,10 @@ cublasStatus_t GPUData<FPTYPE>::GEMVs(GPUData<FPTYPE> * C, const GPUData<FPTYPE>
  *            src/v100/kernels_select.cuh
  */
 template <typename FPTYPE, int blk_NR, int blk_NC_B, int blk_NC_A>
-__global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<FPTYPE> B,  GPUData_kernel<FPTYPE> C, const FPTYPE alpha, const FPTYPE beta) {
+__global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<FPTYPE> B,  GPUData_kernel<FPTYPE> C,
+        const FPTYPE alpha, const FPTYPE beta,
+        const size_t rows_A, const size_t max_depth) {
+
     // Names mostly follow the paper's
     __shared__ FPTYPE currB[blk_NR * blk_NC_B];
 
@@ -798,21 +812,21 @@ __global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<
     int thread;
 
     unsigned int depth = blockIdx.y;
-    if(depth < A.z) {
+    if(depth < max_depth) {
 
         // This implementation can respond to arbitrary input
 
         // We cannot rule out a thread's participation based on
         // whether it corresponds to a row in Matrix A, so we
         // introduce threadBase.
-        for (; threadBase < A.x; threadBase += blockDim.x * gridDim.x) {
+        for (; threadBase < rows_A; threadBase += blockDim.x * gridDim.x) {
             thread = threadBase + tid;
             for (int p = 0; p < B.y; p += blk_NC_B) {
                 // Load loops have extra conditionals to ensure
                 // they do not make bad memory accesses
 
                 // Loads first tile of output registers and A
-                if (thread < A.x) {
+                if (thread < rows_A) {
                     #pragma unroll
                     for (int i = 0; i < blk_NC_B; ++i) {
                         if (p + i < B.y) {
@@ -857,7 +871,7 @@ __global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<
                         // Loads next A
                         #pragma unroll
                         for (int i = 0; i < blk_NC_A; ++i) {
-                            if (l + blk_NC_A + i < A.y && thread < A.x) {
+                            if (l + blk_NC_A + i < A.y && thread < rows_A) {
                                 nextA[i] = A(thread, l + blk_NC_A + i, depth);
                             }
                         }
@@ -920,14 +934,14 @@ __global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<
                     if (t3mod != 0) {
                         #pragma unroll
                         for (int i = 0; i < blk_NC_A; ++i) {
-                            if (j + blk_NR + i < A.y && thread < A.x) {
+                            if (j + blk_NR + i < A.y && thread < rows_A) {
                                 currA[i] = A(thread, j + blk_NR + i, depth);
                             }
                         }
                     }
                 }
                 // Stores C
-                if (thread < A.x) {
+                if (thread < rows_A) {
                     #pragma unroll
                     for (int i = 0; i < blk_NC_B; ++i) {
                         if (p + i < B.y) {
@@ -942,30 +956,36 @@ __global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<
 
 
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<int> * A, const GPUData<int> * B,  GPUData<int> * C, const int alpha, const int beta) {
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<int> * A, const GPUData<int> * B,  GPUData<int> * C, const int alpha, const int beta, 
+            const size_t rows_A, const size_t depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<char> * A, const GPUData<char> * B,  GPUData<char> * C, const char alpha, const char beta) {
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<char> * A, const GPUData<char> * B,  GPUData<char> * C, const char alpha, const char beta, 
+            const size_t rows_A, const size_t depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<bool> * A, const GPUData<bool> * B,  GPUData<bool> * C, const bool alpha, const bool beta) {
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<bool> * A, const GPUData<bool> * B,  GPUData<bool> * C, const bool alpha, const bool beta, 
+            const size_t rows_A, const size_t depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<unsigned int> * A, const GPUData<unsigned int> * B,  GPUData<unsigned int> * C, const unsigned int alpha, const unsigned int beta) {
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<unsigned int> * A, const GPUData<unsigned int> * B,  GPUData<unsigned int> * C, const unsigned int alpha, const unsigned int beta, 
+            const size_t rows_A, const size_t depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<size_t> * A, const GPUData<size_t> * B,  GPUData<size_t> * C, const size_t alpha, const size_t beta) {
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<size_t> * A, const GPUData<size_t> * B,  GPUData<size_t> * C, const size_t alpha, const size_t beta, 
+            const size_t rows_A, const size_t depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<float> * A, const GPUData<float> * B,  GPUData<float> * C, const float alpha, const float beta) {
-    const size_t m = A->getSize(0);
-    const size_t k = A->getSize(1);
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<float> * A, const GPUData<float> * B,  GPUData<float> * C, const float alpha, const float beta, 
+            const size_t rows_A,  const size_t depth) {
+    const size_t m = rows_A;
+    //const size_t k = A->getSize(1);
     const size_t n = B->getSize(1);
 
     int blocks = (m / FLOAT_T1) + 1;
@@ -979,27 +999,27 @@ cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<float> * A, c
     block_size.x = FLOAT_T1;
     block_size.y  = 1;
     grid_size.x = blocks;
-    grid_size.y = A->getSize(2);
+    grid_size.y = depth;
 
     if (n <= 2) {
         kernelTsm2<float, FLOAT_T1, 2, 32>
-            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
     }
     else if (n <= 4) {
         kernelTsm2<float, FLOAT_T1, 4, 32>
-            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
     }
     else if (n <= 6) {
         kernelTsm2<float, FLOAT_T1, 6, 32>
-            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
     }
     else if (n <= 8) {
         kernelTsm2<float, FLOAT_T1, 8, 32>
-            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
     }
     else {
         kernelTsm2<float, FLOAT_T1, 16, 32>
-            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
     }
     if(cudaSuccess != cudaGetLastError()) {
         return CUBLAS_STATUS_EXECUTION_FAILED;
@@ -1010,9 +1030,10 @@ cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<float> * A, c
 }
 
 template <>
-cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<double> * A, const GPUData<double> * B,  GPUData<double> * C, const double alpha, const double beta) {
-    const size_t m = A->getSize(0);
-    const size_t k = A->getSize(1);
+cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<double> * A, const GPUData<double> * B,  GPUData<double> * C, const double alpha, const double beta,
+            const size_t rows_A, const size_t depth) {
+    const size_t m = rows_A;
+    //const size_t k = A->getSize(1);
     const size_t n = B->getSize(1);
     int blocks = (m / DOUBLE_T1) + 1;
     if(blocks > 65536) {
@@ -1025,60 +1046,60 @@ cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<double> * A, 
     block_size.x = DOUBLE_T1;
     block_size.y  = 1;
     grid_size.x = blocks;
-    grid_size.y = A->getSize(2);
+    grid_size.y = depth;
     
     if (n <= 2) {
         if (m < 20480) {
             kernelTsm2<double, DOUBLE_T1, 2, 16>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
         else {
             kernelTsm2<double, DOUBLE_T1, 2, 12>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
     }
     else if (n <= 4) {
         if (m < 20480) {
             kernelTsm2<double, DOUBLE_T1, 4, 16>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
         else {
             kernelTsm2<double, DOUBLE_T1, 4, 12>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
     } else if (n <= 6) {
         if (m < 20480) {
             kernelTsm2<double, DOUBLE_T1, 6, 16>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
         else {
             kernelTsm2<double, DOUBLE_T1, 6, 12>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
     }
     else if (n <= 8) {
         if (m < 20480) {
             kernelTsm2<double, DOUBLE_T1, 8, 16>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
         else {
             kernelTsm2<double, DOUBLE_T1, 8, 12>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
     }
     else if (n <= 16) {
         if (m < 20480) {
             kernelTsm2<double, DOUBLE_T1, 16, 16>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
         else {
             kernelTsm2<double, DOUBLE_T1, 16, 12>
-                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+                <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
         }
     }
     else {
         kernelTsm2<double, DOUBLE_T1, 32, 12>
-            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta);
+            <<<grid_size, block_size, 0, stream>>>(A->device(), B->device(), C->device(), alpha, beta, rows_A, depth);
     }
     if(cudaSuccess != cudaGetLastError()) {
         return CUBLAS_STATUS_EXECUTION_FAILED;
@@ -1112,7 +1133,7 @@ __global__ void kernel_reduce_tsTmts(GPUData_kernel<FPTYPE> C, const GPUData_ker
                     C(row, col, depth) = alpha*ll;
                 }
                 else {
-                    C(row, col, depth) = beta*C(row, col)  + alpha*ll;
+                    C(row, col, depth) = beta*C(row, col, depth)  + alpha*ll;
                 }
             }
         }
@@ -1121,7 +1142,7 @@ __global__ void kernel_reduce_tsTmts(GPUData_kernel<FPTYPE> C, const GPUData_ker
 
 
 template <typename FPTYPE, int blk_NR, int blk_NC_B>
-__global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<FPTYPE> B,  GPUData_kernel<FPTYPE> C, const FPTYPE alpha, const FPTYPE beta, const unsigned int depth) {
+__global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<FPTYPE> B,  GPUData_kernel<FPTYPE> C, const FPTYPE alpha, const FPTYPE beta, const size_t rows_A, const unsigned int depth) {
     // Names mostly follow the paper's
     __shared__ FPTYPE currB[blk_NR * blk_NC_B];
 
@@ -1129,62 +1150,54 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
 
     const int tid = threadIdx.x;
 
-    if(depth < A.z) {
+    //zero out answer
+    for (int pp = 0; pp < B.y; pp++) {
+        for(size_t aa = tid; aa < A.y; aa += blockDim.x) {
+            C(aa, pp, blockIdx.x) = 0;
+        }
+    }
+    __syncthreads();
 
-        //zero out answer
+    for (size_t row_0 = blk_NR * (blockIdx.x); row_0 < rows_A; row_0 += blk_NR * (gridDim.x) ) {
+
         for (int pp = 0; pp < B.y; pp += blk_NC_B) {
-            for(size_t aa = 0; aa < A.y; aa += blockDim.x) {
+
+            for(int qq = tid; qq < blk_NC_B && qq + pp < B.y; qq += blockDim.x) { 
                 #pragma unroll
-                for (int qq = 0; qq < blk_NC_B; qq++) {
-                    if(tid + aa < A.y  && qq + pp < B.y) {
-                        C(tid + aa, qq + pp, blockIdx.x) = 0;
+                for(size_t row = 0; row < blk_NR; row++) {
+                    if(row + row_0 < rows_A) {
+                        currB[row + qq*blk_NR] = B(row + row_0, qq + pp, depth);
                     }
                 }
             }
-        }
-        __syncthreads();
+            
+            __syncthreads();
 
-        for (size_t row_0 = blk_NR * (blockIdx.x); row_0 < A.x; row_0 += blk_NR * (gridDim.x) ) {
-
-            for (int pp = 0; pp < B.y; pp += blk_NC_B) {
-                  
-                if(tid + pp < B.y && tid < blk_NC_B) {
+            for(size_t aa = 0; aa < A.y; aa += blockDim.x) {
+                //gets first col of A
+                if(tid + aa < A.y) {
                     #pragma unroll
                     for(size_t row = 0; row < blk_NR; row++) {
-                        if(row + row_0 < B.x) {
-                            currB[row + tid*blk_NR] = B(row + row_0, tid + pp, depth);
+                        if(row + row_0 < rows_A) {
+                            currA[row] = A(row + row_0, tid + aa, depth);
                         }
                     }
                 }
-                
                 __syncthreads();
 
-                for(size_t aa = 0; aa < A.y; aa += blockDim.x) {
-                    //gets first col of A
-                    if(tid + aa < A.y) {
+                if(tid + aa < A.y) {
+                    for (int qq = 0; qq < blk_NC_B && qq + pp < B.y; qq++) {
+                        FPTYPE currC = 0;
                         #pragma unroll
                         for(size_t row = 0; row < blk_NR; row++) {
-                            if(row + row_0 < A.x) {
-                                currA[row] = A(row + row_0, tid + aa, depth);
+                            if(row + row_0 < rows_A) {
+                                currC += currA[row] * currB[row + qq*blk_NR];
                             }
                         }
+                        C(tid + aa, qq + pp, blockIdx.x) += currC;
                     }
-                    __syncthreads();
-
-                    if(tid + aa < A.y) {
-                        for (int qq = 0; qq < blk_NC_B && qq + pp < B.y; qq++) {
-                            FPTYPE currC = 0;
-                            #pragma unroll
-                            for(size_t row = 0; row < blk_NR; row++) {
-                                if(row + row_0 < A.x) {
-                                    currC += currA[row] * currB[row + qq*blk_NR];
-                                }
-                            }
-                            C(tid + aa, qq + pp, blockIdx.x) += currC;
-                        }
-                    }
-                    __syncthreads();
                 }
+                __syncthreads();
             }
         }
     }
@@ -1192,13 +1205,12 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
 
 //NOTE: the launch sizes in launchKerneltsTmts are not fully optimized (and are set the same for both float and double)
 template <>
-cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A, const GPUData<float> * B,  GPUData<float> * C, GPUData<float> * buffer, const float alpha, const float beta, const unsigned int depth) {
+cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A, const GPUData<float> * B,  GPUData<float> * C, GPUData<float> * buffer, const float alpha, const float beta, const size_t rows_A, const unsigned int depth) {
     if(buffer == NULL) {
         return CUBLAS_STATUS_INVALID_VALUE;        
     }
     GPUData_kernel<float> C_buf_k_0 = buffer->device();
 
-    size_t rows_A = A->getSize(0);
     size_t cols_A = A->getSize(1);
     size_t cols_B = B->getSize(1);
 
@@ -1233,23 +1245,23 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
 
     for(unsigned int depth_c = 0; depth_c < depth; depth_c++) {
         if(B->getSize(1) >= 16) {
-            kernel_tsTmts<float, NRS_FLOAT, 16><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
+            kernel_tsTmts<float, NRS_FLOAT, 16><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A, depth_c);
             kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
         else if(B->getSize(1) >= 8) {
-            kernel_tsTmts<float, NRS_FLOAT, 8><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
+            kernel_tsTmts<float, NRS_FLOAT, 8><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
             kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
         else if(B->getSize(1) >= 4) {
-            kernel_tsTmts<float, NRS_FLOAT, 4><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
+            kernel_tsTmts<float, NRS_FLOAT, 4><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
             kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
         else if(B->getSize(1) >= 2) {
-            kernel_tsTmts<float, NRS_FLOAT, 2><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
+            kernel_tsTmts<float, NRS_FLOAT, 2><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
             kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
         else {
-            kernel_tsTmts<float, NRS_FLOAT, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
+            kernel_tsTmts<float, NRS_FLOAT, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
             kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
     }
@@ -1262,13 +1274,12 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
 }
 
 template <>
-cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A, const GPUData<double> * B,  GPUData<double> * C, GPUData<double> * buffer, const double alpha, const double beta, const unsigned int depth) {
+cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A, const GPUData<double> * B,  GPUData<double> * C, GPUData<double> * buffer, const double alpha, const double beta, const size_t  rows_A, const unsigned int depth) {
     if(buffer == NULL) {
         return CUBLAS_STATUS_INVALID_VALUE;        
     }
     GPUData_kernel<double> C_buf_k_0 = buffer->device();
 
-    size_t rows_A = A->getSize(0);
     size_t cols_A = A->getSize(1);
     size_t cols_B = B->getSize(1);
 
@@ -1307,24 +1318,24 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
         //kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
 
         if(B->getSize(1) >= 16) {
-            kernel_tsTmts<double, NRS_DOUBLE, 16><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+            kernel_tsTmts<double, NRS_DOUBLE, 16><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         else if(B->getSize(1) >= 8) {
-            kernel_tsTmts<double, NRS_DOUBLE, 8><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+            kernel_tsTmts<double, NRS_DOUBLE, 8><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         else if(B->getSize(1) >= 4) {
-            kernel_tsTmts<double, NRS_DOUBLE, 4><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+            kernel_tsTmts<double, NRS_DOUBLE, 4><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         else if(B->getSize(1) >= 2) {
-            kernel_tsTmts<double, NRS_DOUBLE, 2><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+            kernel_tsTmts<double, NRS_DOUBLE, 2><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         else {
-            kernel_tsTmts<double, NRS_DOUBLE, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+            kernel_tsTmts<double, NRS_DOUBLE, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         if(cudaSuccess != cudaGetLastError()) {
             return CUBLAS_STATUS_EXECUTION_FAILED;
@@ -1340,7 +1351,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream,
           GPUData<int> * C,
           GPUData<int> * buffer,
             const int alpha,
-            const int beta, const unsigned int depth) {
+            const int beta, const size_t rows_A, const unsigned int depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
@@ -1350,7 +1361,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream,
           GPUData<char> * C,
           GPUData<char> * buffer,
             const char alpha,
-            const char beta, const unsigned int depth) {
+            const char beta, const size_t rows_A, const unsigned int depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
@@ -1360,7 +1371,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream,
           GPUData<bool> * C,
           GPUData<bool> * buffer,
             const bool alpha,
-            const bool beta, const unsigned int depth) {
+            const bool beta, const size_t rows_A, const unsigned int depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
@@ -1370,7 +1381,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream,
           GPUData<unsigned int> * C,
           GPUData<unsigned int> * buffer,
             const unsigned int alpha,
-            const unsigned int beta, const unsigned int depth) {
+            const unsigned int beta, const size_t rows_A, const unsigned int depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 template <>
@@ -1380,7 +1391,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream,
           GPUData<size_t> * C,
           GPUData<size_t> * buffer,
             const size_t alpha,
-            const size_t beta, const unsigned int depth) {
+            const size_t beta, const size_t rows_A, const unsigned int depth) {
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 
