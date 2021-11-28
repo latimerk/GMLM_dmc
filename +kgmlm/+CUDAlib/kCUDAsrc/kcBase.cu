@@ -622,14 +622,19 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
 
     //for tall skinny op_A
     if(rows_op_A / cols_op_A >= 4 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
-        if( op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
+        if(op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
             if(multType != NULL) {multType[0] = 0;};
 
             cudaStream_t stream;
             ce = cublasGetStream(handle, &stream);
 
             if(ce == CUBLAS_STATUS_SUCCESS) {
-                ce = launchKernelTsm2<FPTYPE>(stream, this, B,  C, alpha, beta, rows_A, depth);
+                if(depth_A == 1 && depth_B == 1 && depth_C == 1) {
+                    ce = launchKernelTsm2<FPTYPE>(stream, this, B,  C, alpha, beta, rows_A, 1);
+                }
+                else {
+                    ce = launchKernelTsm2<FPTYPE>(stream, this, B,  C, alpha, beta, getSize(0), depth);
+                }
             }
         }
         else {
@@ -686,7 +691,12 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
             ce = cublasGetStream(handle, &stream);
 
             if(ce == CUBLAS_STATUS_SUCCESS) {
-                ce = launchKerneltsTmts<FPTYPE>(stream, this, B,  C, BUFFER, alpha, beta, cols_op_A, depth);
+                if(depth_A == 1 && depth_B == 1 && depth_C == 1) {
+                    ce = launchKerneltsTmts<FPTYPE>(stream, this, B,  C, BUFFER, alpha, beta, rows_A, 1);
+                }
+                else {
+                    ce = launchKerneltsTmts<FPTYPE>(stream, this, B,  C, BUFFER, alpha, beta, getSize(0), depth);
+                }
             }
         }
         else {
