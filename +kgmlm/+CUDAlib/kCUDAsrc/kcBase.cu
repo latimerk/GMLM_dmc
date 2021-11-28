@@ -541,7 +541,7 @@ __global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<
             }
             else if(op_A == CUBLAS_OP_N) {
                 for(int tt = 0; tt < F.y; tt++) {
-                    //ll += X(row, tt, A) * F(rr, tt, A);
+                   // ll += X(row, tt, A) * F(rr, tt, A);
                     y = X(row, tt, A) * F(rr, tt, A) - c;
                     t = ll + y;
                     c = (t - ll) - y;
@@ -550,7 +550,7 @@ __global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<
             }
             else if(op_B == CUBLAS_OP_N) {
                 for(int tt = 0; tt < F.x; tt++) {
-                    //ll += X(tt, row, A) * F(tt, rr, A);
+                   // ll += X(tt, row, A) * F(tt, rr, A);
                     y  = X(tt, row, A) * F(tt, rr, A) - c;
                     t = ll + y;
                     c = (t - ll) - y;
@@ -559,7 +559,7 @@ __global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<
             }
             else {
                 for(int tt = 0; tt < F.y; tt++) {
-                    //ll += X(tt, row, A) * F(rr, tt, A);
+                   // ll += X(tt, row, A) * F(rr, tt, A);
                     y  = X(tt, row, A) * F(rr, tt, A) - c;
                     t = ll + y;
                     c = (t - ll) - y;
@@ -580,7 +580,7 @@ __global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<
 
 template <class FPTYPE>
 cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha, const FPTYPE beta,  GPUData<FPTYPE> * BUFFER, int * multType) {
-    
+    const bool USE_CUSTOM_LA = true;
     cublasStatus_t ce = CUBLAS_STATUS_SUCCESS;
 
     size_t depth_A = getSize(2);
@@ -621,7 +621,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     }
 
     //for tall skinny op_A
-    if(rows_op_A / cols_op_A >= 4 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
+    if(USE_CUSTOM_LA && rows_op_A / cols_op_A >= 4 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
         if(op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
             if(multType != NULL) {multType[0] = 0;};
 
@@ -684,7 +684,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         }
     }
     else if(cols_op_A / rows_op_A >= 4 && cols_op_A >= 2048  && cols_op_B <= 256) {
-        if(op_A == CUBLAS_OP_T && op_B == CUBLAS_OP_N && BUFFER != NULL) {
+        if(USE_CUSTOM_LA && op_A == CUBLAS_OP_T && op_B == CUBLAS_OP_N && BUFFER != NULL) {
             if(multType != NULL) {multType[0] = 20;};
             // special case using a (somewhat) optimized kernel - much faster than just running cublasGEMM (and sometimes faster than the GEMVs below)
             cudaStream_t stream;
@@ -907,8 +907,7 @@ __global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<
                                 #pragma unroll
                                 for (int b = 0; b < blk_NC_A; ++b) {
                                     if (l + b < A.y) {
-                                        currC[a] += currA[b] *
-                                                    currB[(l - j) + b + (a * blk_NR)];
+                                        currC[a] += currA[b] * currB[(l - j) + b + (a * blk_NR)];
                                     }
                                 }
                             }
@@ -926,8 +925,7 @@ __global__ void kernelTsm2(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<
                         #pragma unroll
                         for (int b = 0; b < t3mod; ++b) {
                             if (j + blk_NR - t3mod + b < A.y) {
-                                currC[a] +=
-                                    currA[b] * currB[(blk_NR - t3mod + b) + (a * blk_NR)];
+                                currC[a] += currA[b] * currB[(blk_NR - t3mod + b) + (a * blk_NR)];
                             }
                         }
                     }
@@ -1198,10 +1196,17 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
                 if(tid + aa < A.y) {
                     for (int qq = 0; qq < blk_NC_B && qq + pp < B.y; qq++) {
                         FPTYPE currC = 0;
+                        //FPTYPE z = 0;
+                        //FPTYPE y, t;
+
                         #pragma unroll
                         for(size_t row = 0; row < blk_NR; row++) {
                             if(row + row_0 < rows_A) {
                                 currC += currA[row] * currB[row + qq*blk_NR];
+                                /*y  = currA[row] * currB[row + qq*blk_NR]; - z;
+                                t = currC + y;
+                                z = (t - currC) - y;
+                                currC = t;*/
                             }
                         }
                         C(tid + aa, qq + pp, blockIdx.x) += currC;
