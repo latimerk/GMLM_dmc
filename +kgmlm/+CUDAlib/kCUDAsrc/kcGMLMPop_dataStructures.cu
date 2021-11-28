@@ -1400,7 +1400,7 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda_v,
             iX_row = ridx_sa_all[row];
         }
 
-        if(trial_weights.y == 0 || trial_weights[id_a_trialM[iX_row]] != 0) { //if trial not censored
+        if(trial_weights.y == 0 || trial_weights.y > 1 || (trial_weights.y == 1 && trial_weights[id_a_trialM[iX_row]] != 0)) { //if trial not censored
             //for each rank
             for(unsigned int rr = rr_start; rr < lambda_v.y; rr += blockDim.y * gridDim.y) { //dim_R = V->Y
                 //for each event 
@@ -1603,14 +1603,16 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
     
     if(opts->compute_dV) {
         //for each neuron
-//         parent->dLL->printInfo(output_stream, "dLL");
-//         msg->printMsgTxt(output_stream);
-//         lambda_v->printInfo(output_stream, "lambda_v");
-//         msg->printMsgTxt(output_stream);
-//         results->dV->printInfo(output_stream, "results->dV");
-//         msg->printMsgTxt(output_stream);
-
-         checkCudaErrors(parent->dLL->GEMM(results->dV, lambda_v, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL'*lambda_v -> dV failed");
+        /*parent->dLL->printInfo(output_stream, "dLL");
+        msg->printMsgTxt(output_stream);
+        lambda_v->printInfo(output_stream, "lambda_v");
+        msg->printMsgTxt(output_stream);
+        results->dV->printInfo(output_stream, "results->dV");
+        msg->printMsgTxt(output_stream);*/
+        int mn = -20;
+        checkCudaErrors(parent->dLL->GEMM(results->dV, lambda_v, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer, &mn), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL'*lambda_v -> dV failed");
+        /*output_stream << "   mn " << mn << "\n";
+        msg->printMsgTxt(output_stream);*/
     }
 
     //check if computing any derivatives first
