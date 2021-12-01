@@ -621,7 +621,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     }
 
     //for tall skinny op_A
-    if(USE_CUSTOM_LA && rows_op_A / cols_op_A >= 4 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
+    if(USE_CUSTOM_LA && rows_op_A / cols_op_A >= 4 && rows_op_A >= 2048 && cols_op_A <= 2048 && cols_op_B > 1 && cols_op_B <= 256) {
         if(op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
             if(multType != NULL) {multType[0] = 0;};
 
@@ -683,7 +683,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                           C->getData_gpu() + dd*C->getInc_gpu(), 1);
         }
     }
-    else if(cols_op_A / rows_op_A >= 4 && cols_op_A >= 2048  && cols_op_B <= 256) {
+    else if(cols_op_A / rows_op_A >= 4 && cols_op_A >= 2048  && cols_op_B <= 256 && rows_op_A <= 2048  ) {
         if(USE_CUSTOM_LA && op_A == CUBLAS_OP_T && op_B == CUBLAS_OP_N && BUFFER != NULL) {
             if(multType != NULL) {multType[0] = 20;};
             // special case using a (somewhat) optimized kernel - much faster than just running cublasGEMM (and sometimes faster than the GEMVs below)
@@ -1132,7 +1132,7 @@ __global__ void kernel_reduce_tsTmts(GPUData_kernel<FPTYPE> C, const GPUData_ker
                 c = 0;
 
                 for(int tt = 0; tt < C_buf.z; tt++) {
-                    y  = C_buf(row, col, tt) - c;
+                    y  = C_buf(row, col,  tt) - c; 
                     t = ll + y;
                     c = (t - ll) - y;
                     ll = t;
@@ -1153,6 +1153,7 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
     // Names mostly follow the paper's
     __shared__ FPTYPE currB[blk_NR * blk_NC_B];
 
+    
     FPTYPE currA[blk_NR];
 
     const int tid = threadIdx.x;
@@ -1171,7 +1172,6 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
         for (int pp = 0; pp < B.y; pp += blk_NC_B) {
 
             for(int qq = tid; qq < blk_NC_B && qq + pp < B.y; qq += blockDim.x) { 
-                #pragma unroll
                 for(size_t row = 0; row < blk_NR; row++) {
                     if(row + row_0 < rows_A) {
                         currB[row + qq*blk_NR] = B(row + row_0, qq + pp, depth);
@@ -1192,13 +1192,12 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
                 }
                 __syncthreads();
 
-                if(tid + aa < A.y) {
-                    for (int qq = 0; qq < blk_NC_B && qq + pp < B.y; qq++) {
+                for (int qq = 0; qq < blk_NC_B && qq + pp < B.y; qq++) {
+                    if(tid + aa < A.y) {
                         FPTYPE currC = 0;
                         //FPTYPE z = 0;
                         //FPTYPE y, t;
 
-                        #pragma unroll
                         for(size_t row = 0; row < blk_NR; row++) {
                             if(row + row_0 < rows_A) {
                                 currC += currA[row] * currB[row + qq*blk_NR];
@@ -1208,10 +1207,10 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
                                 currC = t;*/
                             }
                         }
-                        C(tid + aa, qq + pp, blockIdx.x) += currC;
+                        C(tid + aa,  qq + pp, blockIdx.x) += currC; 
                     }
+                    __syncwarp();
                 }
-                __syncthreads();
             }
         }
     }
@@ -1229,14 +1228,18 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
     size_t cols_B = B->getSize(1);
 
     size_t numBlocks = min(NRS_MAX_BLOCKS, rows_A / NRS_FLOAT + ((rows_A % NRS_FLOAT == 0) ? 0 : 1));
-    size_t ld_buf    = cols_A + (cols_A % 8);
+    size_t ld_buf    = cols_A/8 + (cols_A % 8 == 0 ? 0 : 8);
+    // size_t ld_buf    = cols_B/8 + (cols_B % 8 == 0 ? 0 : 8);
 
     GPUData_kernel<float> C_buf_k = buffer->device();
     C_buf_k.x    = cols_A;
     C_buf_k.y    = cols_B;
+    // C_buf_k.x    = cols_B;
+    // C_buf_k.y    = cols_A;
     C_buf_k.z    = numBlocks;
     C_buf_k.ld   = ld_buf;
     C_buf_k.inc  = C_buf_k.ld * cols_B;
+    // C_buf_k.inc  = C_buf_k.ld * cols_A;
 
     if(C_buf_k.inc * C_buf_k.z > C_buf_k_0.ld * C_buf_k_0.y * C_buf_k_0.z ) {
         return CUBLAS_STATUS_INVALID_VALUE;        
@@ -1329,14 +1332,18 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
     size_t cols_B = B->getSize(1);
 
     size_t numBlocks = min(NRS_MAX_BLOCKS, rows_A / NRS_DOUBLE + ((rows_A % NRS_DOUBLE == 0) ? 0 : 1));
-    size_t ld_buf    = cols_A + (cols_A % 8);
+    size_t ld_buf    = cols_A/4 + (cols_A % 4 == 0 ? 0 : 4);
+    // size_t ld_buf    = cols_B/4 + (cols_B % 4 == 0 ? 0 : 4);
 
     GPUData_kernel<double> C_buf_k = buffer->device();
     C_buf_k.x    = cols_A;
     C_buf_k.y    = cols_B;
+    // C_buf_k.x    = cols_B;
+    // C_buf_k.y    = cols_A;
     C_buf_k.z    = numBlocks;
     C_buf_k.ld   = ld_buf;
     C_buf_k.inc  = C_buf_k.ld * cols_B;
+    // C_buf_k.inc  = C_buf_k.ld * cols_A;
 
     if(C_buf_k.inc * C_buf_k.z > C_buf_k_0.ld * C_buf_k_0.y * C_buf_k_0.z ) {
         return CUBLAS_STATUS_INVALID_VALUE;        

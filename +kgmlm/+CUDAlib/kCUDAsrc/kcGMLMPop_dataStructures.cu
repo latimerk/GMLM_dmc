@@ -944,12 +944,12 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     size_t dim_T_total = 1;
     std::vector<size_t> dim_F_c;
     dim_F_c.assign(dim_D(), 1);
-    size_t max_dim_F = 0;
+    size_t max_dim_F_dim_P = parent->dim_P();
     for(int ss = 0; ss < GMLMPopGroupStructure->dim_S(); ss++) {
         dim_T_total *= GMLMPopGroupStructure->dim_T[ss];
         dim_F_c[GMLMPopGroupStructure->factor_idx[ss]] *= GMLMPopGroupStructure->dim_T[ss];
 
-        max_dim_F = max(max_dim_F,  dim_F_c[GMLMPopGroupStructure->factor_idx[ss]]);
+        max_dim_F_dim_P = max(max_dim_F_dim_P,  dim_F_c[GMLMPopGroupStructure->factor_idx[ss]]);
     }
 
     if(GMLMPopGroupStructure->dim_S() == 0 || dim_T_total == 0) {
@@ -1058,7 +1058,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     size_t max_rows = max(parent->max_trial_length * parent->max_trials_for_sparse_run, max_dim_X_shared);
     size_t NR_PER_BLOCK = min(NRS_DOUBLE, NRS_FLOAT);
     size_t NBLOCKS = min(NRS_MAX_BLOCKS, max_rows/ NR_PER_BLOCK + ((max_rows % NR_PER_BLOCK == 0) ? 0 : 1));
-    buffer = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_F, GMLMPopGroupStructure->dim_R_max * NBLOCKS, true);
+    buffer = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_F_dim_P, GMLMPopGroupStructure->dim_R_max * NBLOCKS, true);
     checkCudaErrors(ce, "GPUGMLMPop_dataset_Group_GPU errors: could not allocate space for buffer!" );
 
     checkCudaErrors(isShared->copyHostToGPU(stream), "GPUGMLMPop_dataset_Group_GPU errors: could not copy isShared to device!");
