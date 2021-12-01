@@ -1347,7 +1347,6 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
     size_t max_cols = max(A->getSize(1), B->getSize(1));
     size_t max_threads =  max(max_cols, static_cast<size_t>(NRS_DOUBLE));
 
-    max_threads = static_cast<size_t>(256);
     block_size.x = min(max_threads, max_threads);
     block_size.y  = 1;
     grid_size.x = numBlocks;
