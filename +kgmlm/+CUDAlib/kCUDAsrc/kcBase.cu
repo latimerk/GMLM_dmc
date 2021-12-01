@@ -1148,7 +1148,6 @@ __global__ void kernel_reduce_tsTmts(GPUData_kernel<FPTYPE> C, const GPUData_ker
     }
 }
 
-
 template <typename FPTYPE, int blk_NR, int blk_NC_B>
 __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kernel<FPTYPE> B,  GPUData_kernel<FPTYPE> C, const FPTYPE alpha, const FPTYPE beta, const size_t rows_A, const unsigned int depth) {
     // Names mostly follow the paper's
@@ -1185,7 +1184,6 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
             for(size_t aa = 0; aa < A.y; aa += blockDim.x) {
                 //gets first col of A
                 if(tid + aa < A.y) {
-                    #pragma unroll
                     for(size_t row = 0; row < blk_NR; row++) {
                         if(row + row_0 < rows_A) {
                             currA[row] = A(row + row_0, tid + aa, depth);
@@ -1250,7 +1248,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
     size_t max_cols = max(A->getSize(1), B->getSize(1));
     size_t max_threads =  max(max_cols, static_cast<size_t>(NRS_FLOAT));
 
-    block_size.x = min(static_cast<size_t>(512), max_threads);
+    block_size.x = min(static_cast<size_t>(256), max_threads);
     block_size.y  = 1;
     grid_size.x = numBlocks;
     grid_size.y = 1;
@@ -1258,7 +1256,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
     dim3 grid_size2;
     dim3 block_size2;
 
-    block_size2.x = min(static_cast<size_t>(128), B->getSize(1));
+    block_size2.x = min(static_cast<size_t>(128), A->getSize(1));
     if(B->getSize(1) >= 4) {
         block_size2.y = 4;
     }
@@ -1299,7 +1297,18 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
         else {
             kernel_tsTmts<float, NRS_FLOAT, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
         }
-        kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+        cudaError_t ce = cudaGetLastError();
+        if(cudaSuccess != ce) {
+            //return CUBLAS_STATUS_EXECUTION_FAILED;
+            return static_cast<cublasStatus_t>(ce);
+        }
+        kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
+
+        ce = cudaGetLastError();
+        if(cudaSuccess != ce) {
+            //return CUBLAS_STATUS_EXECUTION_FAILED;
+            return static_cast<cublasStatus_t>(ce);
+        }
     }
     if(cudaSuccess != cudaGetLastError()) {
         return CUBLAS_STATUS_EXECUTION_FAILED;
@@ -1338,7 +1347,8 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
     size_t max_cols = max(A->getSize(1), B->getSize(1));
     size_t max_threads =  max(max_cols, static_cast<size_t>(NRS_DOUBLE));
 
-    block_size.x = min(static_cast<size_t>(512), max_threads);
+    max_threads = static_cast<size_t>(256);
+    block_size.x = min(max_threads, max_threads);
     block_size.y  = 1;
     grid_size.x = numBlocks;
     grid_size.y = 1;
@@ -1346,7 +1356,7 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
     dim3 grid_size2;
     dim3 block_size2;
 
-    block_size2.x = min(static_cast<size_t>(128), B->getSize(1));
+    block_size2.x = min(static_cast<size_t>(128), A->getSize(1));
     if(B->getSize(1) >= 4) {
         block_size2.y = 4;
     }
@@ -1391,13 +1401,23 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
         else {
             kernel_tsTmts<double, NRS_DOUBLE, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
         }
+        cudaError_t ce = cudaGetLastError();
+        if(cudaSuccess != ce) {
+            //return CUBLAS_STATUS_EXECUTION_FAILED;
+            return static_cast<cublasStatus_t>(ce);
+        }
         kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
-        if(cudaSuccess != cudaGetLastError()) {
-            return CUBLAS_STATUS_EXECUTION_FAILED;
+
+        ce = cudaGetLastError();
+        if(cudaSuccess != ce) {
+            //return CUBLAS_STATUS_EXECUTION_FAILED;
+            return static_cast<cublasStatus_t>(ce);
         }
     }
     return CUBLAS_STATUS_SUCCESS;
 }
+
+
 
 template <>
 cublasStatus_t launchKerneltsTmts(cudaStream_t stream,

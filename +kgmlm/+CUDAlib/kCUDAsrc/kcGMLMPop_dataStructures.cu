@@ -1745,16 +1745,9 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
                 //nothing needed
             }
             else {
-                // X_c->printInfo(output_stream, "X_c");
-                // msg->printMsgTxt(output_stream);
-                // phi_c->printInfo(output_stream, "phi_c");
-                // msg->printMsgTxt(output_stream);
-                // results->dF[dd]->printInfo(output_stream, "results->dF[dd]");
-                // msg->printMsgTxt(output_stream);
-                // buffer->printInfo(output_stream, "buffer");
-                // msg->printMsgTxt(output_stream);
-                X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer);
-                checkCudaErrors("GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                //checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                cublasStatus_t cse = X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer);
+                checkCudaErrors(static_cast<cudaError_t>(cse), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
             }
             
             // matrix mults to get dT

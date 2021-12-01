@@ -468,9 +468,9 @@ class GPUGL_base  {
 #define FLOAT_T1 128
 #define DOUBLE_T1 128
 
-#define NRS_FLOAT 128
-#define NRS_DOUBLE 64
-#define NRS_MAX_BLOCKS (size_t)(1024)
+#define NRS_FLOAT 32
+#define NRS_DOUBLE 32
+#define NRS_MAX_BLOCKS (size_t)(2048)
 
 template <class FPTYPE>
 cublasStatus_t launchKernelTsm2(cudaStream_t stream, const GPUData<FPTYPE> * A, const GPUData<FPTYPE> * B,  GPUData<FPTYPE> * C, const FPTYPE alpha, const FPTYPE beta, 
