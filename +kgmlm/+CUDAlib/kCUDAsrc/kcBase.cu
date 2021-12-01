@@ -1190,7 +1190,8 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
                         }
                     }
                 }
-                __syncthreads();
+                __syncwarp();
+                //__syncthreads();
 
                 for (int qq = 0; qq < blk_NC_B && qq + pp < B.y; qq++) {
                     if(tid + aa < A.y) {
@@ -1201,7 +1202,7 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
                         for(size_t row = 0; row < blk_NR; row++) {
                             if(row + row_0 < rows_A) {
                                 currC += currA[row] * currB[row + qq*blk_NR];
-                                /*y  = currA[row] * currB[row + qq*blk_NR]; - z;
+                                /*y  = currA[row] * currB[row + qq*blk_NR] - z;
                                 t = currC + y;
                                 z = (t - currC) - y;
                                 currC = t;*/
@@ -1211,7 +1212,9 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
                     }
                     __syncwarp();
                 }
+                __syncthreads();
             }
+            //__syncthreads();
         }
     }
 }
@@ -1228,8 +1231,8 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
     size_t cols_B = B->getSize(1);
 
     size_t numBlocks = min(NRS_MAX_BLOCKS, rows_A / NRS_FLOAT + ((rows_A % NRS_FLOAT == 0) ? 0 : 1));
-    size_t ld_buf    = cols_A/8 + (cols_A % 8 == 0 ? 0 : 8);
-    // size_t ld_buf    = cols_B/8 + (cols_B % 8 == 0 ? 0 : 8);
+    size_t ld_buf    = cols_A - (cols_A % 8) + (cols_A % 8 == 0 ? 0 : 8);
+    // size_t ld_buf    = cols_B - (cols_B % 8) + (cols_B % 8 == 0 ? 0 : 8);
 
     GPUData_kernel<float> C_buf_k = buffer->device();
     C_buf_k.x    = cols_A;
@@ -1332,8 +1335,8 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
     size_t cols_B = B->getSize(1);
 
     size_t numBlocks = min(NRS_MAX_BLOCKS, rows_A / NRS_DOUBLE + ((rows_A % NRS_DOUBLE == 0) ? 0 : 1));
-    size_t ld_buf    = cols_A/4 + (cols_A % 4 == 0 ? 0 : 4);
-    // size_t ld_buf    = cols_B/4 + (cols_B % 4 == 0 ? 0 : 4);
+    size_t ld_buf    = cols_A - (cols_A % 4) + (cols_A % 4 == 0 ? 0 : 4);
+    // size_t ld_buf = cols_B - (cols_B % 4) + (cols_B % 4 == 0 ? 0 : 4);
 
     GPUData_kernel<double> C_buf_k = buffer->device();
     C_buf_k.x    = cols_A;
