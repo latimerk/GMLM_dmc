@@ -468,7 +468,7 @@ class GPUGL_base  {
 #define FLOAT_T1 128
 #define DOUBLE_T1 128
 
-#define NRS_FLOAT 64
+#define NRS_FLOAT 128
 #define NRS_DOUBLE 64
 #define NRS_MAX_BLOCKS (size_t)(1024)
 

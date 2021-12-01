@@ -1854,28 +1854,45 @@ classdef GMLM < handle
                 error("GMLM is not on GPU.");
             end
 
-            % sends LL computation to GPU
-            if(obj.populationData)
-                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-            else
-                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-            end
-            
-            %adds the prior
-            if(nargin >= 4)
-                results = obj.clearResultsStruct(results);
-            else
-                results = obj.getEmptyResultsStruct(opts);
-            end
-            results = obj.computeLogPrior(params, opts, results);
+            useAsync = true;
 
-            % gets GPU results
-            if(obj.populationData)
-                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+            if(useAsync)
+                % sends LL computation to GPU
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+                end
+                
+                %adds the prior
+                if(nargin >= 4)
+                    results = obj.clearResultsStruct(results);
+                else
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+                results = obj.computeLogPrior(params, opts, results);
+    
+                % gets GPU results
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                end
+                results.log_likelihood = sum(results.trialLL, 'all');
             else
-                kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                if(nargin >= 4) %#ok<UNRCH> 
+                    results = obj.clearResultsStruct(results);
+                else
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                end
+                results.log_likelihood = sum(results.trialLL, 'all');
+                results = obj.computeLogPrior(params, opts, results);
             end
-            results.log_likelihood = sum(results.trialLL, 'all');
             
             %sums up results
             results.log_post = results.log_likelihood + results.log_prior;

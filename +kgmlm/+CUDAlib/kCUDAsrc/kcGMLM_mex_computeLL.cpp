@@ -178,8 +178,13 @@ public:
         }
         
         //assigns the pointers to the trial-wise log likelihood results 
-        const matlab::data::TypedArray<FPTYPE> trialLL_mat = GMLM_results[0]["trialLL"];
-        this->trialLL =  new GLData_matlab<FPTYPE>(trialLL_mat);
+        if(opts->compute_trialLL) {
+            const matlab::data::TypedArray<FPTYPE> trialLL_mat = GMLM_results[0]["trialLL"];
+            this->trialLL =  new GLData_matlab<FPTYPE>(trialLL_mat);
+        }
+        else {
+            this->trialLL = new GLData_matlab<FPTYPE>();
+        }
         
         //gets the tensor groups
         const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];

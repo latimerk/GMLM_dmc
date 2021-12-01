@@ -1164,6 +1164,7 @@ __global__ void kernel_tsTmts(const GPUData_kernel<FPTYPE> A, const GPUData_kern
             C(aa, pp, blockIdx.x) = 0;
         }
     }
+
     __syncthreads();
 
     for (size_t row_0 = blk_NR * (blockIdx.x); row_0 < rows_A; row_0 += blk_NR * (gridDim.x) ) {
@@ -1245,7 +1246,11 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
 
     dim3 grid_size;
     dim3 block_size;
-    block_size.x = NRS_FLOAT;
+
+    size_t max_cols = max(A->getSize(1), B->getSize(1));
+    size_t max_threads =  max(max_cols, static_cast<size_t>(NRS_FLOAT));
+
+    block_size.x = min(static_cast<size_t>(512), max_threads);
     block_size.y  = 1;
     grid_size.x = numBlocks;
     grid_size.y = 1;
@@ -1253,32 +1258,48 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<float> * A,
     dim3 grid_size2;
     dim3 block_size2;
 
-    block_size2.x = 128;
-    block_size2.y = 4;
+    block_size2.x = min(static_cast<size_t>(128), B->getSize(1));
+    if(B->getSize(1) >= 4) {
+        block_size2.y = 4;
+    }
+    else if(B->getSize(1) >= 2) {
+        block_size2.y = 2;
+    }
+    else {
+        block_size2.y = 1;
+    }
     grid_size2.x  = cols_A / block_size2.x + ((cols_A % block_size2.x  == 0) ? 0 : 1);
     grid_size2.y  = cols_B / block_size2.y + ((cols_B % block_size2.y  == 0) ? 0 : 1);
 
     for(unsigned int depth_c = 0; depth_c < depth; depth_c++) {
         if(B->getSize(1) >= 16) {
             kernel_tsTmts<float, NRS_FLOAT, 16><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A, depth_c);
-            kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
         else if(B->getSize(1) >= 8) {
             kernel_tsTmts<float, NRS_FLOAT, 8><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+        }
+        else if(B->getSize(1) >= 7) {
+            kernel_tsTmts<float, NRS_FLOAT, 7><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+        }
+        else if(B->getSize(1) >= 6) {
+            kernel_tsTmts<float, NRS_FLOAT, 6><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+        }
+        else if(B->getSize(1) >= 5) {
+            kernel_tsTmts<float, NRS_FLOAT, 5><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
         }
         else if(B->getSize(1) >= 4) {
             kernel_tsTmts<float, NRS_FLOAT, 4><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
+        }
+        else if(B->getSize(1) >= 3) {
+            kernel_tsTmts<float, NRS_FLOAT, 3><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
         }
         else if(B->getSize(1) >= 2) {
             kernel_tsTmts<float, NRS_FLOAT, 2><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
         else {
             kernel_tsTmts<float, NRS_FLOAT, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
         }
+        kernel_reduce_tsTmts<float><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta, depth_c);
     }
     if(cudaSuccess != cudaGetLastError()) {
         return CUBLAS_STATUS_EXECUTION_FAILED;
@@ -1314,7 +1335,10 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
 
     dim3 grid_size;
     dim3 block_size;
-    block_size.x = NRS_DOUBLE;
+    size_t max_cols = max(A->getSize(1), B->getSize(1));
+    size_t max_threads =  max(max_cols, static_cast<size_t>(NRS_DOUBLE));
+
+    block_size.x = min(static_cast<size_t>(512), max_threads);
     block_size.y  = 1;
     grid_size.x = numBlocks;
     grid_size.y = 1;
@@ -1322,8 +1346,16 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
     dim3 grid_size2;
     dim3 block_size2;
 
-    block_size2.x = 128;
-    block_size2.y = 4;
+    block_size2.x = min(static_cast<size_t>(128), B->getSize(1));
+    if(B->getSize(1) >= 4) {
+        block_size2.y = 4;
+    }
+    else if(B->getSize(1) >= 2) {
+        block_size2.y = 2;
+    }
+    else {
+        block_size2.y = 1;
+    }
     grid_size2.x  = cols_A / block_size2.x + ((cols_A % block_size2.x  == 0) ? 0 : 1);
     grid_size2.y  = cols_B / block_size2.y + ((cols_B % block_size2.y  == 0) ? 0 : 1);
 
@@ -1334,24 +1366,32 @@ cublasStatus_t launchKerneltsTmts(cudaStream_t stream, const GPUData<double> * A
 
         if(B->getSize(1) >= 16) {
             kernel_tsTmts<double, NRS_DOUBLE, 16><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         else if(B->getSize(1) >= 8) {
             kernel_tsTmts<double, NRS_DOUBLE, 8><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
+        }
+        else if(B->getSize(1) >= 7) {
+            kernel_tsTmts<double, NRS_DOUBLE, 7><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+        }
+        else if(B->getSize(1) >= 6) {
+            kernel_tsTmts<double, NRS_DOUBLE, 6><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
+        }
+        else if(B->getSize(1) >= 5) {
+            kernel_tsTmts<double, NRS_DOUBLE, 5><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
         }
         else if(B->getSize(1) >= 4) {
             kernel_tsTmts<double, NRS_DOUBLE, 4><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
+        }
+        else if(B->getSize(1) >= 3) {
+            kernel_tsTmts<double, NRS_DOUBLE, 3><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
         }
         else if(B->getSize(1) >= 2) {
             kernel_tsTmts<double, NRS_DOUBLE, 2><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
         else {
             kernel_tsTmts<double, NRS_DOUBLE, 1><<<grid_size, block_size, 0, stream>>>(A->device(), B->device(),  C_buf_k,  alpha,  beta, rows_A,  depth_c);
-            kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         }
+        kernel_reduce_tsTmts<double><<<grid_size2, block_size2, 0, stream>>>(C->device(), C_buf_k, alpha, beta,  depth_c);
         if(cudaSuccess != cudaGetLastError()) {
             return CUBLAS_STATUS_EXECUTION_FAILED;
         }
