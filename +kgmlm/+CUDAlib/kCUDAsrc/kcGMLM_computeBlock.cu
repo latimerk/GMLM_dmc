@@ -34,6 +34,10 @@ GPUGMLM_computeBlock<FPTYPE>::GPUGMLM_computeBlock(const GPUGMLM_structure_args<
     }   
 
     //setup the streams
+    cublasMath_t mathMode = CUBLAS_DEFAULT_MATH;
+    #if __CUDA_ARCH__ >= 700
+        mathMode = CUBLAS_TF32_TENSOR_OP_MATH;
+    #endif
     checkCudaErrors(cudaStreamCreate(&(stream)), "GPUGMLM_computeBlock errors: failed initializing stream!");
     stream_Groups.resize(dim_J);
     for(int jj = 0; jj < dim_J; jj++) {
@@ -42,13 +46,34 @@ GPUGMLM_computeBlock<FPTYPE>::GPUGMLM_computeBlock(const GPUGMLM_structure_args<
 
     //setup cublas handles
     checkCudaErrors(cublasCreate(&(cublasHandle)), "GPUGMLM_computeBlock errors: CUBLAS initialization failed.");
-    checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLM_computeBlock errors: set cublas pointer mode failed.");
     checkCudaErrors(cublasSetStream(cublasHandle, stream), "GPUGMLM_computeBlock errors: set cublas stream failed.");
+    checkCudaErrors(cublasSetMathMode(cublasHandle, mathMode), "GPUGMLM_computeBlock errors: set cublas math mode failed.");
+    checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLM_computeBlock errors: set cublas pointer mode failed.");
     cublasHandle_Groups.resize(dim_J);
+    cublasWorkspaces.assign(dim_J, NULL);
+    cublasWorkspaces_size.assign(dim_J, cublasWorkspace_size);
+    
+    size_t cublasWorkspace_size_0 = 1024 * 1024 * 0; // if greater than 0, sets special workspace size (doesn't seem to help the current computations)	
+    if(cublasWorkspace_size_0 > 0) {
+        checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspace)), &cublasWorkspace_size, cublasWorkspace_size_0, 1), "GPUGMLM_computeBlock errors: allocating cublas workspace failed.");
+        checkCudaErrors(cublasSetWorkspace(cublasHandle, cublasWorkspace, cublasWorkspace_size), "GPUGMLM_computeBlock errors: setting CUBLAS workspace failed.");
+    }
+    else {
+        cublasWorkspace = NULL;
+    }
     for(int jj = 0; jj < dim_J; jj++) {
         checkCudaErrors(cublasCreate(&(cublasHandle_Groups[jj])), "GPUGMLM_computeBlock errors: CUBLAS groups initialization failed.");
+        checkCudaErrors(cublasSetMathMode(cublasHandle_Groups[jj], mathMode), "GPUGMLM_computeBlock errors: set cublas group math mode failed.");
         checkCudaErrors(cublasSetPointerMode(cublasHandle_Groups[jj], CUBLAS_POINTER_MODE_HOST), "GPUGMLM_computeBlock errors: set cublas groups pointer mode failed.");
         checkCudaErrors(cublasSetStream(cublasHandle_Groups[jj], stream_Groups[jj]), "GPUGMLM_computeBlock errors: set cublas groups stream failed.");
+        
+        if(cublasWorkspaces_size[jj] > 0) {
+            checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspaces[jj])), &cublasWorkspaces_size[jj], cublasWorkspace_size_0, 1),  "GPUGMLM_computeBlock errors: allocating group cublas workspace failed.");
+            checkCudaErrors(cublasSetWorkspace(cublasHandle_Groups[jj], cublasWorkspaces[jj], cublasWorkspaces_size[jj]), "GPUGMLM_computeBlock errors: setting group CUBLAS workspace failed.");
+        }
+        else {
+            cublasWorkspaces[jj] = NULL;
+        }
     }
 
     //setup cusparse handle
@@ -93,6 +118,8 @@ GPUGMLM_computeBlock<FPTYPE>::~GPUGMLM_computeBlock() {
         checkCudaErrors(cusparseDestroy(jj), "GPUGMLM_computeBlock errors: failed to destroy group cusparse handles." );
     }
        
+    cudaSafeFreePtr(cublasWorkspace, "GPUGMLM_computeBlock errors: failed to destroy cublas workspace." );
+    cudaSafeFreePtrVector(cublasWorkspaces, "GPUGMLM_computeBlock errors: failed to destroy cublas group workspaces." );
     //destroy streams
     checkCudaErrors(cudaStreamDestroy(stream), "GPUGMLM_computeBlock errors: failed destroying stream!");
     for(auto jj : stream_Groups) {

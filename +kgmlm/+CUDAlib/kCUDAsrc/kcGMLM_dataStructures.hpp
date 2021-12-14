@@ -488,7 +488,6 @@ protected:
     
     //for sparse runs
     std::vector<GPUData<FPTYPE> *> X_temp;
-    GPUData<FPTYPE> * buffer;
     
     
     // sparse matrices for shared regressor derivatives

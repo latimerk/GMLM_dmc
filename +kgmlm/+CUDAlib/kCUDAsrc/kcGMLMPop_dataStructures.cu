@@ -1055,12 +1055,6 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
 
     }
 
-    size_t max_rows = max(parent->max_trial_length * parent->max_trials_for_sparse_run, max_dim_X_shared);
-    size_t NR_PER_BLOCK = min(NRS_DOUBLE, NRS_FLOAT);
-    size_t NBLOCKS = min(NRS_MAX_BLOCKS, max_rows/ NR_PER_BLOCK + ((max_rows % NR_PER_BLOCK == 0) ? 0 : 1));
-    buffer = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_F_dim_P, GMLMPopGroupStructure->dim_R_max * NBLOCKS, true);
-    checkCudaErrors(ce, "GPUGMLMPop_dataset_Group_GPU errors: could not allocate space for buffer!" );
-
     checkCudaErrors(isShared->copyHostToGPU(stream), "GPUGMLMPop_dataset_Group_GPU errors: could not copy isShared to device!");
     checkCudaErrors(isSharedIdentity->copyHostToGPU(stream), "GPUGMLMPop_dataset_Group_GPU errors: could not copy isSharedIdentity to device!");
     
@@ -1254,7 +1248,6 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::~GPUGMLMPop_dataset_Group_GPU() {
     cudaSafeFree(lambda_v, "GPUGMLMPop_dataset_Group_GPU errors: could not free lambda_v");
     cudaSafeFreeVector(lambda_d, "GPUGMLMPop_dataset_Group_GPU errors: could not free lambda_d[dd]");
     cudaSafeFree(   phi_d, "GPUGMLMPop_dataset_Group_GPU errors: could not free phi_d");
-    cudaSafeFree(   buffer, "GPUGMLMPop_dataset_Group_GPU errors: could not free buffer");
 
     cudaSafeFreeVector(spi_rows, "GPUGMLMPop_dataset_Group_GPU errors: could not free spi_rows");
     cudaSafeFreeVector(spi_cols, "GPUGMLMPop_dataset_Group_GPU errors: could not free spi_cols");
@@ -1357,8 +1350,16 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSpa
             X_c = X_temp[dd];
         }
 
-        checkCudaErrors(XF[dd]->resize(stream, X_c->getSize(0)), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not set matrix size for run.");           
-        checkCudaErrors(X_c->GEMM(XF[dd], params->F[dd], cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors:  X*F -> XF failed");
+        checkCudaErrors(XF[dd]->resize(stream, X_c->getSize(0)), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not set matrix size for run.");    
+        cublasStatus_t cse = X_c->GEMM(XF[dd], params->F[dd], cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N);
+        if(cse != CUBLAS_STATUS_SUCCESS) {
+            output_stream << " dd " << dd << "\n";
+            X_c->printInfo(output_stream, "X_c");
+            XF[dd]->printInfo(output_stream, "XF[dd]");
+            params->F[dd]->printInfo(output_stream, "params->F[dd]");
+            msg->printMsgTxt(output_stream);
+        }       
+        checkCudaErrors(cse, "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors:  X*F -> XF failed");
     }
 }
 
@@ -1603,16 +1604,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
     
     if(opts->compute_dV) {
         //for each neuron
-        /*parent->dLL->printInfo(output_stream, "dLL");
-        msg->printMsgTxt(output_stream);
-        lambda_v->printInfo(output_stream, "lambda_v");
-        msg->printMsgTxt(output_stream);
-        results->dV->printInfo(output_stream, "results->dV");
-        msg->printMsgTxt(output_stream);*/
-        int mn = -20;
-        checkCudaErrors(parent->dLL->GEMM(results->dV, lambda_v, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer, &mn), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL'*lambda_v -> dV failed");
-        /*output_stream << "   mn " << mn << "\n";
-        msg->printMsgTxt(output_stream);*/
+        checkCudaErrors(parent->dLL->GEMM(results->dV, lambda_v, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL'*lambda_v -> dV failed");
     }
 
     //check if computing any derivatives first
@@ -1746,7 +1738,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
             }
             else {
                 //checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
-                cublasStatus_t cse = X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer);
+                cublasStatus_t cse = X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N);
                 checkCudaErrors(static_cast<cudaError_t>(cse), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
             }
             

@@ -48,6 +48,11 @@ class GPUGMLMPop_computeBlock : GPUGL_base {
         cublasHandle_t cublasHandle; // main handle for block
         std::vector<cublasHandle_t> cublasHandle_Groups;
         std::vector<cusparseHandle_t> cusparseHandle_Groups;
+
+        size_t cublasWorkspace_size;
+        std::vector<size_t> cublasWorkspaces_size;
+        FPTYPE * cublasWorkspace;
+        std::vector<FPTYPE *> cublasWorkspaces;
         
         size_t dim_J;
         

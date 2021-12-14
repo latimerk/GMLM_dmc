@@ -1092,11 +1092,6 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
 
     }
     
-    size_t max_rows = max(parent->max_trial_length * parent->max_trials_for_sparse_run, max_dim_X_shared);
-    size_t NR_PER_BLOCK = min(NRS_DOUBLE, NRS_FLOAT);
-    size_t NBLOCKS = min(NRS_MAX_BLOCKS, max_rows/ NR_PER_BLOCK + ((max_rows % NR_PER_BLOCK == 0) ? 0 : 1));
-    buffer = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_dim_F, GMLMGroupStructure->dim_R_max * NBLOCKS, true);
-    checkCudaErrors(ce, "GPUGMLM_dataset_Group_GPU errors: could not allocate space for buffer!" );
 
     checkCudaErrors(isShared->copyHostToGPU(stream), "GPUGMLM_dataset_Group_GPU errors: could not copy isShared to device!");
     checkCudaErrors(isSharedIdentity->copyHostToGPU(stream), "GPUGMLM_dataset_Group_GPU errors: could not copy isSharedIdentity to device!");
@@ -1307,7 +1302,6 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::~GPUGMLM_dataset_Group_GPU() {
     cudaSafeFreeVector(lambda_d, "GPUGMLM_dataset_Group_GPU errors: could not free lambda_d[dd]");
     cudaSafeFree(   phi_d, "GPUGMLM_dataset_Group_GPU errors: could not free phi_d");
     cudaSafeFree(dV_trial, "GPUGMLM_dataset_Group_GPU errors: could not free dV_trial");
-    cudaSafeFree(   buffer, "GPUGMLM_dataset_Group_GPU errors: could not free buffer");
 
     cudaSafeFreeVector(spi_rows, "GPUGMLM_dataset_Group_GPU errors: could not free spi_rows");
     cudaSafeFreeVector(spi_cols, "GPUGMLM_dataset_Group_GPU errors: could not free spi_cols");
@@ -1806,8 +1800,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 //nothing needed
             }
             else {
-                int num = -20;
-                checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 1, 0, buffer, &num), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
                 //output_stream << " GEMM " << num << "\n";
                 //msg->printMsgTxt(output_stream);
             }
