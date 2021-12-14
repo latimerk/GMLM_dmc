@@ -50,14 +50,14 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLMPop_struct
     checkCudaErrors(cublasSetStream(cublasHandle, stream), "GPUGMLMPop_computeBlock errors: set cublas stream failed.");
     checkCudaErrors(cublasSetMathMode(cublasHandle, mathMode), "GPUGMLMPop_computeBlock errors: set cublas math mode failed.");
     checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cublas pointer mode failed.");
-    size_t cublasWorkspace_size_0 = 1024 * 1024 * 0;	// if greater than 0, sets special workspace size (doesn't seem to help the current computations)	
+
+    cublasWorkspace = NULL;
+    /*size_t cublasWorkspace_size_0 = 1024 * 1024 * 0;	// if greater than 0, sets special workspace size (doesn't seem to help the current computations)	
     if(cublasWorkspace_size_0 > 0) {
         checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspace)), &cublasWorkspace_size, cublasWorkspace_size_0, 1), "GPUGMLMPop_computeBlock errors: allocating cublas workspace failed.");
         checkCudaErrors(cublasSetWorkspace(cublasHandle, cublasWorkspace, cublasWorkspace_size), "GPUGMLMPop_computeBlock errors: setting CUBLAS workspace failed.");
-    }
-    else {
-        cublasWorkspace = NULL;
-    }
+    }*/
+
 
     cublasHandle_Groups.resize(dim_J);
     cublasWorkspaces.assign(dim_J, NULL);
@@ -68,13 +68,10 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLMPop_struct
         checkCudaErrors(cublasSetPointerMode(cublasHandle_Groups[jj], CUBLAS_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cublas groups pointer mode failed.");
         checkCudaErrors(cublasSetStream(cublasHandle_Groups[jj], stream_Groups[jj]), "GPUGMLMPop_computeBlock errors: set cublas groups stream failed.");
 
-        if(cublasWorkspaces_size[jj] > 0) {
+     /*   if(cublasWorkspaces_size[jj] > 0) {
             checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspaces[jj])), &cublasWorkspaces_size[jj], cublasWorkspace_size_0, 1), "GPUGMLMPop_computeBlock errors: allocating group cublas workspace failed.");
             checkCudaErrors(cublasSetWorkspace(cublasHandle_Groups[jj], cublasWorkspaces[jj], cublasWorkspaces_size[jj]), "GPUGMLMPop_computeBlock errors: setting group CUBLAS workspace failed.");
-        }
-        else {
-            cublasWorkspaces[jj] = NULL;
-        }
+        }*/
     }
 
     //setup cusparse handle
