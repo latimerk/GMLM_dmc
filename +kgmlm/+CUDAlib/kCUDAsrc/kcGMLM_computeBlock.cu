@@ -179,9 +179,8 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
         const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
-    const size_t row_start = blockIdx.x * blockDim.x ;
 
-    for(size_t row_0 = row_start; row_0 < LL.x; row_0 += blockDim.x * gridDim.x) {
+    for(size_t row_0 = blockIdx.x * blockDim.x ; row_0 < LL.x; row_0 += blockDim.x * gridDim.x) {
         size_t row = row_0 + threadIdx.x;
         size_t Xlin_row = row; //if full run
         if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
@@ -197,7 +196,7 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         
         bool elementIncluded = row < LL.x && tw_c != 0;
 
-        size_t neuron_num;
+        unsigned int neuron_num;
         FPTYPE  LL_c = 0;  
         FPTYPE dLL_c = 0;   
         FPTYPE log_rate = 0;
@@ -227,12 +226,12 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         if(elementIncluded) {
             FPTYPE Y_c = Y[Xlin_row];
             if(logLikeSettings == ll_poissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                if(Y_c >= 0) { // negatives get censored by Poisson LL
+                    Y_c = floor(Y_c);
                     log_rate += log_dt;
                     FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-rate + Y_ci * log_rate);
-                    dLL_c = (-rate + Y_ci);
+                     LL_c = (-rate + Y_c * log_rate);
+                    dLL_c = (-rate + Y_c);
                 }
             }
             else if(logLikeSettings == ll_sqErr) {
@@ -241,8 +240,7 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
                 dLL_c = -2*eY_c;
             }
             else if(logLikeSettings == ll_truncatedPoissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci > 0) { 
+                if(Y_c >= 1) { 
                     log_rate += log_dt;
                     if(log_rate > -30) {
                         FPTYPE rate = safeExp(log_rate);
@@ -255,7 +253,7 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
                         dLL_c = 1;
                     }
                 }
-                else if(Y_ci == 0) {
+                else if(Y_c == 0) {
                     FPTYPE rate = safeExp(log_rate + log_dt);
                      LL_c = -rate;
                     dLL_c = -rate;
@@ -264,12 +262,12 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
             }
             else if(logLikeSettings == ll_poissExpRefractory) {
                 // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                if(Y_c >= 0) { // negatives get censored by Poisson LL
+                    Y_c = floor(Y_c);
                     log_rate += log_dt;
                     FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-(1-Y_ci/2)*rate + Y_ci * log_rate);
-                    dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
+                     LL_c = (-(1-Y_c/2)*rate + Y_c * log_rate);
+                    dLL_c = (-(1-Y_c/2)*rate + Y_c);
                 }
             }
             LL[row]  =  LL_c*tw_c;

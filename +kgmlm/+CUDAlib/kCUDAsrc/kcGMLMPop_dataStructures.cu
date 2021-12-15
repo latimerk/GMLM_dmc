@@ -1398,10 +1398,7 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda_v,
     //get current observation number
     FPTYPE t_array[max_rank];
 
-    const size_t row_start = blockIdx.x * blockDim.x ;
-    const unsigned int rr_start  = blockIdx.y * blockDim.y;
-
-    for(size_t row_0 = row_start; row_0 < lambda_v.x; row_0 += blockDim.x * gridDim.x) {
+    for(size_t row_0 = blockIdx.x * blockDim.x; row_0 < lambda_v.x; row_0 += blockDim.x * gridDim.x) {
         size_t row = row_0 + threadIdx.x;
         size_t iX_row = row; //if full run
         if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
@@ -1415,7 +1412,7 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda_v,
         __syncthreads();
 
         //for each rank
-        for(unsigned int rr_0 = rr_start; rr_0 < lambda_v.y; rr_0 += blockDim.y * gridDim.y) { //dim_R = V->Y
+        for(unsigned int rr_0 = blockIdx.y * blockDim.y; rr_0 < lambda_v.y; rr_0 += blockDim.y * gridDim.y) { //dim_R = V->Y
             unsigned int rr = rr_0 + threadIdx.y;
             bool elementIncluded = rowIncluded && rr < lambda_v.y;
 
