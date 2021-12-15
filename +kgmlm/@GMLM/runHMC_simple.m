@@ -276,6 +276,9 @@ for sample_idx = start_idx:TotalSamples
     
     if(isfield(HMC_settings, "fitMAP") && ismember(sample_idx, HMC_settings.fitMAP))
         fprintf("Attempting to accelerate mixing by finding MAP estimate given current hyperparameters...\n");
+        fprintf("   Alternating steps...\n");
+        paramStruct = obj.computeMAP(paramStruct, "optStruct", optStruct, "alternating_opt", true, "max_iters", 5, "max_quasinewton_steps", 100);
+        fprintf("   All params at once...\n");
         paramStruct = obj.computeMAP(paramStruct, "optStruct", optStruct, "alternating_opt", false, "max_iters", 5, "max_quasinewton_steps", 1000);
         %fprintf("done.\n");
     end

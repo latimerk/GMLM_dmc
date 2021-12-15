@@ -1,7 +1,7 @@
 %% A quick and dirty diagnotistic script to check log likelihood derivatives to make sure the optimized CUDA code is actually working. Runs through a bunch of setup scenarios.
 % I've occasionally noticed failures that are due to a random dataset/parameters being numerically unstable (exploding values). This doesn't mean the derivative
 % is incorrect.
-function [params] = runDerivativeChecks(testType, isPop, deviceNumbers, dim_A, shrink_dim_R, pauseAtParts, params)
+function [params] = runDerivativeChecks(testType, isPop, deviceNumbers, dim_A, shrink_dim_R, pauseAtParts, params, use_posterior)
 
 if(nargin < 2 || isempty(isPop))
     isPop = false;
@@ -23,6 +23,10 @@ if(isPop)
     generator = @kgmlm.diagnostics.constructGMLMPopforTests;
 else
     generator = @kgmlm.diagnostics.constructGMLMforTests;
+end
+
+if(nargin < 8 || isempty(use_posterior))
+    use_posterior = true;
 end
 
 if(isnumeric(testType))
@@ -144,16 +148,17 @@ end
 results = gmlm.computeLogPosterior(params, opts);
     
 %% run derivative checker
-[results_est, results_all, ll_host, params] = kgmlm.diagnostics.checkDerivatives(gmlm, params);
+[results_est, results_all, ll_host, params] = kgmlm.diagnostics.checkDerivatives(gmlm, params, [], [], use_posterior);
 figure(1);
 clf;
 plotDerivativeComparison(results_all, results_est, ll_host);
 pauseMessage(pauseAtParts, sprintf("Done with main LL...\n"));
+%return;
 
 %% run derivative check with weights
 
 %random weights - full full
-[results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M);
+[results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M, [], use_posterior);
 
 figure(2);
 clf;
@@ -161,7 +166,7 @@ plotDerivativeComparison(results_all, results_est, ll_host);
 pauseMessage(pauseAtParts, sprintf("Done with weighted LL 1...\n"));
 
 % some subset of weights
-[results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, 10);
+[results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, 10, [], use_posterior);
 
 figure(3);
 clf;
@@ -170,14 +175,14 @@ pauseMessage(pauseAtParts, sprintf("Done with weighted LL 2...\n"));
 
 if(gmlm.populationData)
     %random weights - full full
-    [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M, true);
+    [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M, true, use_posterior);
     figure(4);
     clf;
     plotDerivativeComparison(results_all, results_est, ll_host);
     pauseMessage(pauseAtParts, sprintf("Done with weighted LL 1...\n"));
 
     % some subset of weights
-    [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, 10, true);
+    [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, 10, true, use_posterior);
 
     figure(5);
     clf;
@@ -202,7 +207,8 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host)
     NC = max(4, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1);
     
     subplot(NR, NC, 1);
-    plot([ll_host(:) results_all.trialLL(:)])
+    plot([ ll_host(:) results_all.trialLL(:)])
+    legend(["Host", "GPU"]);
     title('trial LLs');
 
     subplot(NR, NC, 2);
@@ -216,6 +222,7 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host)
 
     subplot(NR, NC, 3);
     plot([results_all.dW(:) results_est.dW(:)])
+    legend(["GPU", "est"]);
     title('dW');
 
     subplot(NR, NC, 4);

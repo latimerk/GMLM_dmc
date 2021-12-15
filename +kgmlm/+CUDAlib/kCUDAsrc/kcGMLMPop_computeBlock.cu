@@ -179,90 +179,116 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
         const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
-    size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t pp  = blockIdx.y * blockDim.y + threadIdx.y;
-    if(row < LL.x && pp < LL.y) {
-        size_t Xlin_row;
-        if(ridx_sa_all.y < 1) {
-            //if full run
-            Xlin_row = row;
-        }
-        else {
+    const size_t row_start = blockIdx.x * blockDim.x ;
+    const unsigned int pp_start  = blockIdx.y * blockDim.y;
+
+    for(size_t row_0 = row_start; row_0 < LL.x; row_0 += blockDim.x * gridDim.x) {
+        size_t row = row_0 + threadIdx.x;
+        size_t Xlin_row = row; //if full run
+        if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
             //if sparse run
             Xlin_row = ridx_sa_all[row];
         }
         FPTYPE tw_c = 1;
-        if(trial_weights.y == 1) {
+        if(row < LL.x && trial_weights.y == 1) {
             tw_c = trial_weights[id_a_trialM[Xlin_row]];
         }
-        else if(trial_weights.y > 1) {
-            tw_c = trial_weights(id_a_trialM[Xlin_row], pp);
-        }
+        __syncthreads();
+        for(size_t pp_0 = pp_start; pp_0 < LL.y; pp_0 += blockDim.y * gridDim.y) {
+            size_t pp = pp_0 + threadIdx.y;
 
-        FPTYPE Y_c = Y(Xlin_row, pp);
+            if(row < LL.x && trial_weights.y > 1 && pp < trial_weights.y) {
+                tw_c = trial_weights(id_a_trialM[Xlin_row], pp);
+            }
 
-        FPTYPE  LL_c = 0;  
-        FPTYPE dLL_c = 0;    
-        if(tw_c != 0) { //if trial not censored
-            FPTYPE log_rate = W[pp];
+            bool elementIncluded = row < LL.x && pp < LL.y && tw_c != 0;
+        
+            FPTYPE  LL_c = 0;  
+            FPTYPE dLL_c = 0;
+            FPTYPE log_rate = 0; 
+            FPTYPE Y_c  = 0;   
+
+            if(elementIncluded) {
+                Y_c = Y(Xlin_row, pp);
+                log_rate = W[pp];
+            }
+            __syncwarp();
+
             for(int bb = 0; bb < X_lin.y; bb++) {
-                log_rate += X_lin(Xlin_row, bb, pp) * B(bb, pp);
-                if(ridx_sa_all.y > 0 && compute_dB && (pp == 0 || X_lin_temp.z > 1)) { // for dB when doing sparse run
-                    X_lin_temp(row, bb, pp) = X_lin(Xlin_row, bb, pp);
+                if(elementIncluded) {
+                    log_rate += X_lin(Xlin_row, bb, pp) * B(bb, pp);
+                    if(ridx_sa_all.y > 0 && compute_dB && (pp == 0 || X_lin_temp.z > 1)) { // for dB when doing sparse run
+                        X_lin_temp(row, bb, pp) = X_lin(Xlin_row, bb, pp);
+                    }
                 }
+                __syncwarp();
             }
+            
             for(int jj = 0; jj < lambda.z; jj++) {
-                log_rate += lambda(row, pp, jj);
+                if(elementIncluded) {
+                    log_rate += lambda(row, pp, jj);
+                }
+                __syncwarp();
             }
+            __syncthreads();
 
-            if(logLikeSettings == ll_poissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
-                    log_rate += log_dt;
-                    FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-rate + Y_ci * log_rate);
-                    dLL_c = (-rate + Y_ci);
-                }
-            }
-            else if(logLikeSettings == ll_sqErr) {
-                FPTYPE eY_c = log_rate - Y_c;
-                 LL_c = -(eY_c*eY_c);
-                dLL_c = -2*eY_c;
-            }
-            else if(logLikeSettings == ll_truncatedPoissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci > 0) { 
-                    log_rate += log_dt;
-                    if(log_rate > -30) {
+
+            if(elementIncluded) {
+                if(logLikeSettings == ll_poissExp) {
+                    int Y_ci = floor(Y_c);
+                    if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                        log_rate += log_dt;
                         FPTYPE rate = safeExp(log_rate);
-                         LL_c = log(1 - safeExp(-rate));
-                        dLL_c = rate/safeExpm1(rate);
-                    }
-                    else { // more numerically save approximation in an extreme case
-                         LL_c = log_rate;
-                        dLL_c = 1;
+                        LL_c = (-rate + Y_ci * log_rate);
+                        dLL_c = (-rate + Y_ci);
                     }
                 }
-                else if(Y_ci == 0) {
-                    FPTYPE rate = safeExp(log_rate + log_dt);
-                     LL_c = -rate;
-                    dLL_c = -rate;
+                else if(logLikeSettings == ll_sqErr) {
+                    FPTYPE eY_c = log_rate - Y_c;
+                    LL_c = -(eY_c*eY_c);
+                    dLL_c = -2*eY_c;
                 }
-                // negatives get censored by Poisson LL
-            }
-            else if(logLikeSettings == ll_poissExpRefractory) {
-                // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
-                    log_rate += log_dt;
-                    FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-(1-Y_ci/2)*rate + Y_ci * log_rate);
-                    dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
+                else if(logLikeSettings == ll_truncatedPoissExp) {
+                    int Y_ci = floor(Y_c);
+                    if(Y_ci > 0) { 
+                        log_rate += log_dt;
+                        if(log_rate > -30) {
+                            FPTYPE rate = safeExp(log_rate);
+                            LL_c = log(1 - safeExp(-rate));
+                            dLL_c = rate/safeExpm1(rate);
+                        }
+                        else { // more numerically save approximation in an extreme case
+                            LL_c = log_rate;
+                            dLL_c = 1;
+                        }
+                    }
+                    else if(Y_ci == 0) {
+                        FPTYPE rate = safeExp(log_rate + log_dt);
+                        LL_c = -rate;
+                        dLL_c = -rate;
+                    }
+                    // negatives get censored by Poisson LL
                 }
+                else if(logLikeSettings == ll_poissExpRefractory) {
+                    // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
+                    int Y_ci = floor(Y_c);
+                    if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                        log_rate += log_dt;
+                        FPTYPE rate = safeExp(log_rate);
+                        LL_c = (-(1-Y_ci/2)*rate + Y_ci * log_rate);
+                        dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
+                    }
+                }
+
+                LL(row, pp) =  LL_c*tw_c;
+                dLL(row, pp) = dLL_c*tw_c;
             }
+            else if(row < LL.x && pp < LL.y) {
+                LL(row, pp) = 0;
+                dLL(row, pp) = 0;
+            }
+            __syncthreads();
         }
-         LL(row, pp) =  LL_c*tw_c;
-        dLL(row, pp) = dLL_c*tw_c;
     }
 }
 

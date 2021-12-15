@@ -179,36 +179,53 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
         const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
-    size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < LL.x) {
-        size_t Xlin_row;
-        if(ridx_sa_all.y < 1) {
-            //if full run
-            Xlin_row = row;
-        }
-        else {
+    const size_t row_start = blockIdx.x * blockDim.x ;
+
+    for(size_t row_0 = row_start; row_0 < LL.x; row_0 += blockDim.x * gridDim.x) {
+        size_t row = row_0 + threadIdx.x;
+        size_t Xlin_row = row; //if full run
+        if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
             //if sparse run
             Xlin_row = ridx_sa_all[row];
         }
-        size_t neuron_num = id_a_neuron[Xlin_row];
-        FPTYPE tw_c = (trial_weights.y < 1) ? 1 : trial_weights[id_a_trialM[Xlin_row]];
+        FPTYPE tw_c = 1;
+        if(row < LL.x && trial_weights.y == 1) {
+            tw_c = trial_weights[id_a_trialM[Xlin_row]];
+        }
+        __syncthreads();
+        
+        
+        bool elementIncluded = row < LL.x && tw_c != 0;
 
-        FPTYPE Y_c = Y[Xlin_row];
-
+        size_t neuron_num;
         FPTYPE  LL_c = 0;  
-        FPTYPE dLL_c = 0;    
-        if(tw_c != 0) { //if trial not censored
-            FPTYPE log_rate = W[neuron_num];
-            for(int bb = 0; bb < X_lin.y; bb++) {
+        FPTYPE dLL_c = 0;   
+        FPTYPE log_rate = 0;
+
+        if(elementIncluded) {
+            neuron_num = id_a_neuron[Xlin_row];
+            log_rate = W[neuron_num];
+        }
+        __syncwarp();
+ 
+        for(int bb = 0; bb < X_lin.y; bb++) {
+            if(elementIncluded) { //if trial not censored
                 log_rate += X_lin(Xlin_row, bb) * B(bb, neuron_num);
                 if(ridx_sa_all.y > 0 && compute_dB) { // for dB when doing sparse run
                     X_lin_temp(row, bb) = X_lin(Xlin_row, bb);
                 }
             }
-            for(int jj = 0; jj < lambda.y; jj++) {
+            __syncwarp();
+        }
+        for(int jj = 0; jj < lambda.y; jj++) {
+            if(elementIncluded) {
                 log_rate += lambda(row, jj);
             }
-
+            __syncwarp();
+        }
+        __syncthreads();
+        if(elementIncluded) {
+            FPTYPE Y_c = Y[Xlin_row];
             if(logLikeSettings == ll_poissExp) {
                 int Y_ci = floor(Y_c);
                 if(Y_ci >= 0) { // negatives get censored by Poisson LL
@@ -255,9 +272,14 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
                     dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
                 }
             }
+            LL[row]  =  LL_c*tw_c;
+            dLL[row] = dLL_c*tw_c;
         }
-        LL[row]  =  LL_c*tw_c;
-        dLL[row] = dLL_c*tw_c;
+        else if(row < LL.x) {
+            LL[row] = 0;
+            dLL[row] = 0;
+        }
+        __syncthreads();
     }
 }
 /* Kernel for each trial
