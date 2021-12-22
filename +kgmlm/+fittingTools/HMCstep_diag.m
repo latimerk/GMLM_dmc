@@ -66,9 +66,9 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             error('HMC accept probability is nan!');
         end
     catch ee %#ok<NASGU>
-        p_accept = 1e-14;
+        %p_accept = 1e-14;
         err = true;
-        log_p_accept    = log(p_accept);
+        log_p_accept    = -1000;%log(p_accept);
         w_new = w_init;
         results = results_init;
         accepted        = false;
