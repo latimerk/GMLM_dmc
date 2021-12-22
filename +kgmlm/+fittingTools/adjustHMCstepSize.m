@@ -14,7 +14,7 @@ if(~isempty(ww))
     sample_1 = stepSizeSettings.schedule(ww,1);
     ps = stepSizeSettings;
     ps.e_0 = max(stepSizeSettings.e_0,stepSizeState.e);
-    ps.mu = log(10*ps.e_0);
+    ps.mu = log(10*stepSizeSettings.e_0);
     
     log_h = min(0,log_p_accept_new);
     tt = ss - sample_1 + 1;

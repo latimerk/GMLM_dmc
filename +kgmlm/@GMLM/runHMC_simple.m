@@ -137,14 +137,14 @@ samples.errors        = false(TotalSamples,1);
 samples.accepted      = false(TotalSamples,1);
 samples.e             = nan(2,TotalSamples);
 
-samples.log_p_accept_alt  = nan(  TotalSamples,1);
-samples.log_p_accept_alt2 = nan(  TotalSamples,1);
-samples.errors_alt        = false(TotalSamples,1);
-samples.errors_alt2       = false(TotalSamples,1);
-samples.accepted_alt      = false(TotalSamples,1);
-samples.accepted_alt2     = false(TotalSamples,1);
-samples.e_alt             = nan(2,TotalSamples);
-samples.e_alt2            = nan(2,TotalSamples);
+samples.log_p_accept_sM  = nan(  TotalSamples,1);
+samples.log_p_accept_sH = nan(  TotalSamples,1);
+samples.errors_sM        = false(TotalSamples,1);
+samples.errors_sH       = false(TotalSamples,1);
+samples.accepted_sM      = false(TotalSamples,1);
+samples.accepted_sH     = false(TotalSamples,1);
+samples.e_sM             = nan(2,TotalSamples);
+samples.e_sH            = nan(2,TotalSamples);
 
 
 if(obj.gpuDoublePrecision)
@@ -218,10 +218,10 @@ HMC_state.stepSize.x_t     = 0;
 HMC_state.stepSize.H_sum   = 0;
 HMC_state.steps            = min(HMC_settings.stepSize.maxSteps, ceil(HMC_settings.stepSize.stepL / HMC_state.stepSize.e));
 
-HMC_state_alt = HMC_state;
-HMC_state_alt.steps            = min(HMC_settings.stepSize_alt.maxSteps, ceil(HMC_settings.stepSize_alt.stepL / HMC_state_alt.stepSize.e));
-HMC_state_alt2 = HMC_state;
-HMC_state_alt2.steps            = min(HMC_settings.stepSize_alt2.maxSteps, ceil(HMC_settings.stepSize_alt2.stepL / HMC_state_alt2.stepSize.e));
+HMC_state_sM = HMC_state;
+HMC_state_sM.steps            = min(HMC_settings.stepSize_sM.maxSteps, ceil(HMC_settings.stepSize_sM.stepL / HMC_state_sM.stepSize.e));
+HMC_state_sH = HMC_state;
+HMC_state_sH.steps            = min(HMC_settings.stepSize_sH.maxSteps, ceil(HMC_settings.stepSize_sH.stepL / HMC_state_sH.stepSize.e));
 
 %% adds the initial point to the samples
 resultStruct_empty = obj.getEmptyResultsStruct(optStruct_empty);
@@ -253,8 +253,8 @@ samples_block.trialLL(1, :, :) = resultStruct.trialLL;
 samples.log_post(1) = resultStruct.log_post;
 samples.log_like(1) = resultStruct.log_likelihood;
 samples.e(:,1)      = HMC_state.stepSize.e;
-samples.e_alt(:,1)      = HMC_state_alt.stepSize.e;
-samples.e_alt2(:,1)      = HMC_state_alt2.stepSize.e;
+samples.e_sM(:,1)      = HMC_state_sM.stepSize.e;
+samples.e_sH(:,1)      = HMC_state_sH.stepSize.e;
 
 samples.log_p_accept(1) = log(1);
 
@@ -311,13 +311,13 @@ for sample_idx = start_idx:TotalSamples
         w_init = obj.vectorizeParams(paramStruct, optStruct_no_dH);
         nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct_no_dH, resultStruct_no_dH);
         try
-            [samples.accepted_alt(sample_idx), samples.errors_alt(sample_idx), w_new, samples.log_p_accept_alt(sample_idx), results_alt] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpostFunction, HMC_state_alt);
-            if(samples.accepted_alt(sample_idx))
+            [samples.accepted_sM(sample_idx), samples.errors_sM(sample_idx), w_new, samples.log_p_accept_sM(sample_idx), results_sM] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpostFunction, HMC_state_sM);
+            if(samples.accepted_sM(sample_idx))
                 paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct_no_dH);
             end
         
-            HMC_state_alt = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state_alt, HMC_settings.stepSize_alt, samples.log_p_accept_alt(sample_idx));
-            samples.e_alt(:,sample_idx) = [HMC_state_alt.stepSize.e; HMC_state_alt.stepSize.e_bar];
+            HMC_state_sM = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state_sM, HMC_settings.stepSize_sM, samples.log_p_accept_sM(sample_idx));
+            samples.e_sM(:,sample_idx) = [HMC_state_sM.stepSize.e; HMC_state_sM.stepSize.e_bar];
         catch
             error("HMC-M step failed");
         end
@@ -329,13 +329,13 @@ for sample_idx = start_idx:TotalSamples
             w_init = obj.vectorizeParams(paramStruct, optStruct_dH);
             nlpriorFunction = @(ww) obj.vectorizedNLPrior_func(ww, paramStruct, optStruct_dH, resultStruct_dH);
             try
-                [samples.accepted_alt2(sample_idx), samples.errors_alt2(sample_idx), w_new, samples.log_p_accept_alt2(sample_idx), results_alt2] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpriorFunction, HMC_state_alt2);
-                if(samples.accepted_alt2(sample_idx))
+                [samples.accepted_sH(sample_idx), samples.errors_sH(sample_idx), w_new, samples.log_p_accept_sH(sample_idx), results_sH] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpriorFunction, HMC_state_sH);
+                if(samples.accepted_sH(sample_idx))
                     paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct_dH);
                 end
 
-                HMC_state_alt2 = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state_alt2, HMC_settings.stepSize_alt2, samples.log_p_accept_alt2(sample_idx));
-                samples.e_alt2(:,sample_idx) = [HMC_state_alt2.stepSize.e; HMC_state_alt2.stepSize.e_bar];
+                HMC_state_sH = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state_sH, HMC_settings.stepSize_sH, samples.log_p_accept_sH(sample_idx));
+                samples.e_sH(:,sample_idx) = [HMC_state_sH.stepSize.e; HMC_state_sH.stepSize.e_bar];
             catch
                 error("HMC-H step failed");
             end
@@ -407,12 +407,12 @@ for sample_idx = start_idx:TotalSamples
         fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n", HMC_state.stepSize.e, HMC_state.steps, sum(samples.errors, "omitnan"));
         
         if(isfield(HMC_settings, "sample_M") && HMC_settings.sample_M)
-            accept_rate_M = mean(samples.accepted_alt(ww))*100;
-            fprintf("\t\tsample M: current step size = %e, HMC steps = %d, num HMC early rejects = %d, recent accept per. = %.1f\n", HMC_state_alt.stepSize.e , HMC_state_alt.steps,  sum(samples.errors_alt, "omitnan"), accept_rate_M);
+            accept_rate_M = mean(samples.accepted_sM(ww))*100;
+            fprintf("\t\tsample M: current step size = %e, HMC steps = %d, num HMC early rejects = %d, recent accept per. = %.1f\n", HMC_state_sM.stepSize.e , HMC_state_sM.steps,  sum(samples.errors_sM, "omitnan"), accept_rate_M);
         end
         if(isfield(HMC_settings, "sample_H") && HMC_settings.sample_H)
-            accept_rate_H = mean(samples.accepted_alt2(ww))*100;
-            fprintf("\t\tsample H: current step size = %e, HMC steps = %d, num HMC early rejects = %d, recent accept per. = %.1f\n", HMC_state_alt2.stepSize.e, HMC_state_alt2.steps, sum(samples.errors_alt2, "omitnan"), accept_rate_H);
+            accept_rate_H = mean(samples.accepted_sH(ww))*100;
+            fprintf("\t\tsample H: current step size = %e, HMC steps = %d, num HMC early rejects = %d, recent accept per. = %.1f\n", HMC_state_sH.stepSize.e, HMC_state_sH.steps, sum(samples.errors_sH, "omitnan"), accept_rate_H);
         end
         clear ww;
         

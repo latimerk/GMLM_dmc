@@ -31,14 +31,14 @@ end
 
 %step size paramters
     %for the dual-averging updates
-HMC_settings.stepSize.e_0 = 1e-1;
-HMC_settings.stepSize.delta  = 0.8;
+HMC_settings.stepSize.e_0 = 1e-3;
+HMC_settings.stepSize.delta  = 0.9; %0.8
 HMC_settings.stepSize.gamma = 0.05;
 HMC_settings.stepSize.kappa = 0.75;
 HMC_settings.stepSize.t_0   = 10;
 HMC_settings.stepSize.mu    = log(10*HMC_settings.stepSize.e_0);
-HMC_settings.stepSize_alt = HMC_settings.stepSize;
-HMC_settings.stepSize_alt2 = HMC_settings.stepSize;
+HMC_settings.stepSize_sM = HMC_settings.stepSize;
+HMC_settings.stepSize_sH = HMC_settings.stepSize;
 
 if(~debugSettings)
     if(nWarmup < 25e3)
@@ -53,8 +53,8 @@ if(~debugSettings)
 %     HMC_settings.stepSize.schedule   = [2 4000; 
 %                                         4001 24000];
     HMC_settings.stepSize.schedule   = [2     24500]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
-    HMC_settings.stepSize_alt.schedule   = HMC_settings.stepSize.schedule;
-    HMC_settings.stepSize_alt2.schedule   = HMC_settings.stepSize.schedule;
+    HMC_settings.stepSize_sM.schedule   = HMC_settings.stepSize.schedule;
+    HMC_settings.stepSize_sH.schedule   = HMC_settings.stepSize.schedule;
     
     HMC_settings.samplesFile = [TempFolder 'tmp_GMLM_samples.dat'];
     HMC_settings.samplesBlockSize = 1e3;
@@ -64,17 +64,17 @@ if(~debugSettings)
     
     %step size paramters
     HMC_settings.stepSize.stepL     = 1.0; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize.maxSteps  = 100; %max number of steps per sample
+    HMC_settings.stepSize.maxSteps  = 200; %max number of steps per sample
      
-    alt_stepL = 1.0;
-    alt_maxSteps = 100;
-%     alt_stepL = 0.5;
-%     alt_maxSteps = 50;
+    sM_stepL = 1.0;
+    sM_maxSteps = 200;
+%     sM_stepL = 0.5;
+%     sM_maxSteps = 50;
     
-    HMC_settings.stepSize_alt.stepL     = alt_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize_alt.maxSteps  = alt_maxSteps; %max number of steps per sample
-    HMC_settings.stepSize_alt2.stepL     = alt_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize_alt2.maxSteps  = alt_maxSteps; %max number of steps per sample
+    HMC_settings.stepSize_sM.stepL     = sM_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
+    HMC_settings.stepSize_sM.maxSteps  = sM_maxSteps; %max number of steps per sample
+    HMC_settings.stepSize_sH.stepL     = sM_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
+    HMC_settings.stepSize_sH.maxSteps  = sM_maxSteps; %max number of steps per sample
     
     HMC_settings.fitMAP = [50 1000 4500]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
     
@@ -91,8 +91,8 @@ else
     
     HMC_settings.stepSize.schedule   = [2 500; 
                                         501 1400];
-    HMC_settings.stepSize_alt.schedule   = HMC_settings.stepSize.schedule;
-    HMC_settings.stepSize_alt2.schedule   = HMC_settings.stepSize.schedule;
+    HMC_settings.stepSize_sM.schedule   = HMC_settings.stepSize.schedule;
+    HMC_settings.stepSize_sH.schedule   = HMC_settings.stepSize.schedule;
                                     
     HMC_settings.samplesFile = [TempFolder 'tmp_GMLM_samples_DEBUG.mat'];
     HMC_settings.samplesBlockSize = 200;
@@ -103,10 +103,10 @@ else
     %step size paramters
     HMC_settings.stepSize.stepL     = 0.5; %total steps to take is min(maxSteps , ceil(stepL/e))
     HMC_settings.stepSize.maxSteps  = 50; %max number of steps per sample
-    HMC_settings.stepSize_alt.stepL     = 0.2; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize_alt.maxSteps  = 20; %max number of steps per sample
-    HMC_settings.stepSize_alt2.stepL     = 0.2; %total steps to take is min(maxSteps , ceil(stepL/e))
-    HMC_settings.stepSize_alt2.maxSteps  = 20; %max number of steps per sample
+    HMC_settings.stepSize_sM.stepL     = 0.2; %total steps to take is min(maxSteps , ceil(stepL/e))
+    HMC_settings.stepSize_sM.maxSteps  = 20; %max number of steps per sample
+    HMC_settings.stepSize_sH.stepL     = 0.2; %total steps to take is min(maxSteps , ceil(stepL/e))
+    HMC_settings.stepSize_sH.maxSteps  = 20; %max number of steps per sample
     HMC_settings.fitMAP = [50 1000 4000]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
 end
 

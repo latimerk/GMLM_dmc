@@ -22,6 +22,9 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     w = w_init;
     p = p_init;
     
+    if(isnan(nlpost_0) || isinf(nlpost_0))
+        error('HMC initial state shows nan/inf!');
+    end
     
     try
         for tt = 1:HMC_state.steps
@@ -63,7 +66,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             error('HMC accept probability is nan!');
         end
     catch ee %#ok<NASGU>
-        p_accept = 1e-4;
+        p_accept = 1e-6;
         err = true;
         log_p_accept    = log(p_accept);
         w_new = w_init;
@@ -73,7 +76,8 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
 %         msgText = getReport(ee,'extended');
 %         fprintf('HMC reaching inf/nan values with step size %.4f: %s\n\tAuto-rejecting sample and setting p_accept = %e.\n\tError Message: %s\n',ees,errorMessageStr,p_accept,msgText);
 %         fprintf('>>end error message<<\n');
-        fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
+
+%         fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
         
         
         return;
