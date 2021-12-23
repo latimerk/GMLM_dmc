@@ -31,20 +31,20 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)
-                nlpost = inf;
+                nlpost = inf; % divergent trajectory
                 break;
             end
 
             %% move positions
             [w, errs] = paramStep(w, p, M, HMC_state);
             if(errs)
-                nlpost = inf;
+                nlpost = inf; % divergent trajectory
                 break;
             end
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
-            if(isinf(nlpost) || isnan(nlpost) || nlpost < -1e10)
-                nlpost = inf;
+            if(isinf(nlpost) || isnan(nlpost) || nlpost - nlpost_0 < -1e5) % divergent trajectory
+                nlpost = inf; 
                 break;
             end
             
@@ -52,7 +52,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)
-                nlpost = inf;
+                nlpost = inf; % divergent trajectory
                 break;
             end
         end
