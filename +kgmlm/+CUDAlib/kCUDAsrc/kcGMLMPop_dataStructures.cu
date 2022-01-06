@@ -1502,7 +1502,9 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, 
             block_size.y = 1;
         }
         block_size.x = 1024 / block_size.y;
-        grid_size.x  = parent->lambda->getSize(0) / block_size.x + ((parent->lambda->getSize(0) % block_size.x == 0)? 0:1);
+        size_t max_blocks_needed  = parent->lambda->getSize(0) / block_size.x + ((parent->lambda->getSize(0) % block_size.x == 0)? 0:1);
+        size_t blocks_to_use = (parent->dim_J() == 1) ? 1024 : 512;
+        grid_size.x  = min(max_blocks_needed, blocks_to_use);
         grid_size.y  = dim_R() / block_size.y + ((dim_R() % block_size.x == 0)? 0:1);
 
         bool compute_dT_any = false;
@@ -1725,7 +1727,9 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
                 dim3 block_size;
                 block_size.x = 1024;
                 dim3 grid_size;
-                grid_size.x = spi_rows[dd]->size()/ block_size.x + ((spi_rows[dd]->size() % block_size.x == 0)? 0:1);
+                size_t max_blocks_needed  = spi_rows[dd]->size()/ block_size.x + ((spi_rows[dd]->size() % block_size.x == 0)? 0:1);
+                size_t blocks_to_use = (parent->dim_J() == 1) ? 1024 : 512;
+                grid_size.x  = min(max_blocks_needed, blocks_to_use);
 
                 FPTYPE alpha = 1;
                 FPTYPE beta  = 0;
@@ -1769,7 +1773,9 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
                     block_size.y = 1;
                     block_size.x = 1024 / block_size.y;
                     dim3 grid_size;
-                    grid_size.x = X_temp[dd]->getSize(0)  / block_size.x + ((X_temp[dd]->getSize(0)  % block_size.x == 0)? 0:1);
+                    size_t max_blocks_needed  = X_temp[dd]->getSize(0)  / block_size.x + ((X_temp[dd]->getSize(0)  % block_size.x == 0)? 0:1);
+                    size_t blocks_to_use = (parent->dim_J() == 1) ? 1024 : 512;
+                    grid_size.x  = min(max_blocks_needed, blocks_to_use);
                     grid_size.y = 1;
 
                     kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), 
@@ -1792,7 +1798,10 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLMPop_results
                 }
                 block_size.x = 1024 / block_size.y;
                 dim3 grid_size;
-                grid_size.x = lambda_v->getSize(0) / block_size.x + ((lambda_v->getSize(0) % block_size.x == 0)? 0:1);
+                size_t max_blocks_needed = lambda_v->getSize(0) / block_size.x + ((lambda_v->getSize(0) % block_size.x == 0)? 0:1);
+                size_t blocks_to_use = (parent->dim_J() == 1) ? 1024 : 512;
+                grid_size.x  = min(max_blocks_needed, blocks_to_use);
+                
                 grid_size.y = dim_R()  / block_size.y + ((dim_R()  % block_size.y == 0)? 0:1);
                         
                 kernel_PointWiseMultiply_derivativeSetup<<<grid_size, block_size, 0, stream>>>(lambda_d[dd]->device(), lambda_v->device());

@@ -6,6 +6,10 @@
 % Takes in a negative log posterior function (return [nlpost, dnlpost] given vector of parameters)
 %   The negative is so that this function uses the same function as optimizers
 function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state)
+    if(isfield(HMC_state, "e_scale") || ~isempty(HMC_state.e_scale))
+        HMC_state.stepSize.e = HMC_state.stepSize.e * HMC_state.e_scale;
+    end
+
     
     %% generate initial momentum
     p_init = generateMomentum(M);
@@ -30,10 +34,12 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
         for tt = 1:HMC_state.steps
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
-            if(errs)
-                nlpost = inf; % divergent trajectory
+            if(errs)% divergent trajectory
                 break;
             end
+%             if(~all(M.\p.^2 < 1e3, "all"))
+%                 fprintf("runaway momentum?\n");
+%             end
 
             %% move positions
             [w, errs] = paramStep(w, p, M, HMC_state);
@@ -43,18 +49,22 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             end
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
-            if(isinf(nlpost) || isnan(nlpost) || nlpost - nlpost_0 < -1e5) % divergent trajectory
-                nlpost = inf; 
+            if(isinf(nlpost) || isnan(nlpost) || nlpost - nlpost_0 < -1e5) % looks like a divergent trajectory
                 break;
             end
+%             if(~all(abs(w) < 1e3, "all"))
+%                 fprintf("runaway vars?\n");
+%             end
             
 
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
-            if(errs)
-                nlpost = inf; % divergent trajectory
+            if(errs)% divergent trajectory
                 break;
             end
+%             if(~all(M.\p.^2 < 1e3, "all"))
+%                 fprintf("runaway momentum?\n");
+%             end
         end
         
         %% get final state log prob
@@ -68,7 +78,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     catch ee %#ok<NASGU>
         %p_accept = 1e-14;
         err = true;
-        log_p_accept    = -1000;%log(p_accept);
+        log_p_accept    = nan;%log(p_accept);
         w_new = w_init;
         results = results_init;
         accepted        = false;

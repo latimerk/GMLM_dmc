@@ -381,16 +381,13 @@ void GPUGLM_computeBlock<FPTYPE>::computeDerivatives(const GPUGLM_computeOptions
         checkCudaErrors(ce, "GPUGLM_computeBlock::computeDerivatives errors:  X.*d2LL -> lambda");
     
         FPTYPE alpha = -1; //The negative is important here because of this symmetric op!
-        FPTYPE beta  =  0;
-        /*ce = cublasSYRK(cublasHandle2,
-                        CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_T, ////uplo = CUBLAS_FILL_MODE_UPPER, CUBLAS_FILL_MODE_LOWER
-                        dataset->lambda->getSize(1), dataset->lambda->getSize(0),
-                        &alpha,
-                        dataset->lambda->getData_gpu(), dataset->lambda->getLD_gpu(),
-                        &beta,
-                        results->d2K->getData_gpu(), results->d2K->getLD_gpu()); // This operation is usually way slower than GEMM even though it's specialized*/
+        FPTYPE beta  =  0; 
+        dataset->lambda->printInfo(output_stream, "dataset->lambda") ;
+        results->d2K->printInfo(output_stream, "results->d2K") ;
+        msg->printMsgTxt(output_stream);
         ce = dataset->lambda->GEMM(results->d2K, dataset->lambda, cublasHandle2, CUBLAS_OP_T, CUBLAS_OP_N, alpha, beta);
         checkCudaErrors(ce, "GPUGLM_computeBlock::computeDerivatives errors:  lambda'*lambda' -> d2K");
+        // NOTE: cublasSYRK is usually way slower than GEMM even though it's specialized*/
     }
 }
         

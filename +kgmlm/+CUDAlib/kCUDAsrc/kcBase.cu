@@ -19,8 +19,9 @@
 #include "kcBase.hpp"
 
 namespace kCUDA {
-    
 
+    
+bool GPU_USE_PAGELOCKED_HOST_STORAGE = true; // can enable/disable use of page-locked memory
 
 //=============================================================================================================================================================
 //=============================================================================================================================================================
@@ -138,7 +139,7 @@ cudaError_t GPUData<FPTYPE>::allocate_gpu(GPUData_HOST_ALLOCATION include_host, 
     }
         
     //page locked memory if requested
-    if(include_host == GPUData_HOST_PAGELOCKED && ce == cudaSuccess) {
+    if(GPU_USE_PAGELOCKED_HOST_STORAGE && include_host == GPUData_HOST_PAGELOCKED && ce == cudaSuccess) {
         if(size() > 0) {
             ce = cudaMallocHost(reinterpret_cast<void**>(&(data_host.data)), size() * sizeof(FPTYPE));
         }   
@@ -148,7 +149,7 @@ cudaError_t GPUData<FPTYPE>::allocate_gpu(GPUData_HOST_ALLOCATION include_host, 
         page_locked = true;
         allocated_host = true;
     }
-    else if(include_host == GPUData_HOST_STANDARD && ce == cudaSuccess) {
+    else if((include_host == GPUData_HOST_PAGELOCKED || include_host == GPUData_HOST_STANDARD) && ce == cudaSuccess) {
         if(size() > 0) {
             data_host.data = new FPTYPE[size()];
         }   
@@ -246,7 +247,7 @@ cudaError_t GPUData<FPTYPE>::allocate_host(bool page_locked_memory, size_t x, si
 
     //allocate memory
     if(size() > 0) {
-        if(page_locked_memory) {
+        if(GPU_USE_PAGELOCKED_HOST_STORAGE && page_locked_memory) {
             ce = cudaMallocHost(reinterpret_cast<void**>(&(data_host.data)), size() * sizeof(FPTYPE));
             if(ce == cudaSuccess) {
                 ce = cudaGetDevice(&devNum); 
@@ -261,7 +262,7 @@ cudaError_t GPUData<FPTYPE>::allocate_host(bool page_locked_memory, size_t x, si
         }
     }
     else {
-        if(page_locked_memory) {
+        if(GPU_USE_PAGELOCKED_HOST_STORAGE && page_locked_memory) {
             data_host.data = NULL;
             page_locked = true;
             ce = cudaGetDevice(&devNum); 
@@ -558,14 +559,14 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
 
     const size_t MAX_DEFAULT = 2048;
     cublasGemmAlgo_t algo = CUBLAS_GEMM_ALGO0;
-    if(cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) {
+    if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > 16) {
         algo = CUBLAS_GEMM_DEFAULT;
     }
     
     #if __CUDA_ARCH__ >= 700
         if(sizeof(FPTYPE) <= 4) {
             algo = CUBLAS_GEMM_ALGO0_TENSOR_OP; 
-            if(cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) {
+            if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > 16) {
                 algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP;
             }
         }

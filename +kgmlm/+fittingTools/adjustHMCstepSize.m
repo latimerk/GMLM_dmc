@@ -16,9 +16,8 @@ if(~isempty(ww))
     ps.e_0 = max(stepSizeSettings.e_0,stepSizeState.e);
     ps.mu = log(10*stepSizeSettings.e_0);
     
-    log_h = min(0,log_p_accept_new);
     tt = ss - sample_1 + 1;
-    [stepSizeState.x_t,stepSizeState.x_bar_t,stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_h, stepSizeState.H_sum, stepSizeState.x_bar_t, tt);
+    [stepSizeState.x_t,stepSizeState.x_bar_t,stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_p_accept_new, stepSizeState.H_sum, stepSizeState.x_bar_t, tt);
     stepSizeState.e_bar  = exp(stepSizeState.x_bar_t);
 
     if(ss == stepSizeSettings.schedule(ww,2))
@@ -31,7 +30,7 @@ elseif(ss >= max(stepSizeSettings.schedule,[],'all'))
 end
 
 
-stepSizeState.e = min(stepSizeSettings.max_step_size, stepSizeState.e );
+stepSizeState.e     = min(stepSizeSettings.max_step_size, stepSizeState.e );
 stepSizeState.e_bar = min(stepSizeSettings.max_step_size, stepSizeState.e_bar );
 
 HMC_state.stepSize = stepSizeState;
@@ -49,9 +48,19 @@ function [x_t, x_bar_t, H_sum] = dualAverageStepSizeUpdate_internal(ps, log_h, H
         end
         H_sum   = 0;
     end
-    %update with last step (algorithm 5 in NUTS paper)
 
-    H_sum = (1 - (1/(tt + ps.t_0))) * H_sum + (1/(tt+ps.t_0)) * (ps.delta-min(1,exp(double(log_h))));
-    x_t   = ps.mu  - sqrt(tt)/ps.gamma*H_sum;
-    x_bar_t = tt^(-ps.kappa) * x_t + (1-tt^(-ps.kappa))*x_bar_t;
+    if(~isnan(log_h))
+        a_tt = min(1,exp(double(log_h)));
+    else
+        % penalty for divergent transitions?
+        a_tt = -1;
+    end
+
+    %update with last step (algorithm 5 in NUTS paper)
+    aa_H = 1/(tt + ps.t_0);
+    H_tt = ps.delta - a_tt;
+    H_sum = aa_H * H_tt + (1 - aa_H) * H_sum;
+    x_t   = ps.mu  - sqrt(tt)/ps.gamma * H_sum;
+    aa_x =tt^(-ps.kappa);
+    x_bar_t = aa_x * x_t + (1 - aa_x)*x_bar_t;
 end

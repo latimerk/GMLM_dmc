@@ -4,7 +4,7 @@
 %       nSamples (default = 50000) : number of samples to take post warmup
 %       debugSettings (default = false) : if true, changes settings for a debug run (fewer samples)
 %
-function [HMC_settings] = setupHMCparams(obj, nWarmup, nSamples, debugSettings)
+function [HMC_settings] = setupHMCparams(~, nWarmup, nSamples, debugSettings)
 if(nargin < 4)
     debugSettings = false;
 end
@@ -31,30 +31,34 @@ end
 
 %step size paramters
     %for the dual-averging updates
-HMC_settings.stepSize.e_0 = 1e-3;
-HMC_settings.stepSize.delta  = 0.9; %0.8
+HMC_settings.stepSize.e_0 = 1e-4;
+HMC_settings.stepSize.delta  = 0.8; %0.8
 HMC_settings.stepSize.gamma = 0.05;
 HMC_settings.stepSize.kappa = 0.75;
 HMC_settings.stepSize.t_0   = 10;
 HMC_settings.stepSize.mu    = log(10*HMC_settings.stepSize.e_0);
 HMC_settings.stepSize.max_step_size = 0.25;
+    % randomly scales step size (make smaller somtimes)
+
+HMC_settings.stepSize.scales   = [1    0.5  0.1];  %scales
+HMC_settings.stepSize.P_scales = [0.85 0.1  0.05];  %P(scale): must sum to 1
+HMC_settings.stepSize.scaleDuringWarmup = false;
+
+
 HMC_settings.stepSize_sM = HMC_settings.stepSize;
 HMC_settings.stepSize_sH = HMC_settings.stepSize;
+HMC_settings.sample_M_setScale = true;
 
 if(~debugSettings)
     if(nWarmup < 25e3)
         warning('Default HMC warmup schedule espected at least 25000 samples. Schedule will need to be modified.');
     end
     
-    HMC_settings.M_est.first_sample  = [1001 16001 ]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-    HMC_settings.M_est.samples       = [6000 21001];
-%     HMC_settings.M_est.first_sample  = [201   1501 5001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-%     HMC_settings.M_est.samples       = [1000  4000 20001];
+    HMC_settings.M_est.first_sample  = [4001  10001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+    HMC_settings.M_est.samples       = [9000 20000];
     
-%     HMC_settings.stepSize.schedule   = [2 4000; 
-%                                         4001 24000];
-    HMC_settings.stepSize.schedule   = [2     21000;
-                                        21001 24900]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+    HMC_settings.stepSize.schedule   = [2      9000;
+                                        9001  24900]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
     HMC_settings.stepSize_sM.schedule   = HMC_settings.stepSize.schedule;
     HMC_settings.stepSize_sH.schedule   = HMC_settings.stepSize.schedule;
     
@@ -77,6 +81,8 @@ if(~debugSettings)
     HMC_settings.stepSize_sM.maxSteps  = sM_maxSteps; %max number of steps per sample
     HMC_settings.stepSize_sH.stepL     = sM_stepL; %total steps to take is min(maxSteps , ceil(stepL/e))
     HMC_settings.stepSize_sH.maxSteps  = sM_maxSteps; %max number of steps per sample
+
+    
     
     HMC_settings.fitMAP = [];%[100 1100]; % samples to fit MAP estimate (current parameter sample as init point, fixing current hyperparam sample). May help speed up mixing(?)
     

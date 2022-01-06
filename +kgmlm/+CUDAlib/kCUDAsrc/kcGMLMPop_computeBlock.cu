@@ -385,7 +385,9 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
         
     block_size.x = 1024/block_size.y;
     dim3 grid_size;
-    grid_size.x = dataset->LL->getSize(0) / block_size.x + ( (dataset->LL->getSize(0) % block_size.x == 0) ? 0 : 1);
+    size_t max_blocks_needed  = dataset->LL->getSize(0) / block_size.x + ( (dataset->LL->getSize(0) % block_size.x == 0) ? 0 : 1);
+    size_t blocks_to_use = 1024;
+    grid_size.x  = min(max_blocks_needed, blocks_to_use);
     grid_size.y = dataset->dim_P() / block_size.y + ( (dataset->dim_P() % block_size.y == 0) ? 0 : 1);
     kernel_getObs_LL<<<grid_size, block_size, 0, stream>>>(dataset->LL->device(), dataset->dLL->device(),
                   dataset->Y->device(),

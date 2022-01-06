@@ -59,10 +59,13 @@ for jj = 1:numel(optStruct_dH.Groups)
     optStruct_dH.Groups(jj).dH = optStruct.Groups(jj).dH;
 end
 
-H_var = (1/5)^2; %initial momentum term for hyperparams
+H_var = (1/1)^2; %initial momentum term for hyperparams
 
-W_scale = 1^2;%1./obj.dim_P;
-B_scale = 1^2;%1./obj.dim_P;
+M_scale = 1;
+W_scale = M_scale;
+B_scale = M_scale;
+T_scale = M_scale;
+V_scale = M_scale;
 
 
 paramStruct_2 = paramStruct;
@@ -77,9 +80,9 @@ for jj = 1:obj.dim_J
     if(isfield(paramStruct_2.Groups(jj), "H"))
         paramStruct_2.Groups(jj).H(:) = H_var;
     end
-    paramStruct_2.Groups(jj).V(:) = 1;
+    paramStruct_2.Groups(jj).V(:) = V_scale;
     for ss = 1:obj.dim_S(jj)
-         paramStruct_2.Groups(jj).T{ss}(:) = 1;
+         paramStruct_2.Groups(jj).T{ss}(:) = T_scale;
     end
 end
 
@@ -146,6 +149,24 @@ samples.accepted_sH     = false(TotalSamples,1);
 samples.e_sM             = nan(2,TotalSamples);
 samples.e_sH            = nan(2,TotalSamples);
 
+samples.e_scale    = mnrnd(1, HMC_settings.stepSize.P_scales   , TotalSamples) * HMC_settings.stepSize.scales(:);
+samples.e_scale_sM = mnrnd(1, HMC_settings.stepSize_sM.P_scales, TotalSamples) * HMC_settings.stepSize_sM.scales(:);
+samples.e_scale_sH = mnrnd(1, HMC_settings.stepSize_sH.P_scales, TotalSamples) * HMC_settings.stepSize_sH.scales(:);
+if(~HMC_settings.stepSize.scaleDuringWarmup)
+    samples.e_scale(   1:max(HMC_settings.stepSize.schedule,    [], "all")) = 1;
+    samples.e_scale_sM(1:max(HMC_settings.stepSize_sM.schedule, [], "all")) = 1;
+    samples.e_scale_sH(1:max(HMC_settings.stepSize_sH.schedule, [], "all")) = 1;
+end
+
+scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
+J = obj.dim_J;
+scaled_VT = false(J,1);
+for jj = 1:J
+    if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
+        scaled_VT(jj) = true;
+    end
+end
+
 
 if(obj.gpuDoublePrecision)
     dataType = "double";
@@ -160,14 +181,34 @@ samples.B       = nan(obj.dim_B, obj.dim_P, TotalSamples, dataType);
 samples.log_post = nan(1, TotalSamples);
 samples.log_like = nan(1, TotalSamples);
 
+if(scaled_WB)
+    samples.W_scaled = samples.W;
+    samples.B_scaled = samples.B;
+else
+    samples.W_scaled = [];
+    samples.B_scaled = [];
+end
+
 for jj = 1:obj.dim_J
     samples.Groups(jj).N = nan(obj.dim_R(jj), TotalSamples, dataType);
     samples.Groups(jj).H = nan(obj.dim_H(jj),                TotalSamples, "double");
     samples.Groups(jj).H_gibbs = nan(obj.dim_H_gibbs(jj),    TotalSamples, "double");
     samples.Groups(jj).V = nan(obj.dim_P    , obj.dim_R(jj), TotalSamples, dataType);
+
+    if(scaled_VT(jj))
+        samples.Groups(jj).V_scaled = samples.Groups(jj).V;
+    else
+        samples.Groups(jj).V_scaled = [];
+    end
     samples.Groups(jj).T = cell(obj.dim_S(jj), 1);
+    samples.Groups(jj).T_scaled = cell(obj.dim_S(jj), 1);
     for ss = 1:obj.dim_S(jj)
          samples.Groups(jj).T{ss} = nan(obj.dim_T(jj, ss), obj.dim_R(jj), TotalSamples, dataType);
+        if(scaled_VT(jj))
+            samples.Groups(jj).T_scaled{ss} = samples.Groups(jj).T{ss};
+        else
+            samples.Groups(jj).T_scaled{ss} = [];
+        end
     end
 end
 
@@ -228,21 +269,51 @@ resultStruct_empty = obj.getEmptyResultsStruct(optStruct_empty);
 resultStruct_dH = obj.getEmptyResultsStruct(optStruct_dH);
 resultStruct_no_dH = obj.getEmptyResultsStruct(optStruct_no_dH);
 resultStruct = obj.computeLogPosterior(paramStruct, optStruct);
-samples.W(:,1)   = paramStruct.W(:);
-samples.B(:,:,1) = paramStruct.B;
+sample_idx = 1;
+if(scaled_WB)
+    resultStruct_dH.dB = resultStruct.dB;
+    resultStruct_dH.dW = resultStruct.dW;
+
+    params_0 = obj.GMLMstructure.scaleParams(paramStruct);
+
+    samples.W(:,  sample_idx) = params_0.W(:);
+    samples.B(:,:,sample_idx) = params_0.B(:,:);
+
+    samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
+    samples.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
+else
+    samples.W(:,  sample_idx) = paramStruct.W(:);
+    samples.B(:,:,sample_idx) = paramStruct.B(:,:);
+end
 samples.H(:,1)   = paramStruct.H(:);
 samples.H_gibbs(:,1)   = paramStruct.H_gibbs(:);
 
 for jj = 1:obj.dim_J
-    samples.Groups(jj).N(:, 1) = sum(paramStruct.Groups(jj).V.^2,1);
     
     samples.Groups(jj).H(:,1) = paramStruct.Groups(jj).H;
     samples.Groups(jj).H_gibbs(:,1) = paramStruct.Groups(jj).H_gibbs;
-    samples.Groups(jj).V(:,:,1) = paramStruct.Groups(jj).V;
-    for ss = 1:obj.dim_S(jj)
-        samples.Groups(jj).T{ss}(:,:,1) = paramStruct.Groups(jj).T{ss};
-        
-        samples.Groups(jj).N(:, 1) = samples.Groups(jj).N(:, 1).*sum(paramStruct.Groups(jj).T{ss}.^2,1)';
+
+    if(scaled_VT(jj))
+        resultStruct_dH.Groups(jj).dT = resultStruct.Groups(jj).dT;
+        resultStruct_dH.Groups(jj).dV = resultStruct.Groups(jj).dV;
+
+        params_0 = obj.GMLMstructure.Groups(jj).scaleParams(paramStruct.Groups(jj));
+
+        samples.Groups(jj).V(:,:,sample_idx) = params_0.V;
+        samples.Groups(jj).V_scaled(:,:,sample_idx) = paramStruct.Groups(jj).V;
+        samples.Groups(jj).N(:, sample_idx) = sum(params_0.V.^2,1);
+        for ss = 1:obj.dim_S(jj)
+            samples.Groups(jj).T{ss}(:,:,sample_idx) = params_0.T{ss};
+            samples.Groups(jj).T_scaled{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
+            samples.Groups(jj).N(:, sample_idx) = samples.Groups(jj).N(:, sample_idx).*sum(params_0.T{ss}.^2,1)';
+        end
+    else
+        samples.Groups(jj).V(:,:,sample_idx) = paramStruct.Groups(jj).V;
+        samples.Groups(jj).N(:, sample_idx) = sum(paramStruct.Groups(jj).V.^2,1);
+        for ss = 1:obj.dim_S(jj)
+            samples.Groups(jj).T{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
+            samples.Groups(jj).N(:, sample_idx) = samples.Groups(jj).N(:, sample_idx).*sum(paramStruct.Groups(jj).T{ss}.^2,1)';
+        end
     end
     samples.Groups(jj).N(:, 1) = sqrt(samples.Groups(jj).N(:, 1));
 end
@@ -258,7 +329,7 @@ samples.e_sH(:,1)      = HMC_state_sH.stepSize.e;
 
 samples.log_p_accept(1) = log(1);
 
-fprintf("Starting HMC for %d samples (%d warmup) with initial log posterior = %e, initial step size = %e, max HMC steps = %d\n", TotalSamples, HMC_settings.nWarmup, samples.log_post(1), HMC_state.stepSize.e, HMC_settings.stepSize.maxSteps);
+fprintf("Starting HMC for %d samples (%d warmup) with initial log posterior = %e, initial step size = %e,\n\tmax HMC steps = %d, target accept rate = %.2f\n", TotalSamples, HMC_settings.nWarmup, samples.log_post(1), HMC_state.stepSize.e, HMC_settings.stepSize.maxSteps, HMC_settings.stepSize.delta);
 
 if(~isnan(figNum) && ~isinf(figNum))
     figure(figNum);
@@ -295,22 +366,27 @@ for sample_idx = start_idx:TotalSamples
     end
     %%
     if(isfield(HMC_settings, "sample_M") && HMC_settings.sample_M)
-        var_struct  = obj.devectorizeParams(inf(size(M)), paramStruct, optStruct);
-        if(isfield(obj.GMLMstructure.HMC_setup, "getPriorVar") && ~isempty(obj.GMLMstructure.HMC_setup.getPriorVar))
-            var_struct = obj.GMLMstructure.HMC_setup.getPriorVar(paramStruct);
-        end
-        for jj = 1:obj.dim_J
-            if(isfield(obj.GMLMstructure.HMC_setup.Groups(jj), "getPriorVar") && ~isempty(obj.GMLMstructure.HMC_setup.Groups(jj).getPriorVar))
-                var_struct.Groups(jj) = obj.GMLMstructure.HMC_setup.Groups(jj).getPriorVar(paramStruct.Groups(jj));
+        if(isfield(HMC_settings, "sample_M_setScale") && HMC_settings.sample_M_setScale)
+            var_struct  = obj.devectorizeParams(inf(size(M)), paramStruct, optStruct);
+            if(isfield(obj.GMLMstructure.HMC_setup, "getPriorVar") && ~isempty(obj.GMLMstructure.HMC_setup.getPriorVar))
+                var_struct = obj.GMLMstructure.HMC_setup.getPriorVar(paramStruct);
             end
+            for jj = 1:obj.dim_J
+                if(isfield(obj.GMLMstructure.HMC_setup.Groups(jj), "getPriorVar") && ~isempty(obj.GMLMstructure.HMC_setup.Groups(jj).getPriorVar))
+                    var_struct.Groups(jj) = obj.GMLMstructure.HMC_setup.Groups(jj).getPriorVar(paramStruct.Groups(jj));
+                end
+            end
+            M_c_0 = M(M_P > 0);
+            M_c_1 = obj.vectorizeParams(var_struct, optStruct_no_dH);
+            M_c = max(M_c_0, 1./M_c_1);
+        else
+            M_c = M(M_P > 0);
         end
-        M_c_0 = M(M_P > 0);
-        M_c_1 = obj.vectorizeParams(var_struct, optStruct_no_dH);
-        M_c = max(M_c_0, 1./M_c_1);
         
         w_init = obj.vectorizeParams(paramStruct, optStruct_no_dH);
         nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct_no_dH, resultStruct_no_dH);
         try
+            HMC_state_sM.e_scale = samples.e_scale_sM(sample_idx);
             [samples.accepted_sM(sample_idx), samples.errors_sM(sample_idx), w_new, samples.log_p_accept_sM(sample_idx), results_sM] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpostFunction, HMC_state_sM);
             if(samples.accepted_sM(sample_idx))
                 paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct_no_dH);
@@ -327,8 +403,15 @@ for sample_idx = start_idx:TotalSamples
         M_c = M(M_H > 0);
         if(~isempty(M_c))
             w_init = obj.vectorizeParams(paramStruct, optStruct_dH);
-            nlpriorFunction = @(ww) obj.vectorizedNLPrior_func(ww, paramStruct, optStruct_dH, resultStruct_dH);
+
+            if(all(~scaled_VT) && ~scaled_WB)
+                nlpriorFunction = @(ww) obj.vectorizedNLPrior_func(ww, paramStruct, optStruct_dH, resultStruct_dH);
+            else
+                nlpriorFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct_dH, resultStruct_dH);
+            end
+
             try
+                HMC_state_sH.e_scale = samples.e_scale_sH(sample_idx);
                 [samples.accepted_sH(sample_idx), samples.errors_sH(sample_idx), w_new, samples.log_p_accept_sH(sample_idx), results_sH] = kgmlm.fittingTools.HMCstep_diag(w_init, M_c, nlpriorFunction, HMC_state_sH);
                 if(samples.accepted_sH(sample_idx))
                     paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct_dH);
@@ -347,6 +430,7 @@ for sample_idx = start_idx:TotalSamples
     w_init = obj.vectorizeParams(paramStruct, optStruct);
     nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct, resultStruct);
     try
+        HMC_state.e_scale = samples.e_scale(sample_idx);
         [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, M, nlpostFunction, HMC_state);
         if(samples.accepted(sample_idx))
             paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct);
@@ -360,21 +444,46 @@ for sample_idx = start_idx:TotalSamples
     
     
     %% store samples
-    samples.W(:,  sample_idx) = paramStruct.W(:);
-    samples.B(:,:,sample_idx) = paramStruct.B(:,:);
+    if(scaled_WB)
+        params_0 = obj.GMLMstructure.scaleParams(paramStruct);
+
+        samples.W(:,  sample_idx) = params_0.W(:);
+        samples.B(:,:,sample_idx) = params_0.B(:,:);
+
+        samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
+        samples.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
+    else
+        samples.W(:,  sample_idx) = paramStruct.W(:);
+        samples.B(:,:,sample_idx) = paramStruct.B(:,:);
+    end
+
     samples.H(:,  sample_idx) = paramStruct.H(:);
     samples.H_gibbs(:,  sample_idx) = paramStruct.H_gibbs(:);
     
     for jj = 1:obj.dim_J
         samples.Groups(jj).H(:,sample_idx) = paramStruct.Groups(jj).H;
         samples.Groups(jj).H_gibbs(:,sample_idx) = paramStruct.Groups(jj).H_gibbs;
-        samples.Groups(jj).V(:,:,sample_idx) = paramStruct.Groups(jj).V;
-        samples.Groups(jj).N(:, sample_idx) = sum(paramStruct.Groups(jj).V.^2,1);
-        
-        for ss = 1:obj.dim_S(jj)
-            samples.Groups(jj).T{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
-            samples.Groups(jj).N(:, sample_idx) = samples.Groups(jj).N(:, sample_idx).*sum(paramStruct.Groups(jj).T{ss}.^2,1)';
+
+        if(scaled_VT(jj))
+            params_0 = obj.GMLMstructure.Groups(jj).scaleParams(paramStruct.Groups(jj));
+
+            samples.Groups(jj).V(:,:,sample_idx) = params_0.V;
+            samples.Groups(jj).V_scaled(:,:,sample_idx) = paramStruct.Groups(jj).V;
+            samples.Groups(jj).N(:, sample_idx) = sum(params_0.V.^2,1);
+            for ss = 1:obj.dim_S(jj)
+                samples.Groups(jj).T{ss}(:,:,sample_idx) = params_0.T{ss};
+                samples.Groups(jj).T_scaled{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
+                samples.Groups(jj).N(:, sample_idx) = samples.Groups(jj).N(:, sample_idx).*sum(params_0.T{ss}.^2,1)';
+            end
+        else
+            samples.Groups(jj).V(:,:,sample_idx) = paramStruct.Groups(jj).V;
+            samples.Groups(jj).N(:, sample_idx) = sum(paramStruct.Groups(jj).V.^2,1);
+            for ss = 1:obj.dim_S(jj)
+                samples.Groups(jj).T{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
+                samples.Groups(jj).N(:, sample_idx) = samples.Groups(jj).N(:, sample_idx).*sum(paramStruct.Groups(jj).T{ss}.^2,1)';
+            end
         end
+
         samples.Groups(jj).N(:, sample_idx) = sqrt(samples.Groups(jj).N(:, sample_idx));
     end
     samples.log_post(sample_idx)   = resultStruct.log_post;

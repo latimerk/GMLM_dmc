@@ -151,7 +151,7 @@ results = gmlm.computeLogPosterior(params, opts);
 [results_est, results_all, ll_host, params] = kgmlm.diagnostics.checkDerivatives(gmlm, params, [], [], use_posterior);
 figure(1);
 clf;
-plotDerivativeComparison(results_all, results_est, ll_host);
+plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
 pauseMessage(pauseAtParts, sprintf("Done with main LL...\n"));
 %return;
 
@@ -162,7 +162,7 @@ pauseMessage(pauseAtParts, sprintf("Done with main LL...\n"));
 
 figure(2);
 clf;
-plotDerivativeComparison(results_all, results_est, ll_host);
+plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
 pauseMessage(pauseAtParts, sprintf("Done with weighted LL 1...\n"));
 
 % some subset of weights
@@ -170,7 +170,7 @@ pauseMessage(pauseAtParts, sprintf("Done with weighted LL 1...\n"));
 
 figure(3);
 clf;
-plotDerivativeComparison(results_all, results_est, ll_host);
+plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
 pauseMessage(pauseAtParts, sprintf("Done with weighted LL 2...\n"));
 
 if(gmlm.populationData)
@@ -178,7 +178,7 @@ if(gmlm.populationData)
     [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M, true, use_posterior);
     figure(4);
     clf;
-    plotDerivativeComparison(results_all, results_est, ll_host);
+    plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
     pauseMessage(pauseAtParts, sprintf("Done with weighted LL 1...\n"));
 
     % some subset of weights
@@ -186,7 +186,7 @@ if(gmlm.populationData)
 
     figure(5);
     clf;
-    plotDerivativeComparison(results_all, results_est, ll_host);
+    plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
     pauseMessage(pauseAtParts, sprintf("Done with weighted LL 2...\n"));
 end
 
@@ -201,10 +201,10 @@ function [] = pauseMessage(pauseAtParts, msg)
 end
 
 %% plot a comparison
-function [] = plotDerivativeComparison(results_all, results_est, ll_host)
+function [] = plotDerivativeComparison(results_all, results_est, ll_host, use_posterior)
     
     NR = numel(results_all.Groups) + 1;
-    NC = max(4, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1);
+    NC = max(4, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1 + use_posterior);
     
     subplot(NR, NC, 1);
     plot([ ll_host(:) results_all.trialLL(:)])
@@ -229,6 +229,12 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host)
     plot([results_all.dB(:) results_est.dB(:)])
     title('dB');
 
+    if(use_posterior && isfield(results_all, "dH"))
+        subplot(NR, NC, 4);
+        plot([results_all.dH(:) results_est.dH(:)])
+        title('dH');
+    end
+
     for jj = 1:numel(results_all.Groups)
         subplot(NR, NC, 1 + jj*NC);
         cla
@@ -237,11 +243,18 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host)
         plot([dV(:) dV2(:)])
         title(sprintf('Groups(%d).dV', jj));
 
-        for ss = 1:numel(results_est.Groups(jj).dT)
+        S = numel(results_est.Groups(jj).dT);
+        for ss = 1:S
             subplot(NR, NC, 1 + ss + jj*NC);
             cla;
             plot([results_all.Groups(jj).dT{ss}(:) results_est.Groups(jj).dT{ss}(:)])
             title(sprintf('Groups(%d).dT{%d}', jj, ss));
+        end
+
+        if(use_posterior && isfield(results_all.Groups(jj), "dH"))
+            subplot(NR, NC, 1 + S + 1 + jj*NC);
+            plot([results_all.Groups(jj).dH(:) results_est.Groups(jj).dH(:)])
+            title('dH');
         end
     end
 end

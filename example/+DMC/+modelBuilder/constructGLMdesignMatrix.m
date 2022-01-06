@@ -45,7 +45,7 @@ p.addParameter('bases'  ,  bases_default,    @isstruct);
 parse(p, Neurons, TaskInfo, cellToFit, stimulusConfig, varargin{:});
 
 timeBeforeSample_bins     = p.Results.timeBeforeSample_bins;
-timeAfterTestOrLever_bins = p.Results.timeAfterTestOrLever_bins;
+timeAfterTestOrLever_bins = p.Results.timeAfterTestOrResponse_bins;
 bases     = p.Results.bases;
 
 
