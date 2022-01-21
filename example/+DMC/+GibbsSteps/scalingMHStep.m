@@ -73,8 +73,7 @@ for nn = 1:MH_scaleSettings.N
         results2 = results;
         results2 = gmlm.computeLogPrior(params2, opts, results2);
 
-%         chi_correction = sum([log_scale;-sum(log_scale)].*(dim_T-1)) - sum(log_scale); 
-        chi_correction = sum([log_scale;-sum(log_scale)].*(dim_T-2)); 
+        chi_correction = sum([log_scale;-sum(log_scale)].*(dim_T-2)) - sum(log_scale); 
             %this first sum changes the priors over the weights to chi distributions over the norm given weights (log difference between proposal and original spot)
             %the second sum is for the change of variables to by P(T,U, T*U*V) because we have the product of the scale fixed
             %  The probability density we sample over then become P(T,U| T*U*V) \propto P(T, U, T*U*V)
