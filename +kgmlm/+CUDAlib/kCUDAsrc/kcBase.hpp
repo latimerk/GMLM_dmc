@@ -25,6 +25,8 @@
 #include "kcShared.hpp"
 
 namespace kCUDA { 
+
+    
     
 const unsigned int MAX_DIM_D = 6;
     
@@ -232,6 +234,13 @@ class GPUData {
                     return 0;
             }  
         }
+
+        inline void printInfo(std::ostringstream & output_stream, const char * name = "GPUData") {
+            output_stream << "Info: " << name << "\n";
+            output_stream << "\t" << "size = (" << getSize(0) << ", " << getSize(1) << ", " << getSize(2) << ")\n";
+            output_stream << "\t" << "ld_gpu = " << getLD_gpu() << ", inc_gpu = " << getInc_gpu() << "\n";
+            output_stream << "\t" << "is_stacked_gpu = " << is_stacked_gpu << ", " << " page locked = " << isPageLocked() << "\n";
+        }
         
         //assigns a single value to all elements (HOST MEMORY ONLY!)
         inline void assign(FPTYPE val) {
@@ -247,7 +256,7 @@ class GPUData {
         }
         
         //op_A(A) * op_B(B) -> C,  A = this
-        cublasStatus_t GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0);
+        cublasStatus_t GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0, GPUData<FPTYPE> * BUFFER = NULL, int * multType = NULL);
         cublasStatus_t GEMVs(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha = 1, const FPTYPE beta = 0);
         
         //resizes current data (within pre-allocated bounds - doesn't change memory size, just dims for computations)
@@ -345,7 +354,7 @@ class GPUGL_base  {
             if(ce == CUBLAS_STATUS_SUCCESS) {
                 return true;
             }
-            output_stream << msg_str << " - " << cublasGetErrorString(ce) << std::endl;
+            output_stream << msg_str << " - cublasError " << cublasGetErrorString(ce) << std::endl;
             if(printOnly) {
                 msg->printMsgTxt(output_stream);
             }
@@ -358,7 +367,7 @@ class GPUGL_base  {
             if(ce == CUSPARSE_STATUS_SUCCESS) {
                 return false;
             }
-            output_stream << msg_str << " - " << cusparseGetErrorString(ce) << std::endl;
+            output_stream << msg_str << " - cusparseError " << cusparseGetErrorString(ce) << std::endl;
             if(printOnly) {
                 msg->printMsgTxt(output_stream);
             }
@@ -391,8 +400,8 @@ class GPUGL_base  {
         }
         
         //Frees CUDA allocated pointers and checks for errors
-     /*   template <typename T>
-        inline bool cudaSafeFree(T * & a, const char * msg_str = "cudaFree error") {
+        template <typename T>
+        inline bool cudaSafeFreePtr(T * & a, const char * msg_str = "cudaFree error") {
             if(a) {
                 bool result = checkCudaErrors(cudaFree(a), msg_str, true);
                 a = NULL;
@@ -403,7 +412,7 @@ class GPUGL_base  {
             }
         }
         //Frees CUDA allocated host pointers and checks for errors
-        template <typename T>
+      /*  template <typename T>
         inline bool cudaSafeFreeHost(T * & a, const char * msg_str = "cudaFreeHost error") {
             if(a) {
                 bool result = checkCudaErrors(cudaFreeHost(a), msg_str, true);
@@ -413,17 +422,17 @@ class GPUGL_base  {
             else {
                 return true;
             }
-        }
+        }*/
         //frees all CUDA pointers in a vector
         template <typename T>
-        inline bool cudaSafeFreeVector(std::vector<T *> & arr, const char * msg_str = "cudaFree vector error") {
+        inline bool cudaSafeFreePtrVector(std::vector<T *> & arr, const char * msg_str = "cudaFree vector error") {
             bool allFreed = true;
             for (auto& it : arr) { 
-                allFreed = allFreed && cudaSafeFree(it, msg_str);
+                allFreed = allFreed && cudaSafeFreePtr(it, msg_str);
             }
             return allFreed;
         }
-        template <typename T>
+      /*  template <typename T>
         inline bool cudaSafeFreeHostVector(std::vector<T *> & arr, const char * msg_str = "cudaFreeHost vector error") {
             bool allFreed = true;
             for (auto& it : arr) { 
@@ -452,8 +461,6 @@ class GPUGL_base  {
             return dev;
         }
 };
-
-
 
 
 

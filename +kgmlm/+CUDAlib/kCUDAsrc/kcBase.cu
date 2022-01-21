@@ -19,8 +19,9 @@
 #include "kcBase.hpp"
 
 namespace kCUDA {
-    
 
+    
+bool GPU_USE_PAGELOCKED_HOST_STORAGE = true; // can enable/disable use of page-locked memory
 
 //=============================================================================================================================================================
 //=============================================================================================================================================================
@@ -138,7 +139,7 @@ cudaError_t GPUData<FPTYPE>::allocate_gpu(GPUData_HOST_ALLOCATION include_host, 
     }
         
     //page locked memory if requested
-    if(include_host == GPUData_HOST_PAGELOCKED && ce == cudaSuccess) {
+    if(GPU_USE_PAGELOCKED_HOST_STORAGE && include_host == GPUData_HOST_PAGELOCKED && ce == cudaSuccess) {
         if(size() > 0) {
             ce = cudaMallocHost(reinterpret_cast<void**>(&(data_host.data)), size() * sizeof(FPTYPE));
         }   
@@ -148,7 +149,7 @@ cudaError_t GPUData<FPTYPE>::allocate_gpu(GPUData_HOST_ALLOCATION include_host, 
         page_locked = true;
         allocated_host = true;
     }
-    else if(include_host == GPUData_HOST_STANDARD && ce == cudaSuccess) {
+    else if((include_host == GPUData_HOST_PAGELOCKED || include_host == GPUData_HOST_STANDARD) && ce == cudaSuccess) {
         if(size() > 0) {
             data_host.data = new FPTYPE[size()];
         }   
@@ -246,7 +247,7 @@ cudaError_t GPUData<FPTYPE>::allocate_host(bool page_locked_memory, size_t x, si
 
     //allocate memory
     if(size() > 0) {
-        if(page_locked_memory) {
+        if(GPU_USE_PAGELOCKED_HOST_STORAGE && page_locked_memory) {
             ce = cudaMallocHost(reinterpret_cast<void**>(&(data_host.data)), size() * sizeof(FPTYPE));
             if(ce == cudaSuccess) {
                 ce = cudaGetDevice(&devNum); 
@@ -261,7 +262,7 @@ cudaError_t GPUData<FPTYPE>::allocate_host(bool page_locked_memory, size_t x, si
         }
     }
     else {
-        if(page_locked_memory) {
+        if(GPU_USE_PAGELOCKED_HOST_STORAGE && page_locked_memory) {
             data_host.data = NULL;
             page_locked = true;
             ce = cudaGetDevice(&devNum); 
@@ -515,60 +516,9 @@ cudaError_t GPUData<FPTYPE>::copyHostToGPU(const cudaStream_t stream) {
     }
 }
 
-/* kernel for a quick MM operation X*B where X is tall * skinny and B is small
-*     Trying to get a speedup from CUBLAS in regions where its slow.
-*/
-
+// Covers a set of different useful GEMM arrangements for GMLMs
 template <class FPTYPE>
-__global__ void kernel_MM_quick(GPUData_kernel<FPTYPE> XF, const GPUData_kernel<FPTYPE> X, const GPUData_kernel<FPTYPE> F, const FPTYPE alpha, const FPTYPE beta, const cublasOperation_t op_A, const cublasOperation_t op_B)   {
-    int rr_start = blockIdx.y * blockDim.y + threadIdx.y;
-    size_t row   = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t A     = blockIdx.z * blockDim.z + threadIdx.z;
-    if(row < XF.x && A < X.z) {
-        if(op_A == CUBLAS_OP_N && op_B == CUBLAS_OP_N) {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
-                for(int tt = 0; tt < F.x; tt++) {
-                    ll += X(row, tt, A) * F(tt, rr, A);
-                }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
-            }
-        }
-        else if(op_A == CUBLAS_OP_N) {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
-                for(int tt = 0; tt < F.y; tt++) {
-                    ll += X(row, tt, A) * F(rr, tt, A);
-                }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
-            }
-        }
-        else if(op_B == CUBLAS_OP_N) {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
-                for(int tt = 0; tt < F.x; tt++) {
-                    ll += X(tt, row, A) * F(tt, rr, A);
-                }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
-            }
-        }
-        else {
-            for(int rr = rr_start; rr < XF.y; rr+= blockDim.y * gridDim.y) {
-                FPTYPE ll = 0;
-                for(int tt = 0; tt < F.y; tt++) {
-                    ll += X(tt, row, A) * F(rr, tt, A);
-                }
-                XF(row, rr, A) = alpha*ll + beta*XF(row, rr, A);
-            }
-        }
-    }
-}
-
-
-
-template <class FPTYPE>
-cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha, const FPTYPE beta) {
-    
+cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> * B, const cublasHandle_t handle, const cublasOperation_t op_A, const cublasOperation_t op_B, const FPTYPE alpha, const FPTYPE beta,  GPUData<FPTYPE> * BUFFER, int * multType) {
     cublasStatus_t ce = CUBLAS_STATUS_SUCCESS;
 
     size_t depth_A = getSize(2);
@@ -598,6 +548,8 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     size_t rows_op_B = (op_B == CUBLAS_OP_N) ? rows_B : cols_B; 
     size_t cols_op_B = (op_B == CUBLAS_OP_N) ? cols_B : rows_B; 
 
+    if(multType != NULL) {multType[0] = -1;};
+
     if(cols_C != cols_op_B || rows_C != rows_op_A || cols_op_A != rows_op_B
             || (depth_A > 1 && depth_A != depth)
             || (depth_B > 1 && depth_B != depth)
@@ -605,37 +557,28 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         return CUBLAS_STATUS_INVALID_VALUE;
     }
 
-    //for tall skinny op_A
-    if(rows_op_A >= 8192 && cols_op_A < 256 && cols_op_B > 1 && cols_op_B < 256) {
-        //for smaller dim_T_c, call my own makeshift GEMM that's somehow faster for the typical sized problem
-        dim3 block_size;
-        dim3 grid_size;
-        if(cols_op_B > 8) { 
-            block_size.y = 8;
-        }
-        else if(cols_op_B >= 4) { 
-            block_size.y = 4;
-        }
-        block_size.x = 1024/block_size.y;
-        grid_size.x  = getSize(0) / block_size.x + ( (getSize(0) % block_size.x == 0) ? 0 : 1);
-        grid_size.y  = 1;
-        block_size.z = 1;
-        grid_size.z  = getSize(2);
-
-        cudaStream_t stream;
-        ce = cublasGetStream(handle, &stream);
-
-        if(ce == CUBLAS_STATUS_SUCCESS) {
-            kernel_MM_quick<<<grid_size, block_size, 0, stream>>>(C->device(), device(), B->device(), alpha, beta, op_A, op_B);
-            if(cudaSuccess != cudaGetLastError()) {
-                ce = CUBLAS_STATUS_INVALID_VALUE;
-            }
-            else {
-                ce = CUBLAS_STATUS_SUCCESS;
-            }
-        }
+    const size_t MAX_DEFAULT = 2048;
+    cublasGemmAlgo_t algo = CUBLAS_GEMM_ALGO0;
+    if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > 16) {
+        algo = CUBLAS_GEMM_DEFAULT;
     }
-    else if(cols_op_B == 1) {
+    
+    #if __CUDA_ARCH__ >= 700
+        if(sizeof(FPTYPE) <= 4) {
+            algo = CUBLAS_GEMM_ALGO0_TENSOR_OP; 
+            if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > 16) {
+                algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP;
+            }
+        }
+    #endif
+    
+    //CUBLAS_GEMM_DEFAULT
+    //CUBLAS_GEMM_ALGO0 // fastest for all the typical multiplications I've done in double precision (DEFAULT is super slow for the big matrices!)
+    //CUBLAS_GEMM_DEFAULT_TENSOR_OP
+    //CUBLAS_GEMM_ALGO0_TENSOR_OP 
+
+    if(cols_op_B == 1) {
+        if(multType != NULL) {multType[0] = -10;};
        //GEMV is sometimes way faster then GEMM (even on the same problem size) - call it if it's all that's needed
         size_t op_B_stride = (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->getLD_gpu();
         for(int dd = 0; dd < depth && ce == CUBLAS_STATUS_SUCCESS; dd++) {
@@ -648,26 +591,10 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                           C->getData_gpu() + dd*C->getInc_gpu(), 1);
         }
     }
-    else if(rows_op_A < 256 && cols_op_A > 8192 && cols_op_B < 256) {
-        //A'*B for tall, skinny A&B is slow with GEMM, somehow faster with multiple GEMV calls - perverse but it's a bit speedup
-        size_t op_B_ld     = (op_B == CUBLAS_OP_N) ? B->getLD_gpu() : static_cast<size_t>(1);
-        size_t op_B_stride = (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->getLD_gpu();
-                
-        for(int dd = 0; dd < depth && ce == CUBLAS_STATUS_SUCCESS; dd++) {
-            for(int rr = 0; rr < C->getSize(1) && ce == CUBLAS_STATUS_SUCCESS; rr++) {
-                ce = cublasGEMV(handle, op_A,
-                              rows_A, cols_A,
-                              &alpha,
-                              getData_gpu() + dd*getInc_gpu(), getLD_gpu(),
-                              B->getData_gpu() + rr*op_B_ld + dd*B->getInc_gpu(), op_B_stride,
-                              &beta,
-                              C->getData_gpu() + rr*C->getLD_gpu() + dd*C->getInc_gpu(), 1);
-            }
-        }
-    }
     else if(depth > 1) {
+        if(multType != NULL) {multType[0] = algo;};
         //for largish size of C, call GEMM (single - run below)
-        ce = cublasGEMMStridedBatched(handle,
+        ce = cublasGEMMEXStridedBatched(handle,
                                   op_A,
                                   op_B,
                                   rows_op_A, cols_op_B, cols_op_A,
@@ -679,10 +606,11 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                                   &beta,
                                   C->getData_gpu(), C->getLD_gpu(),
                                   C->getInc_gpu(),
-                                  depth);
+                                  depth, algo);
     }
     else {
-        ce = cublasGEMM(handle,
+        if(multType != NULL) {multType[0] = algo;};
+        ce = cublasGEMMEX(handle,
                           op_A,
                           op_B,
                           rows_op_A, cols_op_B, cols_op_A,
@@ -690,7 +618,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                           getData_gpu(), getLD_gpu(),
                           B->getData_gpu(), B->getLD_gpu(),
                           &beta,
-                          C->getData_gpu(), C->getLD_gpu());
+                          C->getData_gpu(), C->getLD_gpu(), algo);
     }
     return ce;
 }
@@ -730,9 +658,6 @@ cublasStatus_t GPUData<FPTYPE>::GEMVs(GPUData<FPTYPE> * C, const GPUData<FPTYPE>
     }
     return ce;
 }
-
-
-
 
 //explicitly create classes for single and double precision floating point for library
 template class GPUData<float>;

@@ -34,6 +34,10 @@ GPUGMLM_computeBlock<FPTYPE>::GPUGMLM_computeBlock(const GPUGMLM_structure_args<
     }   
 
     //setup the streams
+    cublasMath_t mathMode = CUBLAS_DEFAULT_MATH;
+    #if __CUDA_ARCH__ >= 700
+        mathMode = CUBLAS_TF32_TENSOR_OP_MATH;
+    #endif
     checkCudaErrors(cudaStreamCreate(&(stream)), "GPUGMLM_computeBlock errors: failed initializing stream!");
     stream_Groups.resize(dim_J);
     for(int jj = 0; jj < dim_J; jj++) {
@@ -42,13 +46,29 @@ GPUGMLM_computeBlock<FPTYPE>::GPUGMLM_computeBlock(const GPUGMLM_structure_args<
 
     //setup cublas handles
     checkCudaErrors(cublasCreate(&(cublasHandle)), "GPUGMLM_computeBlock errors: CUBLAS initialization failed.");
-    checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLM_computeBlock errors: set cublas pointer mode failed.");
     checkCudaErrors(cublasSetStream(cublasHandle, stream), "GPUGMLM_computeBlock errors: set cublas stream failed.");
+    checkCudaErrors(cublasSetMathMode(cublasHandle, mathMode), "GPUGMLM_computeBlock errors: set cublas math mode failed.");
+    checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLM_computeBlock errors: set cublas pointer mode failed.");
     cublasHandle_Groups.resize(dim_J);
+    cublasWorkspaces.assign(dim_J, NULL);
+    cublasWorkspaces_size.assign(dim_J, cublasWorkspace_size);
+    
+    cublasWorkspace = NULL;
+  /*  size_t cublasWorkspace_size_0 = 1024 * 1024 * 0; // if greater than 0, sets special workspace size (doesn't seem to help the current computations)	
+    if(cublasWorkspace_size_0 > 0) {
+        checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspace)), &cublasWorkspace_size, cublasWorkspace_size_0, 1), "GPUGMLM_computeBlock errors: allocating cublas workspace failed.");
+        checkCudaErrors(cublasSetWorkspace(cublasHandle, cublasWorkspace, cublasWorkspace_size), "GPUGMLM_computeBlock errors: setting CUBLAS workspace failed.");
+    }*/
     for(int jj = 0; jj < dim_J; jj++) {
         checkCudaErrors(cublasCreate(&(cublasHandle_Groups[jj])), "GPUGMLM_computeBlock errors: CUBLAS groups initialization failed.");
+        checkCudaErrors(cublasSetMathMode(cublasHandle_Groups[jj], mathMode), "GPUGMLM_computeBlock errors: set cublas group math mode failed.");
         checkCudaErrors(cublasSetPointerMode(cublasHandle_Groups[jj], CUBLAS_POINTER_MODE_HOST), "GPUGMLM_computeBlock errors: set cublas groups pointer mode failed.");
         checkCudaErrors(cublasSetStream(cublasHandle_Groups[jj], stream_Groups[jj]), "GPUGMLM_computeBlock errors: set cublas groups stream failed.");
+        
+        /*if(cublasWorkspaces_size[jj] > 0) {
+            checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspaces[jj])), &cublasWorkspaces_size[jj], cublasWorkspace_size_0, 1),  "GPUGMLM_computeBlock errors: allocating group cublas workspace failed.");
+            checkCudaErrors(cublasSetWorkspace(cublasHandle_Groups[jj], cublasWorkspaces[jj], cublasWorkspaces_size[jj]), "GPUGMLM_computeBlock errors: setting group CUBLAS workspace failed.");
+        }*/
     }
 
     //setup cusparse handle
@@ -93,6 +113,8 @@ GPUGMLM_computeBlock<FPTYPE>::~GPUGMLM_computeBlock() {
         checkCudaErrors(cusparseDestroy(jj), "GPUGMLM_computeBlock errors: failed to destroy group cusparse handles." );
     }
        
+    cudaSafeFreePtr(cublasWorkspace, "GPUGMLM_computeBlock errors: failed to destroy cublas workspace." );
+    cudaSafeFreePtrVector(cublasWorkspaces, "GPUGMLM_computeBlock errors: failed to destroy cublas group workspaces." );
     //destroy streams
     checkCudaErrors(cudaStreamDestroy(stream), "GPUGMLM_computeBlock errors: failed destroying stream!");
     for(auto jj : stream_Groups) {
@@ -157,43 +179,59 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
         const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
-    size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    if(row < LL.x) {
-        size_t Xlin_row;
-        if(ridx_sa_all.y < 1) {
-            //if full run
-            Xlin_row = row;
-        }
-        else {
+
+    for(size_t row_0 = blockIdx.x * blockDim.x ; row_0 < LL.x; row_0 += blockDim.x * gridDim.x) {
+        size_t row = row_0 + threadIdx.x;
+        size_t Xlin_row = row; //if full run
+        if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
             //if sparse run
             Xlin_row = ridx_sa_all[row];
         }
-        size_t neuron_num = id_a_neuron[Xlin_row];
-        FPTYPE tw_c = (trial_weights.y < 1) ? 1 : trial_weights[id_a_trialM[Xlin_row]];
+        FPTYPE tw_c = 1;
+        if(row < LL.x && trial_weights.y == 1) {
+            tw_c = trial_weights[id_a_trialM[Xlin_row]];
+        }
+        __syncthreads();
+        
+        
+        bool elementIncluded = row < LL.x && tw_c != 0;
 
-        FPTYPE Y_c = Y[Xlin_row];
-
+        unsigned int neuron_num;
         FPTYPE  LL_c = 0;  
-        FPTYPE dLL_c = 0;    
-        if(tw_c != 0) { //if trial not censored
-            FPTYPE log_rate = W[neuron_num];
-            for(int bb = 0; bb < X_lin.y; bb++) {
+        FPTYPE dLL_c = 0;   
+        FPTYPE log_rate = 0;
+
+        if(elementIncluded) {
+            neuron_num = id_a_neuron[Xlin_row];
+            log_rate = W[neuron_num];
+        }
+        __syncwarp();
+ 
+        for(int bb = 0; bb < X_lin.y; bb++) {
+            if(elementIncluded) { //if trial not censored
                 log_rate += X_lin(Xlin_row, bb) * B(bb, neuron_num);
                 if(ridx_sa_all.y > 0 && compute_dB) { // for dB when doing sparse run
                     X_lin_temp(row, bb) = X_lin(Xlin_row, bb);
                 }
             }
-            for(int jj = 0; jj < lambda.y; jj++) {
+            __syncwarp();
+        }
+        for(int jj = 0; jj < lambda.y; jj++) {
+            if(elementIncluded) {
                 log_rate += lambda(row, jj);
             }
-
+            __syncwarp();
+        }
+        __syncthreads();
+        if(elementIncluded) {
+            FPTYPE Y_c = Y[Xlin_row];
             if(logLikeSettings == ll_poissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                if(Y_c >= 0) { // negatives get censored by Poisson LL
+                    Y_c = floor(Y_c);
                     log_rate += log_dt;
                     FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-rate + Y_ci * log_rate);
-                    dLL_c = (-rate + Y_ci);
+                     LL_c = (-rate + Y_c * log_rate);
+                    dLL_c = (-rate + Y_c);
                 }
             }
             else if(logLikeSettings == ll_sqErr) {
@@ -202,8 +240,7 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
                 dLL_c = -2*eY_c;
             }
             else if(logLikeSettings == ll_truncatedPoissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci > 0) { 
+                if(Y_c >= 1) { 
                     log_rate += log_dt;
                     if(log_rate > -30) {
                         FPTYPE rate = safeExp(log_rate);
@@ -216,7 +253,7 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
                         dLL_c = 1;
                     }
                 }
-                else if(Y_ci == 0) {
+                else if(Y_c == 0) {
                     FPTYPE rate = safeExp(log_rate + log_dt);
                      LL_c = -rate;
                     dLL_c = -rate;
@@ -225,17 +262,22 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
             }
             else if(logLikeSettings == ll_poissExpRefractory) {
                 // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
+                if(Y_c >= 0) { // negatives get censored by Poisson LL
+                    Y_c = floor(Y_c);
                     log_rate += log_dt;
                     FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-(1-Y_ci/2)*rate + Y_ci * log_rate);
-                    dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
+                     LL_c = (-(1-Y_c/2)*rate + Y_c * log_rate);
+                    dLL_c = (-(1-Y_c/2)*rate + Y_c);
                 }
             }
+            LL[row]  =  LL_c*tw_c;
+            dLL[row] = dLL_c*tw_c;
         }
-        LL[row]  =  LL_c*tw_c;
-        dLL[row] = dLL_c*tw_c;
+        else if(row < LL.x) {
+            LL[row] = 0;
+            dLL[row] = 0;
+        }
+        __syncthreads();
     }
 }
 /* Kernel for each trial
@@ -332,6 +374,7 @@ void GPUGMLM_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOptions<F
                   dataset->X_lin_temp->device(), opts->compute_dB, 
                    params->logLikeSettings, params->logLikeParams->device());
     checkCudaErrors("GPUGMLM_computeBlock::computeLogLike errors:  kernel_getObs_LL launch failed");
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_computeBlock::computeLogLike errors: could not add LL event to stream!");
 
     //sum up the LL for each trial (and dLL to setup for dW, dB)
     if(opts->compute_trialLL || opts->compute_dW) {
@@ -353,7 +396,6 @@ void GPUGMLM_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOptions<F
                                                                  dataset->normalizingConstants_trial->device());
         checkCudaErrors("GPUGMLM_computeBlock::computeLogLike errors:  kernel_sum_trialLL launch failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_computeBlock::computeLogLike errors: could not add LL event to stream!");
 }
 
 
@@ -385,6 +427,12 @@ void GPUGMLM_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOptio
         return;
     }
     switchToDevice();
+    
+    //for each Group
+    for(int jj = 0; jj < dim_J; jj++) {
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
+    } 
+    
          //launch kernel to sum dLL -> dW, dB for each trial?
          //         or kernel to sum up dLL->dW and GEMV for dB?
     if(opts->compute_dW) {
@@ -418,11 +466,7 @@ void GPUGMLM_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOptio
                 checkCudaErrors(ce, "GPUGMLM_computeBlock::computeDerivatives errors:  X_lin'*dLL -> dB failed");
             }
         }
-    }
-    //for each Group
-    for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
-    }         
+    }        
 }
         
 

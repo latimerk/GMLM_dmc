@@ -178,8 +178,13 @@ public:
         }
         
         //assigns the pointers to the trial-wise log likelihood results 
-        const matlab::data::TypedArray<FPTYPE> trialLL_mat = GMLM_results[0]["trialLL"];
-        this->trialLL =  new GLData_matlab<FPTYPE>(trialLL_mat);
+        if(opts->compute_trialLL) {
+            const matlab::data::TypedArray<FPTYPE> trialLL_mat = GMLM_results[0]["trialLL"];
+            this->trialLL =  new GLData_matlab<FPTYPE>(trialLL_mat);
+        }
+        else {
+            this->trialLL = new GLData_matlab<FPTYPE>();
+        }
         
         //gets the tensor groups
         const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];
@@ -217,6 +222,9 @@ public:
                 if(opts->Groups[jj]->compute_dT[ss]) {
                     const matlab::data::TypedArray<FPTYPE> dT_mat  = dT_mats[ss];
                     this->Groups[jj]->dT[ss]  = new GLData_matlab<FPTYPE>(dT_mat);
+                }
+                else {
+                    this->Groups[jj]->dT[ss]  = new GLData_matlab<FPTYPE>();
                 }
             }
         }
@@ -262,17 +270,15 @@ private:
         
         kCUDA::GPUGMLM<FPTYPE>         * gmlm_obj = reinterpret_cast<kCUDA::GPUGMLM<FPTYPE> *>(GMLM_ptr); //forcefully recasts the uint64 value
         //gets the model parameters
-        kCUDA::GPUGMLM_params<FPTYPE>  * params = new matlab_GPUGMLM_params<FPTYPE>(GMLM_params, matlabPtr); //GMLM_params,matlabPtr, &factory
+        std::shared_ptr<kCUDA::GPUGMLM_params<FPTYPE>> params = std::make_shared<matlab_GPUGMLM_params<FPTYPE>>(GMLM_params, matlabPtr); //GMLM_params,matlabPtr, &factory
         //gets the compute options based on which fields are available in restults
-        kCUDA::GPUGMLM_computeOptions<FPTYPE>    * opts    = new matlab_GPUGMLM_computeOptions<FPTYPE>(GMLM_results, trial_weights);
+        std::shared_ptr<kCUDA::GPUGMLM_computeOptions<FPTYPE>> opts = std::make_shared<matlab_GPUGMLM_computeOptions<FPTYPE>>(GMLM_results, trial_weights);  
         //gets the model results
-        kCUDA::GPUGMLM_results<FPTYPE> * results = new matlab_GPUGMLM_results<FPTYPE>(GMLM_results, opts, matlabPtr);
+        kCUDA::GPUGMLM_results<FPTYPE> * results = new matlab_GPUGMLM_results<FPTYPE>(GMLM_results, opts.get(), matlabPtr);
         
         //runs the log likelihood computation. After, the results will be in the matlab arrays as results holds the pointers to those arrays.
         gmlm_obj->computeLogLikelihood(params, opts, results);
         
-        delete params;
-        delete opts;
         delete results;
     }
     

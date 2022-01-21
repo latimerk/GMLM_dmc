@@ -28,53 +28,7 @@
   
 
 
-//creates an compute options object (i.e., which derivatives to compute) from the a matlab results struct
-//If the result's field is empty, the compute option is false for that derivative. Otherwise, it's true.
-template <class FPTYPE>
-class matlab_GPUGMLM_computeOptions : public kCUDA::GPUGMLM_computeOptions<FPTYPE> {
-public:
-    matlab_GPUGMLM_computeOptions(const matlab::data::StructArray & GMLM_results) {
 
-        this->compute_trialLL =  !(GMLM_results[0]["trialLL"].isEmpty());
-        
-        //checks for an assigned dW vector
-        this->compute_dW =  !(GMLM_results[0]["dW"].isEmpty());
-        
-        //checks for an assigned dB vector
-        this->compute_dB =  !(GMLM_results[0]["dB"].isEmpty());
-        
-        
-        //for each group
-        const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];
-        size_t dim_J  = Groups_mat.getNumberOfElements();
-        this->Groups.resize(dim_J);
-        for(int jj = 0; jj < dim_J; jj++) {
-            this->Groups[jj] = new kCUDA::GPUGMLM_group_computeOptions;
-            
-            //checks for a dV matrix
-            this->Groups[jj]->compute_dV =  !(Groups_mat[jj]["dV"].isEmpty());
-            
-            //for the remaining dimensions, looks at all T
-            const matlab::data::CellArray dT_mats  = Groups_mat[jj]["dT"];
-            
-            size_t dim_S = dT_mats.getNumberOfElements();
-            this->Groups[jj]->compute_dT.resize(dim_S);
-            for(int ss = 0; ss < dim_S; ss++) {
-                const matlab::data::Array dT_mat  = dT_mats[ss];
-                
-                //checks for a dT matrix
-                this->Groups[jj]->compute_dT[ss] =  !(dT_mat.isEmpty());
-            }
-        }
-    }
-    //destructor
-    ~matlab_GPUGMLM_computeOptions() {
-        //clears all the groups
-        for(int jj = 0; jj < this->Groups.size(); jj++) {
-            delete this->Groups[jj];
-        }
-    }
-};
 
 //creates a results object to send into the GMLM computations. It takes in a matlab struct and uses the results fields given in that struct.
 //This requires that the matlab matrices match the precision of the GMLM -> it will not cast from double to single!
@@ -86,9 +40,9 @@ class matlab_GPUGMLM_results : public kCUDA::GPUGMLM_results<FPTYPE> {
 private:
     
 public:
-    matlab_GPUGMLM_results(const matlab::data::StructArray & GMLM_results, const kCUDA::GPUGMLM_computeOptions<FPTYPE> * opts, std::shared_ptr<matlab::engine::MATLABEngine> matlabPtr) {
+    matlab_GPUGMLM_results(const matlab::data::StructArray & GMLM_results,  std::shared_ptr<matlab::engine::MATLABEngine> matlabPtr) {
         //assigns the pointers to the dW and d2W results 
-        if(opts->compute_dW) {
+        if(!(GMLM_results[0]["dW"].isEmpty())) {
             const matlab::data::TypedArray<FPTYPE> dW_mat = GMLM_results[0]["dW"];
             this->dW =  new GLData_matlab<FPTYPE>(dW_mat);
         }
@@ -96,7 +50,7 @@ public:
             this->dW =  new GLData_matlab<FPTYPE>();
         }
         
-        if(opts->compute_dB) {
+        if(!(GMLM_results[0]["dB"].isEmpty())) {
             const matlab::data::TypedArray<FPTYPE> dB_mat = GMLM_results[0]["dB"];
             this->dB = new GLData_matlab<FPTYPE>(dB_mat);
         }
@@ -105,17 +59,17 @@ public:
         }
         
         //assigns the pointers to the trial-wise log likelihood results 
-        const matlab::data::TypedArray<FPTYPE> trialLL_mat = GMLM_results[0]["trialLL"];
-        this->trialLL =  new GLData_matlab<FPTYPE>(trialLL_mat);
+        if(!(GMLM_results[0]["trialLL"].isEmpty())) {
+            const matlab::data::TypedArray<FPTYPE> trialLL_mat = GMLM_results[0]["trialLL"];
+            this->trialLL =  new GLData_matlab<FPTYPE>(trialLL_mat);
+        }
+        else {
+            this->trialLL =  new GLData_matlab<FPTYPE>();
+        }
         
         //gets the tensor groups
         const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];
         size_t dim_J  = Groups_mat.getNumberOfElements();
-        
-        if(dim_J != opts->Groups.size()) {
-            matlab::data::ArrayFactory factory;
-            matlabPtr->feval(u"error", 0,std::vector<matlab::data::Array>({ factory.createScalar("invalid resultsStruct: group sizes do not match across objects") }));
-        }
         
         this->Groups.resize(dim_J);
         for(int jj = 0; jj < dim_J; jj++) {
@@ -123,27 +77,28 @@ public:
             this->Groups[jj] = new kCUDA::GPUGMLM_group_results<FPTYPE>;
             
             //assigns the pointers to the dV results for the group
-            if(opts->Groups[jj]->compute_dV) {
+            if(!(Groups_mat[jj]["dV"].isEmpty())) {
                 const matlab::data::TypedArray<FPTYPE> dV_mat = Groups_mat[jj]["dV"];
                 this->Groups[jj]->dV  = new GLData_matlab<FPTYPE>(dV_mat);
             }
             else {
                 this->Groups[jj]->dV  = new GLData_matlab<FPTYPE>();
             }
-            
+
             //looks at the results for the derivatives of the components in the remaining dimensions
             const matlab::data::CellArray dT_mats  = Groups_mat[jj]["dT"];
             size_t dim_S = dT_mats.getNumberOfElements();
-            if(opts->Groups[jj]->compute_dT.size() != dim_S) {
-                matlab::data::ArrayFactory factory;
-                matlabPtr->feval(u"error", 0,std::vector<matlab::data::Array>({ factory.createScalar("invalid resultsStruct: dT and d2T do not match") }));
-            }
             this->Groups[jj]->dT.resize(dim_S);
             for(int ss = 0; ss < dim_S; ss++) {
                 //for each dimension, gets the pointers to the dT results
-                if(opts->Groups[jj]->compute_dT[ss]) {
+                
+                //checks for a dT matrix
+                if(!(dT_mats[ss].isEmpty())) {
                     const matlab::data::TypedArray<FPTYPE> dT_mat  = dT_mats[ss];
                     this->Groups[jj]->dT[ss]  = new GLData_matlab<FPTYPE>(dT_mat);
+                }
+                else {
+                    this->Groups[jj]->dT[ss]  = new GLData_matlab<FPTYPE>();
                 }
             }
         }
@@ -188,15 +143,12 @@ private:
         }
         
         kCUDA::GPUGMLM<FPTYPE>         * gmlm_obj = reinterpret_cast<kCUDA::GPUGMLM<FPTYPE> *>(GMLM_ptr); //forcefully recasts the uint64 value
-        //gets the compute options based on which fields are available in restults
-        kCUDA::GPUGMLM_computeOptions<FPTYPE>    * opts    = new matlab_GPUGMLM_computeOptions<FPTYPE>(GMLM_results);
         //gets the model results
-        kCUDA::GPUGMLM_results<FPTYPE> * results = new matlab_GPUGMLM_results<FPTYPE>(GMLM_results, opts, matlabPtr);
+        kCUDA::GPUGMLM_results<FPTYPE> * results = new matlab_GPUGMLM_results<FPTYPE>(GMLM_results,  matlabPtr);
         
         //runs the log likelihood computation. After, the results will be in the matlab arrays as results holds the pointers to those arrays.
-        gmlm_obj->computeLogLikelihood_gather(opts, results, false);
+        gmlm_obj->computeLogLikelihood_gather(results, false);
         
-        delete opts;
         delete results;
     }
     

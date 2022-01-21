@@ -177,15 +177,12 @@ private:
         
         kCUDA::GPUGMLM<FPTYPE>         * gmlm_obj = reinterpret_cast<kCUDA::GPUGMLM<FPTYPE> *>(GMLM_ptr); //forcefully recasts the uint64 value
         //gets the model parameters
-        kCUDA::GPUGMLM_params<FPTYPE>  * params = new matlab_GPUGMLM_params<FPTYPE>(GMLM_params, matlabPtr); //GMLM_params,matlabPtr, &factory
+        std::shared_ptr<kCUDA::GPUGMLM_params<FPTYPE>> params = std::make_shared<matlab_GPUGMLM_params<FPTYPE>>(GMLM_params, matlabPtr);  
         //gets the compute options based on which fields are available in restults
-        kCUDA::GPUGMLM_computeOptions<FPTYPE>    * opts    = new matlab_GPUGMLM_computeOptions<FPTYPE>(GMLM_opts, trial_weights);
+        std::shared_ptr<kCUDA::GPUGMLM_computeOptions<FPTYPE>> opts = std::make_shared<matlab_GPUGMLM_computeOptions<FPTYPE>>(GMLM_opts, trial_weights);  
         
         //runs the log likelihood computation. After, the results will be in the matlab arrays as results holds the pointers to those arrays.
         gmlm_obj->computeLogLikelihood_async(params, opts);
-        
-        delete params;
-        delete opts;
     }
     
     

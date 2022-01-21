@@ -234,7 +234,7 @@ classdef GMLM < handle
                             error("GMLM constructor: GMLMstructure.Groups().gibbs_step must be empty or structure with fields 'sample_func' and 'dim_H'");
                         end
                         
-                        if(~isa(GMLMstructure.Groups(jj).gibbs_step.sample_func,'function_handle'))
+                        if(~isa(GMLMstructure.Groups(jj).gibbs_step.sample_func,'function_handle') && ~isempty(GMLMstructure.Groups(jj).gibbs_step.sample_func))
                             error("GMLM constructor: GMLMstructure.Groups().gibbs_step.sample_func must be a function handle");
                         end
                         
@@ -432,11 +432,7 @@ classdef GMLM < handle
                         vv = true(size(trials.Y,1), GMLMstructure.Groups(jj).dim_A, numel(ff));
                         for ss = 1:numel(ff)
                             vv_c = trials(mm).Groups(jj).iX_shared{ff(ss)} > 0 & trials(mm).Groups(jj).iX_shared{ff(1)} <= TT(ss);
-                            if(size(vv,2) > 1 && size(vv_c,2) == 1)
-                                vv(:,:,ss) = vv_c;
-                            else
-                                vv(:,:,ss) = vv_c;
-                            end
+                            vv(:,:,ss) = vv_c;
                         end
                         vv_a = all(vv,3);
                         for ss = 1:numel(ff)
@@ -1160,6 +1156,18 @@ classdef GMLM < handle
         function [log_rate_per_trial] = computeLogRate(obj, params)
             %setup any shared regressors
             shared_regressors = struct('XF', cell(obj.dim_J, 1), 'F', []);
+
+            
+            J = obj.dim_J;
+            params_0 = params;
+            if(isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams))
+                params = obj.GMLMstructure.scaleParams(params_0);
+            end
+            for jj = 1:J
+                if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
+                    params.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
+                end
+            end
            
             for jj = 1:obj.dim_J
                 shared_regressors(jj).F  = obj.getF(params, jj);
@@ -1285,16 +1293,19 @@ classdef GMLM < handle
         
         % computes the log prior (as far as this function is aware, this is always on host)
         %   can add the result to a results struct or create a new struct
-        function [results] = computeLogPrior(obj, params, opts, results)
-            if(nargin < 4)
+        function [results] = computeLogPrior(obj, params, opts, results, priorOnly)
+            if(nargin < 4 || isempty(results))
                 results = obj.getEmptyResultsStruct(opts);
+            end
+            if(nargin < 5)
+                priorOnly = true;
             end
             
             results.log_prior = 0;
             
             %% if a prior for W,B exists, adds it
             if(isfield(obj.GMLMstructure, "prior") && ~isempty(obj.GMLMstructure.prior))
-                results = obj.GMLMstructure.prior.log_prior_func(params, results);
+                results = obj.GMLMstructure.prior.log_prior_func(params, results, priorOnly);
                 results.log_prior = results.log_prior + results.log_prior_WB;
             end
             
@@ -1302,10 +1313,10 @@ classdef GMLM < handle
             for jj = 1:obj.dim_J
                 %% if prior for V,T exists, adds it
                 if(isfield(obj.GMLMstructure.Groups(jj), "prior") && ~isempty(obj.GMLMstructure.Groups(jj).prior))
-                    if(obj.GMLMstructure.Groups(jj).prior.log_prior_func([], [], []) > 1)
-                        results = obj.GMLMstructure.Groups(jj).prior.log_prior_func(params, results, jj);
+                    if(obj.GMLMstructure.Groups(jj).prior.log_prior_func([], [], [], priorOnly) > 1)
+                        results = obj.GMLMstructure.Groups(jj).prior.log_prior_func(params, results, jj, priorOnly);
                     else
-                        results.Groups(jj) = obj.GMLMstructure.Groups(jj).prior.log_prior_func(params, results, jj);
+                        results.Groups(jj) = obj.GMLMstructure.Groups(jj).prior.log_prior_func(params, results, jj, priorOnly);
                     end
                     results.log_prior = results.log_prior + results.Groups(jj).log_prior_VT;
                 end
@@ -1835,16 +1846,96 @@ classdef GMLM < handle
                 error("GMLM is not on GPU.");
             end
             
-            %allocate space for results
-            if(nargin < 4)
-                results = obj.getEmptyResultsStruct(opts);
+            useAsync = true;
+            params_0 = params;
+
+            scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
+            if(scaled_WB)
+                params = obj.GMLMstructure.scaleParams(params_0);
+
+                if(isfield(opts, "dH"))
+                    opts.dB = opts.dB | opts.dH;
+                    opts.dW = opts.dW | opts.dH;
+    
+                    if(nargin > 3)
+                        if(opts.dW && isempty(results.dW))
+                            error("Invalid results struct.");
+                        end
+                        if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
+                            error("Invalid results struct.");
+                        end
+                    end
+                end
             end
-            
-            %send to GPU
-            if(obj.populationData)
-                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            J = obj.dim_J;
+            scaled_VT = false(J,1);
+            for jj = 1:J
+                if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
+
+                    scaled_VT(jj) = true;
+                    params.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
+
+                    if(isfield(opts.Groups(jj), "dH"))
+                        opts.Groups(jj).dV = opts.Groups(jj).dV | opts.Groups(jj).dH;
+                        opts.Groups(jj).dT(:) = opts.Groups(jj).dT(:) | opts.Groups(jj).dH;
+        
+                        if(nargin > 3)
+                            if(opts.Groups(jj).dV && isempty(results.Groups(jj).dV))
+                                error("Invalid results struct.");
+                            end
+                            for ss = 1:numel(opts.Groups(jj).dT)
+                                if(opts.Groups(jj).dT(ss) && isempty(results.Groups(jj).dT{ss}))
+                                    error("Invalid results struct.");
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if(useAsync)
+                % sends LL computation to GPU
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+                end 
+
+                %sets up results
+                if(nargin >= 4)
+                    results = obj.clearResultsStruct(results);
+                else
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+    
+                % gets GPU results
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                end
             else
-                kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                %allocate space for results
+                if(nargin < 4) %#ok<UNRCH> 
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+                
+                %send to GPU
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                end
+            end
+
+
+            if(scaled_WB)
+                results = obj.Groups(jj).scaleDerivatives(results, params_0, true);
+            end
+            for jj = 1:J
+                if(scaled_VT(jj))
+                    results.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleDerivatives(results.Groups(jj), params_0.Groups(jj), false);
+                end
             end
             results.log_likelihood = sum(results.trialLL, 'all');
         end
@@ -1854,38 +1945,113 @@ classdef GMLM < handle
                 error("GMLM is not on GPU.");
             end
 
-            % sends LL computation to GPU
-            if(obj.populationData)
-                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-            else
-                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-            end
-            
-            %adds the prior
-            if(nargin >= 4)
-                results = obj.clearResultsStruct(results);
-            else
-                results = obj.getEmptyResultsStruct(opts);
-            end
-            results = obj.computeLogPrior(params, opts, results);
+            useAsync = true;
+            params_0 = params;
 
-            % gets GPU results
-            if(obj.populationData)
-                kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
-            else
-                kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+            scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
+            if(scaled_WB)
+                params = obj.GMLMstructure.scaleParams(params_0);
+
+                if(isfield(opts, "dH"))
+                    opts.dB = opts.dB | opts.dH;
+                    opts.dW = opts.dW | opts.dH;
+    
+                    if(nargin > 3)
+                        if(opts.dW && isempty(results.dW))
+                            error("Invalid results struct.");
+                        end
+                        if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
+                            error("Invalid results struct.");
+                        end
+                    end
+                end
             end
-            results.log_likelihood = sum(results.trialLL, 'all');
+
+            J = obj.dim_J;
+            scaled_VT = false(J,1);
+            for jj = 1:J
+                if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
+
+                    scaled_VT(jj) = true;
+                    params.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
+
+                    if(isfield(opts.Groups(jj), "dH"))
+                        opts.Groups(jj).dV = opts.Groups(jj).dV | opts.Groups(jj).dH;
+                        opts.Groups(jj).dT(:) = opts.Groups(jj).dT(:) | opts.Groups(jj).dH;
+        
+                        if(nargin > 3)
+                            if(opts.Groups(jj).dV && isempty(results.Groups(jj).dV))
+                                error("Invalid results struct.");
+                            end
+                            for ss = 1:numel(opts.Groups(jj).dT)
+                                if(opts.Groups(jj).dT(ss) && isempty(results.Groups(jj).dT{ss}))
+                                    error("Invalid results struct.");
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if(useAsync)
+                % sends LL computation to GPU
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+                end
+                
+                %adds the prior
+                if(nargin >= 4)
+                    results = obj.clearResultsStruct(results);
+                else
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+                results = obj.computeLogPrior(params_0, opts, results, false);
+    
+                % gets GPU results
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
+                end
+                results.log_likelihood = sum(results.trialLL, 'all');
+            else
+                if(nargin >= 4) %#ok<UNRCH> 
+                    results = obj.clearResultsStruct(results);
+                else
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+                if(obj.populationData)
+                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                else
+                    kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+                end
+                results.log_likelihood = sum(results.trialLL, 'all');
+                results = obj.computeLogPrior(params_0, opts, results, false);
+            end
+
+            if(scaled_WB)
+                results = obj.Groups(jj).scaleDerivatives(results, params_0, true);
+            end
+            for jj = 1:J
+                if(scaled_VT(jj))
+                    results.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleDerivatives(results.Groups(jj), params_0.Groups(jj), true);
+                end
+            end
             
             %sums up results
             results.log_post = results.log_likelihood + results.log_prior;
         end
         
-        function [nlog_like, ndl_like, params, results] = vectorizedNLL_func(obj, w_c, params, opts, results)
+        function [nlog_like, ndl_like, params, results] = vectorizedNLL_func(obj, w_c, params, opts, results, makeDouble)
             if(nargout > 1)
                 opts_0 = opts;
             else
                 opts_0 = obj.getComputeOptionsStruct("enableAll", false, "includeHyperparameters", false);
+            end
+            if(nargin < 6 || isempty(makeDouble))
+                makeDouble = true; % to make fminunc happy
             end
             opts_0.compute_trialLL = true;
 
@@ -1894,21 +2060,30 @@ classdef GMLM < handle
             if(nargin < 5)
                 results    = obj.computeLogLikelihood(params, opts_0);
             else
-                results    = obj.computeLogPrior(params, opts_0, results);
+                results    = obj.computeLogLikelihood(params, opts_0, results);
             end
             nlog_like  = -results.log_likelihood;
+            if(makeDouble && ~isa(nlog_like, "double"))
+                nlog_like = double(nlog_like);
+            end
 
             if(nargout > 1)
                 ndl_like =  obj.vectorizeResults(results, opts_0);
                 ndl_like = -ndl_like;
+                if(makeDouble && ~isa(ndl_like, "double"))
+                    ndl_like = double(ndl_like);
+                end
             end
         end
         
-        function [nlog_post, ndl_post, params, results] = vectorizedNLPost_func(obj, w_c, params, opts, results)
+        function [nlog_post, ndl_post, params, results] = vectorizedNLPost_func(obj, w_c, params, opts, results, makeDouble)
             if(nargout > 1)
                 opts_0 = opts;
             else
                 opts_0 = obj.getComputeOptionsStruct("enableAll", false, "includeHyperparameters", false);
+            end
+            if(nargin < 6 || isempty(makeDouble))
+                makeDouble = true; % to make fminunc happy
             end
             opts_0.compute_trialLL = true;
 
@@ -1920,11 +2095,18 @@ classdef GMLM < handle
                 results    = obj.computeLogPosterior(params, opts_0, results);
             end
             nlog_post  = -results.log_post;
+            if(makeDouble && ~isa(nlog_post, "double"))
+                nlog_post = double(nlog_post);
+            end
 
             if(nargout > 1)
                 ndl_post =  obj.vectorizeResults(results, opts_0);
                 ndl_post = -ndl_post;
+                if(makeDouble && ~isa(ndl_post, "double"))
+                    ndl_post = double(ndl_post);
+                end
             end
+
         end
         
         function [nlog_prior, ndl_prior, params, results] = vectorizedNLPrior_func(obj, w_c, params, opts, results)
@@ -1937,9 +2119,9 @@ classdef GMLM < handle
             params = obj.devectorizeParams(w_c, params, opts);
 
             if(nargin < 5)
-                results    = obj.computeLogPrior(params, opts_0);
+                results    = obj.computeLogPrior(params, opts_0, [],      true);
             else
-                results    = obj.computeLogPrior(params, opts_0, results);
+                results    = obj.computeLogPrior(params, opts_0, results, true);
             end
             nlog_prior  = -results.log_prior;
 
@@ -2081,6 +2263,7 @@ classdef GMLM < handle
                 for jj = 1:numel(results.Groups)
                     for ss = 1:numel(results.Groups(jj).dT)
                         results.Groups(jj).dT{ss}(:) = 0;
+
                     end
                 end
             end

@@ -489,6 +489,7 @@ class GPUGMLMPop {
         std::ostringstream output_stream;
         std::shared_ptr<GPUGL_msg> msg;
         std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts;
+        std::shared_ptr<GPUGMLMPop_params<FPTYPE>> params;
         
         std::vector<GPUGMLMPop_computeBlock<FPTYPE> *> gpu_blocks;
         
@@ -519,7 +520,7 @@ class GPUGMLMPop {
          *      results (GPUGMLMPop_results<FPTYPE>*)
          *          Any values in the results obj not selected by opts may be 0's or NaN's.
          */
-        void computeLogLikelihood(const GPUGMLMPop_params<FPTYPE> * params, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_, GPUGMLMPop_results<FPTYPE>* results);
+        void computeLogLikelihood(std::shared_ptr<GPUGMLMPop_params<FPTYPE>> params_, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_, GPUGMLMPop_results<FPTYPE>* results);
                 /* GPUGMLMPop calls each GPU
                  *     GPUGMLMPop_GPUportion holds a set of trials, and set of compute blocks 
                  *         The GPUGMLMPop_computeBlocks iterate through the whole set of GPUGMLMPop_trials
@@ -528,7 +529,7 @@ class GPUGMLMPop {
                  *         GPUGMLMPop_GPUportion's are summed on host and returned
                  *
                  */
-        void computeLogLikelihood_async(const GPUGMLMPop_params<FPTYPE> * params, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_);
+        void computeLogLikelihood_async(std::shared_ptr<GPUGMLMPop_params<FPTYPE>> params_, std::shared_ptr<GPUGMLMPop_computeOptions<FPTYPE>> opts_);
         void computeLogLikelihood_gather(GPUGMLMPop_results<FPTYPE> * results, const bool reset_needed_0 = true);
         
 };

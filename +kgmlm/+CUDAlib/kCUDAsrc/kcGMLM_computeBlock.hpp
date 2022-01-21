@@ -47,6 +47,11 @@ class GPUGMLM_computeBlock : GPUGL_base {
         std::vector<cublasHandle_t> cublasHandle_Groups;
         std::vector<cusparseHandle_t> cusparseHandle_Groups;
         
+        size_t cublasWorkspace_size;
+        std::vector<size_t> cublasWorkspaces_size;
+        FPTYPE * cublasWorkspace;
+        std::vector<FPTYPE *> cublasWorkspaces;
+        
         size_t dim_J;
         
         bool results_set = false;

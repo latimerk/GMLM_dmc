@@ -41,14 +41,37 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLMPop_struct
     }
 
     //setup cublas handles
+    cublasMath_t mathMode = CUBLAS_DEFAULT_MATH;
+    #if __CUDA_ARCH__ >= 700
+        mathMode = CUBLAS_TF32_TENSOR_OP_MATH;
+    #endif
+    
     checkCudaErrors(cublasCreate(&(cublasHandle)), "GPUGMLMPop_computeBlock errors: CUBLAS initialization failed.");
-    checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cublas pointer mode failed.");
     checkCudaErrors(cublasSetStream(cublasHandle, stream), "GPUGMLMPop_computeBlock errors: set cublas stream failed.");
+    checkCudaErrors(cublasSetMathMode(cublasHandle, mathMode), "GPUGMLMPop_computeBlock errors: set cublas math mode failed.");
+    checkCudaErrors(cublasSetPointerMode(cublasHandle, CUBLAS_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cublas pointer mode failed.");
+
+    cublasWorkspace = NULL;
+    /*size_t cublasWorkspace_size_0 = 1024 * 1024 * 0;	// if greater than 0, sets special workspace size (doesn't seem to help the current computations)	
+    if(cublasWorkspace_size_0 > 0) {
+        checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspace)), &cublasWorkspace_size, cublasWorkspace_size_0, 1), "GPUGMLMPop_computeBlock errors: allocating cublas workspace failed.");
+        checkCudaErrors(cublasSetWorkspace(cublasHandle, cublasWorkspace, cublasWorkspace_size), "GPUGMLMPop_computeBlock errors: setting CUBLAS workspace failed.");
+    }*/
+
+
     cublasHandle_Groups.resize(dim_J);
+    cublasWorkspaces.assign(dim_J, NULL);
+    cublasWorkspaces_size.assign(dim_J, cublasWorkspace_size);
     for(int jj = 0; jj < dim_J; jj++) {
         checkCudaErrors(cublasCreate(&(cublasHandle_Groups[jj])), "GPUGMLMPop_computeBlock errors: CUBLAS groups initialization failed.");
+        checkCudaErrors(cublasSetMathMode(cublasHandle_Groups[jj], mathMode), "GPUGMLMPop_computeBlock errors: set cublas group math mode failed.");
         checkCudaErrors(cublasSetPointerMode(cublasHandle_Groups[jj], CUBLAS_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cublas groups pointer mode failed.");
         checkCudaErrors(cublasSetStream(cublasHandle_Groups[jj], stream_Groups[jj]), "GPUGMLMPop_computeBlock errors: set cublas groups stream failed.");
+
+     /*   if(cublasWorkspaces_size[jj] > 0) {
+            checkCudaErrors(cudaMallocPitch(reinterpret_cast<void**>(&(cublasWorkspaces[jj])), &cublasWorkspaces_size[jj], cublasWorkspace_size_0, 1), "GPUGMLMPop_computeBlock errors: allocating group cublas workspace failed.");
+            checkCudaErrors(cublasSetWorkspace(cublasHandle_Groups[jj], cublasWorkspaces[jj], cublasWorkspaces_size[jj]), "GPUGMLMPop_computeBlock errors: setting group CUBLAS workspace failed.");
+        }*/
     }
 
     //setup cusparse handle
@@ -83,7 +106,6 @@ GPUGMLMPop_computeBlock<FPTYPE>::~GPUGMLMPop_computeBlock() {
 
     checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLMPop_computeBlock errors: could not clear LL event!");
 
-
     //destroy cublas handles
     checkCudaErrors(cublasDestroy(cublasHandle), "GPUGMLMPop_computeBlock errors: failed to destroy cublas handle." );
     for(auto jj : cublasHandle_Groups) {
@@ -93,6 +115,8 @@ GPUGMLMPop_computeBlock<FPTYPE>::~GPUGMLMPop_computeBlock() {
         checkCudaErrors(cusparseDestroy(jj), "GPUGMLMPop_computeBlock errors: failed to destroy group cusparse handles." );
     }
        
+    cudaSafeFreePtr(cublasWorkspace, "GPUGMLMPop_computeBlock errors: failed to destroy cublas workspace." );
+    cudaSafeFreePtrVector(cublasWorkspaces, "GPUGMLMPop_computeBlock errors: failed to destroy cublas group workspaces." );
     //destroy streams
     checkCudaErrors(cudaStreamDestroy(stream), "GPUGMLMPop_computeBlock errors: failed destroying stream!");
     for(auto jj : stream_Groups) {
@@ -155,90 +179,112 @@ __global__ void kernel_getObs_LL(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYP
         GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
         const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
-    size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t pp  = blockIdx.y * blockDim.y + threadIdx.y;
-    if(row < LL.x && pp < LL.y) {
-        size_t Xlin_row;
-        if(ridx_sa_all.y < 1) {
-            //if full run
-            Xlin_row = row;
-        }
-        else {
+
+    for(size_t row_0 = blockIdx.x * blockDim.x; row_0 < LL.x; row_0 += blockDim.x * gridDim.x) {
+        size_t row = row_0 + threadIdx.x;
+        size_t Xlin_row = row; //if full run
+        if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
             //if sparse run
             Xlin_row = ridx_sa_all[row];
         }
         FPTYPE tw_c = 1;
-        if(trial_weights.y == 1) {
+        if(row < LL.x && trial_weights.y == 1) {
             tw_c = trial_weights[id_a_trialM[Xlin_row]];
         }
-        else if(trial_weights.y > 1) {
-            tw_c = trial_weights(id_a_trialM[Xlin_row], pp);
-        }
+        __syncthreads();
+        for(unsigned int pp_0 = blockIdx.y * blockDim.y; pp_0 < LL.y; pp_0 += blockDim.y * gridDim.y) {
+            unsigned int pp = pp_0 + threadIdx.y;
+            if(row < LL.x && trial_weights.y > 1 && pp < trial_weights.y) {
+                tw_c = trial_weights(id_a_trialM[Xlin_row], pp);
+            }
 
-        FPTYPE Y_c = Y(Xlin_row, pp);
+            bool elementIncluded = row < LL.x && pp < LL.y && tw_c != 0;
+        
+            FPTYPE  LL_c = 0;  
+            FPTYPE dLL_c = 0;
+            FPTYPE log_rate = 0; 
+            FPTYPE Y_c  = 0;   
 
-        FPTYPE  LL_c = 0;  
-        FPTYPE dLL_c = 0;    
-        if(tw_c != 0) { //if trial not censored
-            FPTYPE log_rate = W[pp];
+            if(elementIncluded) {
+                Y_c = Y(Xlin_row, pp);
+                log_rate = W[pp];
+            }
+            __syncwarp();
+
             for(int bb = 0; bb < X_lin.y; bb++) {
-                log_rate += X_lin(Xlin_row, bb, pp) * B(bb, pp);
-                if(ridx_sa_all.y > 0 && compute_dB && (pp == 0 || X_lin_temp.z > 1)) { // for dB when doing sparse run
-                    X_lin_temp(row, bb, pp) = X_lin(Xlin_row, bb, pp);
+                if(elementIncluded) {
+                    log_rate += X_lin(Xlin_row, bb, pp) * B(bb, pp);
+                    if(ridx_sa_all.y > 0 && compute_dB && (pp == 0 || X_lin_temp.z > 1)) { // for dB when doing sparse run
+                        X_lin_temp(row, bb, pp) = X_lin(Xlin_row, bb, pp);
+                    }
                 }
+                __syncwarp();
             }
+            
             for(int jj = 0; jj < lambda.z; jj++) {
-                log_rate += lambda(row, pp, jj);
+                if(elementIncluded) {
+                    log_rate += lambda(row, pp, jj);
+                }
+                __syncwarp();
             }
+            __syncthreads();
 
-            if(logLikeSettings == ll_poissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
-                    log_rate += log_dt;
-                    FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-rate + Y_ci * log_rate);
-                    dLL_c = (-rate + Y_ci);
-                }
-            }
-            else if(logLikeSettings == ll_sqErr) {
-                FPTYPE eY_c = log_rate - Y_c;
-                 LL_c = -(eY_c*eY_c);
-                dLL_c = -2*eY_c;
-            }
-            else if(logLikeSettings == ll_truncatedPoissExp) {
-                int Y_ci = floor(Y_c);
-                if(Y_ci > 0) { 
-                    log_rate += log_dt;
-                    if(log_rate > -30) {
+
+            if(elementIncluded) {
+                if(logLikeSettings == ll_poissExp) {
+                    if(Y_c >= 0) { // negatives get censored by Poisson LL
+                        Y_c = floor(Y_c);
+                        log_rate += log_dt;
                         FPTYPE rate = safeExp(log_rate);
-                         LL_c = log(1 - safeExp(-rate));
-                        dLL_c = rate/safeExpm1(rate);
-                    }
-                    else { // more numerically save approximation in an extreme case
-                         LL_c = log_rate;
-                        dLL_c = 1;
+                        LL_c = (-rate + Y_c * log_rate);
+                        dLL_c = (-rate + Y_c);
                     }
                 }
-                else if(Y_ci == 0) {
-                    FPTYPE rate = safeExp(log_rate + log_dt);
-                     LL_c = -rate;
-                    dLL_c = -rate;
+                else if(logLikeSettings == ll_sqErr) {
+                    FPTYPE eY_c = log_rate - Y_c;
+                    LL_c = -(eY_c*eY_c);
+                    dLL_c = -2*eY_c;
                 }
-                // negatives get censored by Poisson LL
-            }
-            else if(logLikeSettings == ll_poissExpRefractory) {
-                // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
-                int Y_ci = floor(Y_c);
-                if(Y_ci >= 0) { // negatives get censored by Poisson LL
-                    log_rate += log_dt;
-                    FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-(1-Y_ci/2)*rate + Y_ci * log_rate);
-                    dLL_c = (-(1-Y_ci/2)*rate + Y_ci);
+                else if(logLikeSettings == ll_truncatedPoissExp) {
+                    if(Y_c >= 1) { 
+                        log_rate += log_dt;
+                        if(log_rate > -30) {
+                            FPTYPE rate = safeExp(log_rate);
+                            LL_c = log(1 - safeExp(-rate));
+                            dLL_c = rate/safeExpm1(rate);
+                        }
+                        else { // more numerically save approximation in an extreme case
+                            LL_c = log_rate;
+                            dLL_c = 1;
+                        }
+                    }
+                    else if(Y_c == 0) {
+                        FPTYPE rate = safeExp(log_rate + log_dt);
+                        LL_c = -rate;
+                        dLL_c = -rate;
+                    }
+                    // negatives get censored by Poisson LL
                 }
+                else if(logLikeSettings == ll_poissExpRefractory) {
+                    // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
+                    if(Y_c >= 0) { // negatives get censored by Poisson LL
+                        Y_c = floor(Y_c);
+                        log_rate += log_dt;
+                        FPTYPE rate = safeExp(log_rate);
+                        LL_c = (-(1-Y_c/2)*rate + Y_c * log_rate);
+                        dLL_c = (-(1-Y_c/2)*rate + Y_c);
+                    }
+                }
+
+                LL(row, pp) =  LL_c*tw_c;
+                dLL(row, pp) = dLL_c*tw_c;
             }
+            else if(row < LL.x && pp < LL.y) {
+                LL(row, pp) = 0;
+                dLL(row, pp) = 0;
+            }
+            __syncthreads();
         }
-         LL(row, pp) =  LL_c*tw_c;
-        dLL(row, pp) = dLL_c*tw_c;
     }
 }
 
@@ -339,7 +385,9 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
         
     block_size.x = 1024/block_size.y;
     dim3 grid_size;
-    grid_size.x = dataset->LL->getSize(0) / block_size.x + ( (dataset->LL->getSize(0) % block_size.x == 0) ? 0 : 1);
+    size_t max_blocks_needed  = dataset->LL->getSize(0) / block_size.x + ( (dataset->LL->getSize(0) % block_size.x == 0) ? 0 : 1);
+    size_t blocks_to_use = 1024;
+    grid_size.x  = min(max_blocks_needed, blocks_to_use);
     grid_size.y = dataset->dim_P() / block_size.y + ( (dataset->dim_P() % block_size.y == 0) ? 0 : 1);
     kernel_getObs_LL<<<grid_size, block_size, 0, stream>>>(dataset->LL->device(), dataset->dLL->device(),
                   dataset->Y->device(),
@@ -353,6 +401,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
                   dataset->X_lin_temp->device(), opts->compute_dB, 
                    params->logLikeSettings, params->logLikeParams->device());
     checkCudaErrors("GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_getObs_LL launch failed");
+    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_computeBlock::computeLogLike errors: could not add LL event to stream!");
 
     //sum up the LL for each trial (and dLL to setup for dW, dB)
     if(opts->compute_trialLL || opts->compute_dW) {
@@ -373,7 +422,6 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLMPop_computeOpt
                                                                  dataset->normalizingConstants_trial->device());
         checkCudaErrors("GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_sum_trialLL launch failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_computeBlock::computeLogLike errors: could not add LL event to stream!");
 }
 
 /* Kernel for each neuron
@@ -403,6 +451,11 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLMPop_comput
          //launch kernel to sum dLL -> dW, dB for each trial?
          //         or kernel to sum up dLL->dW and GEMV for dB?
          
+    //for each Group
+    for(int jj = 0; jj < dim_J; jj++) {
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
+    }   
+    
     if(opts->compute_dW) {
         dim3 block_size;
         block_size.x = min(dataset->dim_P(), static_cast<size_t>(1024));
@@ -427,11 +480,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLMPop_comput
             ce = X_lin_c->GEMVs(results->dB, dataset->dLL, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N);
         }
         checkCudaErrors(ce, "GPUGMLMPop_computeBlock::computeDerivatives errors:  X_lin'*dLL -> dB failed");
-    }
-    //for each Group
-    for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
-    }         
+    }      
 }
        
 //explicitly create classes for single and double precision floating point for library

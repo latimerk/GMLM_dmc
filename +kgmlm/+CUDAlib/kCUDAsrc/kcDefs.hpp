@@ -104,6 +104,109 @@ inline cublasStatus_t cublasGEMM(cublasHandle_t handle,
     return cublasSgemm(handle,transa,transb,m,n,k,alpha,A,lda,B,ldb,beta,C,ldc);
 }
 
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const double          *alpha,
+                           const double          *A, int lda,
+                           const double          *B, int ldb,
+                           const double          *beta,
+                           double          *C, int ldc,
+                           cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT) { 
+    return cublasGemmEx(handle,
+                        transa, transb,
+                        m,n,k,
+                        alpha,
+                        A, CUDA_R_64F, lda,
+                        B,  CUDA_R_64F, ldb,
+                        beta,
+                        C, CUDA_R_64F, ldc,
+                        CUBLAS_COMPUTE_64F,
+                        algo);
+}
+
+//Default arguments depending on wheter tensor cores exist
+#if __CUDA_ARCH__ >= 700
+   const cublasGemmAlgo_t GEMM_TENSOR_OP_ALGO_32F = CUBLAS_GEMM_DEFAULT_TENSOR_OP;
+   const cublasComputeType_t GEMM_TENSOR_COMPUTE_32F =  CUBLAS_COMPUTE_32F_FAST_TF32;
+#else
+   const cublasGemmAlgo_t GEMM_TENSOR_OP_ALGO_32F = CUBLAS_GEMM_DEFAULT;
+   const cublasComputeType_t GEMM_TENSOR_COMPUTE_32F =  CUBLAS_COMPUTE_32F;
+#endif
+
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const float          *alpha,
+                           const float          *A, int lda,
+                           const float          *B, int ldb,
+                           const float          *beta,
+                           float          *C, int ldc,
+                           cublasGemmAlgo_t algo = GEMM_TENSOR_OP_ALGO_32F) { 
+    return cublasGemmEx(handle,
+                        transa, transb,
+                        m,n,k,
+                        alpha,
+                        A, CUDA_R_32F, lda,
+                        B,  CUDA_R_32F, ldb,
+                        beta,
+                        C, CUDA_R_32F, ldc,
+                        GEMM_TENSOR_COMPUTE_32F,
+                        algo);
+}
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const double          *alpha,
+                                  const double          *A, int lda,
+                                  long long int          strideA,
+                                  const double          *B, int ldb,
+                                  long long int          strideB,
+                                  const double          *beta,
+                                  double                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) {
+    return cublasGemmStridedBatchedEx( handle,
+                                    transa,
+                                    transb,
+                                    m,  n,  k,
+                                    alpha,
+                                    A, CUDA_R_64F, lda, strideA,
+                                    B,  CUDA_R_64F, ldb, strideB,
+                                    beta,
+                                    C, CUDA_R_64F, ldc, strideC,
+                                    batchCount,
+                                    CUBLAS_COMPUTE_64F, algo);
+}
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const float          *alpha,
+                                  const float          *A, int lda,
+                                  long long int          strideA,
+                                  const float          *B, int ldb,
+                                  long long int          strideB,
+                                  const float          *beta,
+                                  float                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = GEMM_TENSOR_OP_ALGO_32F) {
+    return cublasGemmStridedBatchedEx( handle,
+                                    transa,
+                                    transb,
+                                    m,  n,  k,
+                                    alpha,
+                                    A, CUDA_R_32F, lda, strideA,
+                                    B,  CUDA_R_32F, ldb, strideB,
+                                    beta,
+                                    C, CUDA_R_32F, ldc,  strideC,
+                                    batchCount,
+                                    GEMM_TENSOR_COMPUTE_32F, algo);
+}
+
 inline cublasStatus_t cublasDGMM(cublasHandle_t handle, cublasSideMode_t mode,  //CUBLAS_SIDE_RIGHT: A x diag(X), CUBLAS_SIDE_LEFT: diag(X) x A
                           int m, int n,
                           const double          *A, int lda,
@@ -428,6 +531,143 @@ inline cublasStatus_t cublasGEMMStridedBatched(cublasHandle_t handle,
                                   int                *C, int ldc,
                                   long long int          strideC,
                                   int batchCount) {
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+
+
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const int          *alpha,
+                                  const int          *A, int lda,
+                                  long long int          strideA,
+                                  const int          *B, int ldb,
+                                  long long int          strideB,
+                                  const int          *beta,
+                                  int                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) {
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const unsigned int          *alpha,
+                                  const unsigned int          *A, int lda,
+                                  long long int          strideA,
+                                  const unsigned int          *B, int ldb,
+                                  long long int          strideB,
+                                  const unsigned int          *beta,
+                                  unsigned int                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) {
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const bool          *alpha,
+                                  const bool          *A, int lda,
+                                  long long int          strideA,
+                                  const bool          *B, int ldb,
+                                  long long int          strideB,
+                                  const bool          *beta,
+                                  bool                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) {
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const char          *alpha,
+                                  const char          *A, int lda,
+                                  long long int          strideA,
+                                  const char          *B, int ldb,
+                                  long long int          strideB,
+                                  const char          *beta,
+                                  char                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) {
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEXStridedBatched(cublasHandle_t handle,
+                                  cublasOperation_t transa,
+                                  cublasOperation_t transb,
+                                  int m, int n, int k,
+                                  const size_t          *alpha,
+                                  const size_t          *A, int lda,
+                                  long long int          strideA,
+                                  const size_t          *B, int ldb,
+                                  long long int          strideB,
+                                  const size_t          *beta,
+                                  size_t                *C, int ldc,
+                                  long long int          strideC,
+                                  int batchCount,
+                                  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) {
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const size_t          *alpha,
+                           const size_t          *A, int lda,
+                           const size_t          *B, int ldb,
+                           const size_t          *beta,
+                           size_t          *C, int ldc,
+                           cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) { 
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const char          *alpha,
+                           const char          *A, int lda,
+                           const char          *B, int ldb,
+                           const char          *beta,
+                           char          *C, int ldc,
+                           cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) { 
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const unsigned int          *alpha,
+                           const unsigned int           *A, int lda,
+                           const unsigned int           *B, int ldb,
+                           const unsigned int           *beta,
+                           unsigned int           *C, int ldc,
+                           cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) { 
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const bool          *alpha,
+                           const bool          *A, int lda,
+                           const bool          *B, int ldb,
+                           const bool          *beta,
+                           bool          *C, int ldc,
+                           cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) { 
+    return CUBLAS_STATUS_INVALID_VALUE;
+}
+inline cublasStatus_t cublasGEMMEX(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const int          *alpha,
+                           const int          *A, int lda,
+                           const int          *B, int ldb,
+                           const int          *beta,
+                           int          *C, int ldc,
+                           cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP) { 
     return CUBLAS_STATUS_INVALID_VALUE;
 }
 };//end samespace

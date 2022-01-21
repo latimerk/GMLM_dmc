@@ -6,6 +6,10 @@
 % Takes in a negative log posterior function (return [nlpost, dnlpost] given vector of parameters)
 %   The negative is so that this function uses the same function as optimizers
 function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state)
+    if(isfield(HMC_state, "e_scale") || ~isempty(HMC_state.e_scale))
+        HMC_state.stepSize.e = HMC_state.stepSize.e * HMC_state.e_scale;
+    end
+
     
     %% generate initial momentum
     p_init = generateMomentum(M);
@@ -22,36 +26,45 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     w = w_init;
     p = p_init;
     
+    if(isnan(nlpost_0) || isinf(nlpost_0))
+        error('HMC initial state shows nan/inf!');
+    end
     
     try
         for tt = 1:HMC_state.steps
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
-            if(errs)
-                nlpost = inf;
+            if(errs)% divergent trajectory
                 break;
             end
+%             if(~all(M.\p.^2 < 1e3, "all"))
+%                 fprintf("runaway momentum?\n");
+%             end
 
             %% move positions
             [w, errs] = paramStep(w, p, M, HMC_state);
             if(errs)
-                nlpost = inf;
+                nlpost = inf; % divergent trajectory
                 break;
             end
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
-            if(isinf(nlpost) || isnan(nlpost) || nlpost < -1e10)
-                nlpost = inf;
+            if(isinf(nlpost) || isnan(nlpost) || nlpost - nlpost_0 < -1e5 || nlpost - nlpost_0 > 1e8) % looks like a divergent trajectory; last condition is likely a numerical error
                 break;
             end
+%             if(~all(abs(w) < 1e3, "all"))
+%                 fprintf("runaway vars?\n");
+%             end
             
 
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
-            if(errs)
-                nlpost = inf;
+            if(errs)% divergent trajectory
                 break;
             end
+%             if(~all(M.\p.^2 < 1e3, "all"))
+%                 fprintf("runaway momentum?\n");
+%             end
         end
         
         %% get final state log prob
@@ -63,9 +76,9 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             error('HMC accept probability is nan!');
         end
     catch ee %#ok<NASGU>
-        p_accept = 1e-4;
+        %p_accept = 1e-14;
         err = true;
-        log_p_accept    = log(p_accept);
+        log_p_accept    = nan;%log(p_accept);
         w_new = w_init;
         results = results_init;
         accepted        = false;
@@ -73,7 +86,8 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
 %         msgText = getReport(ee,'extended');
 %         fprintf('HMC reaching inf/nan values with step size %.4f: %s\n\tAuto-rejecting sample and setting p_accept = %e.\n\tError Message: %s\n',ees,errorMessageStr,p_accept,msgText);
 %         fprintf('>>end error message<<\n');
-        fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
+
+%         fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
         
         
         return;

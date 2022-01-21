@@ -977,9 +977,12 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
     size_t dim_T_total = 1;
     std::vector<size_t> dim_F_c;
     dim_F_c.assign(dim_D(), 1);
+    size_t max_dim_F = 0;
     for(int ss = 0; ss < GMLMGroupStructure->dim_S(); ss++) {
         dim_T_total *= GMLMGroupStructure->dim_T[ss];
         dim_F_c[GMLMGroupStructure->factor_idx[ss]] *= GMLMGroupStructure->dim_T[ss];
+        
+        max_dim_F = max(max_dim_F,  dim_F_c[GMLMGroupStructure->factor_idx[ss]]);
     }
 
     if(GMLMGroupStructure->dim_S() == 0 || dim_T_total == 0) {
@@ -1088,6 +1091,7 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
         }
 
     }
+    
 
     checkCudaErrors(isShared->copyHostToGPU(stream), "GPUGMLM_dataset_Group_GPU errors: could not copy isShared to device!");
     checkCudaErrors(isSharedIdentity->copyHostToGPU(stream), "GPUGMLM_dataset_Group_GPU errors: could not copy isSharedIdentity to device!");
@@ -1242,7 +1246,7 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
     }
 
 
-    checkCudaErrors(cudaEventCreate(&LL_event), "GPUGMLM_dataset_Group_GPU errors: could not create LL event!");
+    checkCudaErrors(cudaEventCreate(&group_LL_event), "GPUGMLM_dataset_Group_GPU errors: could not create LL event!");
 }
 
 // destructor
@@ -1285,7 +1289,7 @@ GPUGMLM_dataset_GPU<FPTYPE>::~GPUGMLM_dataset_GPU() {
 
 template <class FPTYPE>
 GPUGMLM_dataset_Group_GPU<FPTYPE>::~GPUGMLM_dataset_Group_GPU() {
-    checkCudaErrors(cudaEventDestroy(LL_event), "GPUGMLM_dataset_Group_GPU errors: could not clear LL event!");
+    checkCudaErrors(cudaEventDestroy(group_LL_event), "GPUGMLM_dataset_Group_GPU errors: could not clear LL event!");
     cudaSafeFreeVector(X, "GPUGMLM_dataset_Group_GPU errors: could not free X[dd]");
     cudaSafeFreeVector(XF, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
     cudaSafeFreeVector(iX, "GPUGMLM_dataset_Group_GPU errors: could not free iX[dd]");
@@ -1360,7 +1364,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
         output_stream << "GPUGMLM_dataset_Group_GPU errors: dim_R too large for pre-allocated space!";
         msg->callErrMsgTxt(output_stream);
     }
-    checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded, 0), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
+    checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
     
     if(isSparseRun) {
         checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
@@ -1420,9 +1424,9 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
  * For each component (rr = 0:(dim_R-1)) takes the product of the XT terms into lambda_v, then lambda_v'*V -> lambda 
  * Returns the observation-wise constribution to the rate from this group (lambda) and sets up the dV computation
  *
- * If computing any dT values AND dim_S > 1, needs some dynamic shared memory to make this work on both 1080 and 2080 cards well. Memory size in bytes is dim_S * blockDim.x * sizeof(FPTYPE)
+ * If computing any dT values AND dim_S > 1, needs some dynamic  memory to make this work on both 1080 and 2080 cards well. Memory size in bytes is dim_S * blockDim.x * sizeof(FPTYPE)
  */
-template <class FPTYPE>
+template <class FPTYPE, unsigned int max_rank>
 __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda, 
         GPUData_kernel<FPTYPE> lambda_v, 
         GPUData_array_kernel<FPTYPE, MAX_DIM_D> lambda_d,
@@ -1439,95 +1443,110 @@ __global__ void kernel_getGroupRate(GPUData_kernel<FPTYPE> lambda,
         const bool compute_dV, const GPUData_kernel<bool> compute_dF, const bool compute_dT_any,
         const GPUData_kernel<unsigned int> ridx_sa_all, const size_t dim_A) {
     //get current observation number
-    extern __shared__ int t_array_0[];
-    FPTYPE * t_array = (FPTYPE*)t_array_0; // shared memory for derivative setup
+    FPTYPE t_array[max_rank];
 
-    const size_t row = blockIdx.x * blockDim.x + threadIdx.x;
+    //const unsigned int rr_start  = blockIdx.y * blockDim.y;
 
-    if(row < lambda.x) {
+    for(size_t row_0 = blockIdx.x * blockDim.x; row_0 < lambda_v.x; row_0 += blockDim.x * gridDim.x) {
+        size_t row = row_0 + threadIdx.x;
         size_t iX_row = row; //if full run
-        if(ridx_sa_all.y > 0) {
+        if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
             //if sparse run
             iX_row = ridx_sa_all[row];
         }
+        bool rowIncluded = true;
+        unsigned int neuron_num  = 0;
+        if( row >= lambda_v.x || (trial_weights.y > 0 && trial_weights[id_a_trialM[iX_row]] == 0)) {
+            rowIncluded = false;
+        }
+        else {
+            neuron_num = id_a_neuron[iX_row];
+        }
+        __syncthreads();
 
-        if(trial_weights.y == 0 || trial_weights[id_a_trialM[iX_row]] != 0) { //if trial not censored
-            unsigned int neuron_num = id_a_neuron[iX_row];
+
+        //for each rank
+        FPTYPE ll = 0;
+        //for(unsigned int rr_0 = rr_start; rr_0 < lambda_v.y; rr_0 += blockDim.y * gridDim.y) { //dim_R = V->Y
+            //unsigned int rr = rr_0 + threadIdx.y;
+        for(unsigned int rr = 0; rr < lambda_v.y; rr++) { //dim_R = V->Y
+            bool elementIncluded = rowIncluded && rr < lambda_v.y;
+            FPTYPE vv;
+            if(elementIncluded) {
+                vv = V(neuron_num, rr);
+            }
+            __syncthreads();
 
             //for each rank
-            FPTYPE ll = 0;
-            for(int rr = 0; rr < V.y; rr++) { //dim_R = V->Y
-                //for each event 
-                FPTYPE lv = 0;
-                const FPTYPE vv = V(neuron_num, rr);
+            FPTYPE lv = 0;
 
-                if(compute_dT_any) {
-                    for(unsigned int dd = 0 ; dd < XF.N; dd++) {
-                        if(compute_dF[dd]) {
-                            for(unsigned int aa = 0; aa < lambda_d[dd].z; aa++) {
-                                lambda_d[dd](row, rr, aa) = 0;
-                            }
-                        }
-                    }
-                }
-                for(unsigned int aa = 0; aa < dim_A; aa++) { //over dim_A
-                    FPTYPE lv_aa = 1;
-                    //for each factor
-                    for(unsigned int dd = 0; dd < XF.N; dd++) { //dim_D = XF->N, dim_S = T->N
-                        FPTYPE tc = 0;
+            for(unsigned int aa = 0; aa < dim_A; aa++) { //over dim_A
+                FPTYPE lv_aa = 1;
+                //for each factor
+                for(unsigned int dd = 0; dd < XF.N; dd++) { //dim_D = XF->N, dim_S = T->N
+                    if(elementIncluded) { //if trial not censored
+                        t_array[dd] = 0;
                         if(isShared[dd]) { //shared regressors
                             int idx_0 = iX[dd](iX_row, aa);
                             if(idx_0 >= 0) {
                                 if(isSharedIdentity[dd]) {
                                     if(idx_0 < F[dd].x) {
-                                        tc = F[dd](idx_0, rr);
+                                        t_array[dd]  = F[dd](idx_0, rr);
                                     }
                                 }
                                 else {
                                     if(idx_0 < XF[dd].x) {
-                                        tc = XF[dd](idx_0, rr);
+                                        t_array[dd]  = XF[dd](idx_0, rr);
                                     }
                                 }
                             }
                         }
                         else  { //local regressors
-                            tc = XF[dd](row, rr, aa);
+                            t_array[dd]  = XF[dd](row, rr, aa);
                         }
 
-                        lv_aa *= tc;
-                        if(compute_dT_any && XF.N > 1) {
-                            t_array[dd + threadIdx.x*XF.N] = tc;
-                        }
-                        else if(tc == 0 ) {
-                            break;
-                        }
-                        
-                    } // dd
-                    lv += lv_aa;
+                        lv_aa *= t_array[dd] ;
+                    }
+                    __syncwarp(); 
+                    
+                } // dd
+                lv += lv_aa;
 
-                    //sets up any dT matrices (doing this here eliminates the need to go back through the XT matrices in a different kernel)
-                    //  I do this outside the previous loop because otherwise everything was super slow on the 1080 cards
-                    if(compute_dT_any) {
-                        for(unsigned int dd = 0 ; dd < XF.N; dd++) {
-                            if(compute_dF[dd]) {
-                                FPTYPE tt = vv;
-                                for(unsigned int dd2 = 0; dd2 < XF.N; dd2++) {
-                                    if(dd2 != dd) {
-                                        tt *= t_array[dd2 + threadIdx.x*XF.N];
-                                    }
+                //sets up any dT matrices (doing this here eliminates the need to go back through the XT matrices in a different kernel)
+                //  I do this outside the previous loop because otherwise everything was super slow on the 1080 cards
+                if(compute_dT_any) {
+                    for(unsigned int dd = 0 ; dd < XF.N; dd++) {
+                        if(elementIncluded && compute_dF[dd]) {
+                            FPTYPE tt = vv;
+                            for(unsigned int dd2 = 0; dd2 < XF.N; dd2++) {
+                                if(dd2 != dd) {
+                                    tt *= t_array[dd2];
                                 }
+                            }
+                            if(aa < lambda_d[dd].z) {
+                                lambda_d[dd](row, rr, aa) = tt;
+                            }
+                            else {
                                 lambda_d[dd](row, rr, aa) += tt;
                             }
-                        } //dd
-                    }
-                } // aa
+                        }
+                        __syncwarp(); 
+                    } //dd
+                }
+                __syncthreads();
+            } // aa
+            if(elementIncluded) {
                 if(compute_dV) {
                     lambda_v(row, rr) = lv;
                 }
                 ll += lv * vv; 
             }
+            __syncthreads();
+        }
+        if(rowIncluded) {
             lambda(row, col) = ll;
         }
+        __syncthreads();
     }
 }
 template <class FPTYPE>
@@ -1553,8 +1572,9 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
             }
         }
 
-        size_t size_shared = (compute_dT_any && params->dim_D() > 1) ? (sizeof(FPTYPE) * params->dim_D() * block_size.x) : 0;
-        kernel_getGroupRate<<<grid_size, block_size, size_shared, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+        switch(params->dim_S()) {
+            case 1:
+                kernel_getGroupRate<FPTYPE,1><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
                                                                             GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
                                                                             isShared->device(), isSharedIdentity->device(),
                                                                             params->V->device(), 
@@ -1563,9 +1583,90 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, con
                                                                             params->getTrialWeights()->device(),
                                                                             opts->compute_dV, params->compute_dF->device(), compute_dT_any,
                                                                             parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 2:
+                kernel_getGroupRate<FPTYPE,2><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 3:
+                kernel_getGroupRate<FPTYPE,3><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 4:
+                kernel_getGroupRate<FPTYPE,4><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 5:
+                kernel_getGroupRate<FPTYPE,5><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 6:
+                kernel_getGroupRate<FPTYPE,6><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 7:
+                kernel_getGroupRate<FPTYPE,7><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            case 8:
+                kernel_getGroupRate<FPTYPE,8><<<grid_size, block_size, 0, stream>>>(parent->lambda->device(), lambda_v->device(), GPUData<FPTYPE>::assembleKernels(lambda_d), groupNum,
+                                                                            GPUData<FPTYPE>::assembleKernels(XF), GPUData<FPTYPE>::assembleKernels(params->F), GPUData<int>::assembleKernels(iX),
+                                                                            isShared->device(), isSharedIdentity->device(),
+                                                                            params->V->device(), 
+                                                                            parent->id_a_neuron->device(),
+                                                                            parent->id_a_trialM->device(),
+                                                                            params->getTrialWeights()->device(),
+                                                                            opts->compute_dV, params->compute_dF->device(), compute_dT_any,
+                                                                            parent->ridx_a_all_c->device(), dim_A);
+                break;
+            default:
+                checkCudaErrors(cudaErrorInvalidConfiguration, "GPUGMLM_dataset_Group_GPU::getGroupRate errors:  kernel_getGroupRate launch failed - invalid tensor order");
+        }
         checkCudaErrors("GPUGMLM_dataset_Group_GPU::getGroupRate errors:  kernel_getGroupRate launch failed");
     }
-    checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLM_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
+    checkCudaErrors(cudaEventRecord(group_LL_event, stream), "GPUGMLM_dataset_Group_GPU::getGroupRate errors: could not add LL event to stream!");
 }
 
 //=============================================================================================================================================================
@@ -1599,6 +1700,7 @@ __global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> X_temp, cons
     if(row < X_temp.x) {
         size_t iX_row;
         iX_row = ridx_sa_all[row];
+        FPTYPE dL_c = dLL[row];
 
         //for each regressor (on this thread)
         for(unsigned int tt = tt_start; tt < X.y; tt += blockDim.y * gridDim.y) {
@@ -1610,10 +1712,10 @@ __global__ void kernel_getGroupX_shared_full(GPUData_kernel<FPTYPE> X_temp, cons
                 }
                 else {
                     if(isIdentity) {
-                        X_temp(row, tt, aa) = (idx_0 == tt) ?  dLL[row] : 0;
+                        X_temp(row, tt, aa) = (idx_0 == tt) ?  dL_c : 0;
                     }
                     else {
-                        X_temp(row, tt, aa) = X(idx_0, tt) * dLL[row];
+                        X_temp(row, tt, aa) = X(idx_0, tt) * dL_c;
                     }
                 }
             }
@@ -1640,12 +1742,12 @@ __global__ void kernel_dLL_mult(GPUData_kernel<FPTYPE> lambda_d, const GPUData_k
 }
 
 template <class FPTYPE>
-void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event) {
+void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event) {
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
 
-    checkCudaErrors(cudaStreamWaitEvent(stream, LL_event, 0), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
+    checkCudaErrors(cudaStreamWaitEvent(stream, main_LL_event, 0), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: could not wait for stream");
 
     if(opts->compute_dV) {
         //for each neuron
@@ -1695,6 +1797,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                 dim3 grid_size;
                 grid_size.x = parent->dim_N_temp  / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
                 grid_size.y = 1;
+                
 
                 kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), parent->dLL->device(),
                                             	iX[dd]->device(), 
@@ -1783,12 +1886,20 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
 
             checkCudaErrors(phi_c->resize(stream, X_c->getSize(0), results->dF[dd]->getSize(1), X_c->getSize(2)), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors: setting size of phi_c failed");
 
+            /*output_stream << " dd = " << dd << "  ";
+            phi_c->printInfo(output_stream, "phi_c");
+            X_c->printInfo(output_stream, "X_c");
+            results->dF[dd]->printInfo(output_stream, "results->dF[dd]");
+            msg->printMsgTxt(output_stream);*/
+
             // matrix mult to get dF (local and shared)
             if((*isShared)[dd] && !isSparseRun && (*isSharedIdentity)[dd]) {
                 //nothing needed
             }
             else {
                 checkCudaErrors(X_c->GEMM(results->dF[dd], phi_c, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N), "GPUGMLM_dataset_Group_GPU::computeDerivatives errors:   X'*phi -> dF");
+                //output_stream << " GEMM " << num << "\n";
+                //msg->printMsgTxt(output_stream);
             }
             
             // matrix mults to get dT

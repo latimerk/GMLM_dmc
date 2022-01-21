@@ -20,17 +20,23 @@ sourceDir = [ projectHome '/+kgmlm/+CUDAlib/kCUDAsrc/'];
 
 %% 2. Set absolute path for directory where CUDA installation lives:
 if(ispc)
-    CUDAdirectory   = 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.3/';
+    CUDAdirectory   = 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.5/';
     CUDAlibSubdirectory = [CUDAdirectory '/lib/x64/'];
+    CUDALibFile = [CUDAlibSubdirectory 'cuda.lib'];
 else
     CUDAdirectory   = '/usr/local/cuda/';
     CUDAlibSubdirectory = [CUDAdirectory '/lib64/'];
+    CUDALibFile = [CUDAlibSubdirectory 'libcudart.so'];
 end
                
 % check if directory exists
 if(~isfolder(CUDAdirectory))
     warning(['ERROR: CUDAdirectory directory does not exist: %s\n----\n', ...
              'Please fix by editing myPaths.m\n '],CUDAdirectory);
+end
+if(~exist(CUDALibFile, "file"))
+    error(['ERROR: CUDALibFile does not exist: %s\n----\n', ...
+             'Please fix by editing myPaths.m\n '],CUDALibFile);
 end
 
 %% 3. Directory of the MATLAB installation. 

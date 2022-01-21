@@ -67,6 +67,7 @@ HMC_settings.stepSize.gamma = 0.05;
 HMC_settings.stepSize.kappa = 0.75;
 HMC_settings.stepSize.t_0   = 10;
 HMC_settings.stepSize.mu    = log(10*HMC_settings.stepSize.e_0);
+HMC_settings.stepSize.max_step_size = 0.25;
 
 HMC_settings.nWarmup = nWarmup;
 HMC_settings.nSamples  = nSamples;

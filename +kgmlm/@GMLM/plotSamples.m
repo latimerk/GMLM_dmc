@@ -80,8 +80,8 @@ set(gca,'tickdir','out','box','off');
 subplot(NR,NC,5)
 semilogy(1:TotalSamples,samples.e)
 hold on
-semilogy(1:TotalSamples,samples.e_alt,'--')
-semilogy(1:TotalSamples,samples.e_alt2,':')
+semilogy(1:TotalSamples,samples.e_sM,'--')
+semilogy(1:TotalSamples,samples.e_sH,':')
 xlabel('sample');
 ylabel('HMC step size');
 set(gca,'tickdir','out','box','off');

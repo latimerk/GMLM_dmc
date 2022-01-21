@@ -402,7 +402,7 @@ public:
     inline cudaError_t waitForGroups_LL(cudaStream_t stream) {
         cudaError_t ce = cudaSuccess;
         for(auto jj : Groups) {
-            ce = cudaStreamWaitEvent(stream, jj->LL_event, 0);
+            ce = cudaStreamWaitEvent(stream, jj->group_LL_event, 0);
             if(ce != cudaSuccess) {
                 break;
             }
@@ -475,7 +475,6 @@ protected:
     //for sparse runs
     std::vector<GPUData<FPTYPE> *> X_temp;
     
-    
     // sparse matrices for shared regressor derivatives
     std::vector<GPUData<int> *> spi_rows;
     std::vector<GPUData<int> *> spi_cols;
@@ -488,7 +487,7 @@ protected:
     std::vector<GPUData<char> *>  spi_buffer;
     std::vector<size_t> spi_buffer_size;
     
-    cudaEvent_t LL_event;
+    cudaEvent_t group_LL_event;
 public:
     //constructor
     GPUGMLMPop_dataset_Group_GPU(const int groupNum_, const GPUGMLMPop_structure_Group_args<FPTYPE> * GMLMPopGroupStructure, const std::vector<GPUGMLMPop_trial_args <FPTYPE> *> trials, const GPUGMLMPop_dataset_GPU<FPTYPE> * parent_, const cudaStream_t stream, const cusparseHandle_t & cusparseHandle);
@@ -499,7 +498,7 @@ public:
     
     void multiplyCoefficients(const bool isSparseRun, const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded);
     void getGroupRate(const bool isSparseRun, const GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle);
-    void computeDerivatives(GPUGMLMPop_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & LL_event);
+    void computeDerivatives(GPUGMLMPop_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLMPop_parameters_Group_GPU<FPTYPE> * params, const GPUGMLMPop_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event);
 
     //dimensions
     inline size_t dim_P() const  {
