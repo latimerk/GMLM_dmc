@@ -28,7 +28,7 @@ Ts = find(scalable_T);
 Ts = Ts(:)';
 
 totalScale = scalable_V + sum(scalable_T);
-if(mod(sampleNum, MH_scaleSettings.sample_every) ~= 0 || totalScale < 2 || MH_scaleSettings.sig <= 0)
+if(mod(sampleNum, MH_scaleSettings.sample_every) ~= 0 || totalScale < 2 || MH_scaleSettings.sig <= 0 || MH_scaleSettings.N <= 0)
     return;
 end
 if(scalable_V)
@@ -75,7 +75,7 @@ for nn = 1:MH_scaleSettings.N
 
         chi_correction = sum([log_scale;-sum(log_scale)].*(dim_T-1)) - sum(log_scale); 
             %this first sum changes the priors over the weights to chi distributions over the norm given weights (log difference between proposal and original spot)
-            %the second sum is for the change of variables to by P(T,U, T*U*V) because we have the product of the scale fixed
+            %the second sum is for the change of variables to P(T,U, T*U*V) because we have the product of the scale fixed
             %  The probability density we sample over then become P(T,U| T*U*V) \propto P(T, U, T*U*V)
 
         log_q_rat = sum(log_scale); %sum(log(lognpdf(c, log_c + log_scale , sd)) - log(lognpdf(c*exp(log_scale), log(c) , sd))); % c is original vector length
