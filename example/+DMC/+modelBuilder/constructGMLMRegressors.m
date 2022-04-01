@@ -49,6 +49,7 @@ p.addParameter('includeResponseDynHspk' , false, @islogical);
 p.addParameter('timeBeforeSample_bins',     timeBeforeSample_default,     @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
 p.addParameter('timeAfterTestOrResponse_bins', timeAfterTestOrResponse_default, @(aa) isnumeric(aa) & isscalar(aa) & fix(aa) == aa);
 p.addParameter('bases'  ,  bases_default,    @isstruct);
+p.addParameter('silent'  ,  false,    @islogical);
 
 parse(p, Neurons, TaskInfo, stimulusConfig, varargin{:});
 dynHspkConfig     = p.Results.dynHspkConfig;
@@ -58,6 +59,7 @@ includeResponseDynHspk = p.Results.includeResponseDynHspk;
 timeBeforeSample_bins     = p.Results.timeBeforeSample_bins;
 timeAfterTestOrResponse_bins = p.Results.timeAfterTestOrResponse_bins;
 bases     = p.Results.bases;
+silent     = p.Results.silent;
 
 includeStimDynHspk = ~isempty(dynHspkConfig);
 
@@ -100,7 +102,7 @@ for ss = 1:NS
     end
     GMLMstructure.Groups(ss).dim_names = ["timing", "xstim"]; %dimensions of the tensor
     GMLMstructure.Groups(ss).dim_A = 2;      % number of events in group: 2 for sample and test stimuli
-    GMLMstructure.Groups(ss).dim_R_max = 12; % max allocated space for rank
+    GMLMstructure.Groups(ss).dim_R_max = 16; % max allocated space for rank
     GMLMstructure.Groups(ss).X_shared{1} = bases.stim.B; %shared regressors for each factor/dimension (here factor and dimension are the same)
     GMLMstructure.Groups(ss).X_shared{2} = [stimulusConfig{ss}(:, :, 1); stimulusConfig{ss}(:, :, 2)]; % stacks the sample and test
     GMLMstructure.Groups(ss).dim_T = [size(bases.stim.B, 2) size(stimulusConfig{ss},2)]; % I require specifying the dimensions of each part of the tensor to make sure everything is correct
@@ -110,7 +112,7 @@ end
 GMLMstructure.Groups(NS+1).name = "Response";
 GMLMstructure.Groups(NS+1).dim_names = "timing";
 GMLMstructure.Groups(NS+1).dim_A = 1;
-GMLMstructure.Groups(NS+1).dim_R_max = 3; % max allocated space for rank
+GMLMstructure.Groups(NS+1).dim_R_max = 8; % max allocated space for rank
 GMLMstructure.Groups(NS+1).X_shared{1} = bases.response.B;
 GMLMstructure.Groups(NS+1).dim_T = size(bases.response.B, 2);
 GMLMstructure.Groups(NS+1).factor_idx = 1;
@@ -146,8 +148,8 @@ MH_scaleSettings.N   = 5; % I used to sample 10 because I could, but 5 ought to 
 MH_scaleSettings.sample_every = 1;
 
 for jj = 1:numel(GMLMstructure.Groups)
-    GMLMstructure.Groups(jj).gibbs_step.dim_H = 0;
-    GMLMstructure.Groups(jj).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum,  MH_scaleSettings);
+    GMLMstructure.Groups(jj).gibbs_step.dim_H = 0; 
+    GMLMstructure.Groups(jj).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum, optStruct_empty, resultStruct_empty) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum,  MH_scaleSettings, optStruct_empty, resultStruct_empty);
 end
 
 %%
@@ -157,7 +159,9 @@ tr_idx  = 1; %running index of current trial
 trials = struct('Y', cell(totalTrials,1), 'X_lin', [], 'neuron', [], 'Groups', []);
 
 for nn = 1:numel(Neurons)
-    fprintf('setting up Neuron %d / %d\n', nn, numel(Neurons));
+    if(~silent)
+        fprintf('setting up Neuron %d / %d\n', nn, numel(Neurons));
+    end
     %set initial index of current neuron
     
     NT = numel(Neurons(nn).sampleDir);
@@ -253,7 +257,9 @@ for nn = 1:numel(Neurons)
         tr_idx  = tr_idx  + 1;
     end
 end
-fprintf('Done setting up data\n');
+if(~silent)
+    fprintf('Done setting up data\n');
+end
 
 end
 

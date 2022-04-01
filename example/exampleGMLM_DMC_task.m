@@ -70,16 +70,19 @@ GMLMstructure.Groups(1).gibbs_step.sample_func = @(gmlm, params, optStruct, samp
 GMLMstructure.Groups(2).gibbs_step.dim_H = 0;
 GMLMstructure.Groups(2).gibbs_step.sample_func = @(gmlm, params, optStruct, sampleNum, groupNum, opts, results) DMC.GibbsSteps.scalingMHStep(gmlm, params, optStruct, sampleNum, groupNum, MH_scaleSettings, responsePrior_setup, opts, results);
 
-
+GMLMstructure.Groups(1).dim_R_max = 12;
 %% build the GMLM object
 
 gmlm = kgmlm.GMLM(GMLMstructure, trials, TaskInfo.binSize_ms./1e3);
 gmlm.setDimR('Stimulus', 7);
+gmlm.setDimR('Response', 3);
 
 return;
 %% fit MLE
-if(~gmlm.isOnGPU())
+if(gpuDeviceCount() > 0 && ~gmlm.isOnGPU())
     gmlm.toGPU(GPUs_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 [params_mle, results_mle, params_init] = gmlm.computeMLE();
@@ -88,8 +91,10 @@ end
 %[params_alt_mle, results_alt_mle] = gmlm.computeMLE(params_init, 'alternating_opt', true, 'max_iters', 10, 'max_quasinewton_steps', 2e2);
 
 %% fit MLE - cross validated
-if(~gmlm.isOnGPU())
-    gmlm.toGPU(GPUs_to_use);
+if(gpuDeviceCount() > 0 && ~gmlm.isOnGPU())
+    gmlm.toGPU(GPUs_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 %divides CV sets up by neuron and sample direction
@@ -106,8 +111,11 @@ cvInds =  crossvalind('KFold', trialNeuronSampleDir_ids, K);
 
 
 %% fit MAP estimate
-if(~gmlm.isOnGPU())
-    gmlm.toGPU(GPUs_to_use);
+
+if(gpuDeviceCount() > 0 && ~gmlm.isOnGPU())
+    gmlm.toGPU(GPUs_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 % git init point with hyperparameters set (I'm just going to optimize with the random hyperparams for now)
@@ -120,8 +128,10 @@ params_init = gmlm.getRandomParamStruct('includeHyperparameters', true);
 
 %% Bayesian inference via HMC
 
-if(~gmlm.isOnGPU())
-    gmlm.toGPU(GPUs_to_use);
+if(gpuDeviceCount() > 0 && ~gmlm.isOnGPU())
+    gmlm.toGPU(GPUs_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 %get settings (use DEBUG mode for fewer samples)

@@ -130,6 +130,10 @@ bool GPUGLM_computeBlock<FPTYPE>::loadParams(const GPUGLM_params<FPTYPE> * param
         }
 
         //multiply coefficients and regressors (X_c * K -> LL)
+        //X_c->printInfo(output_stream, "X_c");
+        //params->K->printInfo(output_stream, "K");
+        //dataset->LL->printInfo(output_stream, "dataset->LL");
+        //msg->printMsgTxt(output_stream);
         checkCudaErrors(X_c->GEMM(dataset->LL, params->K, cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGLM_computeBlock::loadParams errors:  X*K -> LL");
     }
     else {
@@ -145,7 +149,7 @@ bool GPUGLM_computeBlock<FPTYPE>::loadParams(const GPUGLM_params<FPTYPE> * param
 template <class FPTYPE>
 __global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYPE> dLL, GPUData_kernel<FPTYPE> d2LL,
         const GPUData_kernel<FPTYPE> Y,
-        const FPTYPE log_dt,
+        const FPTYPE log_dt, const FPTYPE dt,
         const GPUData_kernel<unsigned int> id_a_trialM,
         const GPUData_kernel<FPTYPE> trial_weights,
         const GPUData_kernel<unsigned int> ridx_sa_all,
@@ -200,12 +204,12 @@ __global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> LL, GPUData_kernel<F
                     if(log_rate > -30) {
                         FPTYPE rate = safeExp(log_rate);
                         FPTYPE expNrate = safeExp(-rate);
-                         LL_c = log(1 - expNrate);
+                         LL_c = log(1.0 - expNrate);
                         FPTYPE exm1 = safeExpm1(rate);
                         dLL_c = rate/exm1;
                         if(compute_d2K) {
                             FPTYPE enxm1 = safeExpm1(-rate);
-                            d2LL_c = rate*(1-rate - expNrate)/(exm1 + enxm1);
+                            d2LL_c = sqrt(-rate*(1.0-rate - expNrate)/(exm1 + enxm1)); // THIS NEEDS TO BE CHECKED
                         }
                     }
                     else { // more numerically save approximation in an extreme case
@@ -218,19 +222,37 @@ __global__ void kernel_getObs_LL_GLM(GPUData_kernel<FPTYPE> LL, GPUData_kernel<F
                     FPTYPE rate = safeExp(log_rate + log_dt);
                      LL_c = -rate;
                     dLL_c = -rate;
-                    d2LL_c = -rate;
+                    if(compute_d2K) {
+                        d2LL_c = safeExp(static_cast<FPTYPE>(0.5)*(log_rate + log_dt));
+                    }
                 }
                 // negatives get censored by Poisson LL
             }
-            else if(logLikeSettings == ll_poissExp) {
+            else if(logLikeSettings == ll_poissSoftRec) {
                 int Y_ci = floor(Y_c);
                 if(Y_ci >= 0) { // negatives get censored by Poisson LL
-                    log_rate += log_dt;
-                    FPTYPE rate = safeExp(log_rate);
-                     LL_c = (-rate + Y_ci * log_rate);
-                    dLL_c = (-rate + Y_ci) ;
+                    FPTYPE rate;
+                    FPTYPE drate;
+                    FPTYPE drate_rate;
+                    if(log_rate > 30) {
+                        rate  = log_rate ; // in this model, log_dt is actually just dt
+                        drate = 1;
+                        drate_rate = 1.0/log_rate;
+                    }
+                    else {
+                        log_rate = log_rate < -30 ? -30 : log_rate; // to be safe with the log
+                        rate  = log1p(safeExp(log_rate));
+                        drate = (1.0 + safeExp(-log_rate));
+                        drate_rate = 1.0/(drate * rate);
+                        drate = 1.0/drate;
+                    }
+                    LL_c  = (-rate*dt + Y_ci *(log(rate) + log_dt));
+                    dLL_c = (-drate*dt + Y_ci * drate_rate);
+
                     if(compute_d2K) {
-                        d2LL_c = safeExp(static_cast<FPTYPE>(0.5)*log_rate);
+                        FPTYPE d2rate = drate*(1.0-drate);
+                        d2LL_c = -d2rate*dt + Y_ci * ((d2rate*rate - drate*drate)/(rate*rate));
+                        d2LL_c = (d2LL_c < 0) ? sqrt(-d2LL_c) : 0;
                     }
                 }
             }
@@ -319,7 +341,7 @@ void GPUGLM_computeBlock<FPTYPE>::computeLogLike(const GPUGLM_computeOptions<FPT
     grid_size.x = dataset->LL->getSize(0) / block_size.x + ( (dataset->LL->getSize(0) % block_size.x == 0) ? 0 : 1);
     kernel_getObs_LL_GLM<<<grid_size, block_size, 0, stream>>>(dataset->LL->device(), dataset->dLL->device(), dataset->d2LL->device(),
                   dataset->Y->device(),
-                  dataset->log_dt,
+                  dataset->log_dt, dataset->dt,
                   dataset->id_a_trialM->device(), params->trial_weights->device(),
                   dataset->ridx_a_all_c->device(),
                   params->logLikeSettings, params->logLikeParams->device(), 

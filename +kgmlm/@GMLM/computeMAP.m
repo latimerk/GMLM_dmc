@@ -32,6 +32,7 @@ function [params_map, results_map, hess_est] = computeMAP(obj, params_init, vara
     addParameter(p, 'display'         , 'off', @(aa)(isstring(aa) | ischar(aa)));
     addParameter(p, 'trial_weights'   ,  [], @(aa) isempty(aa) | (numel(aa) == obj.dim_M & isnumeric(aa)));
     addParameter(p, 'optStruct' ,   [], @(aa) isempty(aa) | obj.verifyComputeOptionsStruct(aa));
+    addParameter(p, 'optHyperparams'         , true, @islogical);
 
     parse(p, params_init, varargin{:});
     % then set/get all the inputs out of this structure
@@ -40,6 +41,7 @@ function [params_map, results_map, hess_est] = computeMAP(obj, params_init, vara
     optStruct  = p.Results.optStruct;
     max_quasinewton_steps        = p.Results.max_quasinewton_steps;
     max_iters = p.Results.max_iters;
+    optHyperparams = p.Results.optHyperparams;
     
     %% fminunc settings
     fminunc_opts = optimoptions(@fminunc, 'algorithm', 'quasi-newton', 'SpecifyObjectiveGradient', true, 'Hessian', 'off', 'HessUpdate', 'bfgs');
@@ -49,7 +51,7 @@ function [params_map, results_map, hess_est] = computeMAP(obj, params_init, vara
     fminunc_opts.Display           = p.Results.display;
     
     %% setup optimization groups
-    [optSetup, opts_empty] = obj.getOptimizationSettings( alternating_opt, p.Results.trial_weights, optStruct);
+    [optSetup, opts_empty] = obj.getOptimizationSettings( alternating_opt, p.Results.trial_weights, optStruct, optHyperparams);
     
     %% print inital log post value
     start_time = tic;

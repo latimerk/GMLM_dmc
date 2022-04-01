@@ -42,21 +42,32 @@ public:
 template <class FPTYPE>
 class GPUGLM_results {
 public:
-    GLData<FPTYPE> * dK;  // length dim_K, should be a COLUMN vector
-    GLData<FPTYPE> * d2K; // size dim_K x dim_K
+    GLData<FPTYPE> * dK  = NULL;  // length dim_K, should be a COLUMN vector
+    GLData<FPTYPE> * d2K = NULL; // size dim_K x dim_K
     
-    GLData<FPTYPE> * trialLL; // length dim_M, column vector
+    GLData<FPTYPE> * trialLL = NULL; // length dim_M, column vector
     
     inline size_t dim_K(std::shared_ptr<GPUGL_msg> msg) { // number of parameters
-        size_t dim_K_c = dK->getSize(0);
-        if(!(d2K->empty()) && (d2K->getSize(0) != dim_K_c || d2K->getSize(1) != dim_K_c)) {
+        if(dK == NULL) {
             std::ostringstream output_stream;
-            output_stream << "GPUGLM_results errors: inconsistent size of derivative and Hessian!";
+            output_stream << "GPUGLM_results errors: no results initialized!\n";
+            msg->callErrMsgTxt(output_stream);
+        }
+
+        size_t dim_K_c = dK->getSize(0);
+        if(d2K != NULL && !(d2K->empty()) && (d2K->getSize(0) != dim_K_c || d2K->getSize(1) != dim_K_c)) {
+            std::ostringstream output_stream;
+            output_stream << "GPUGLM_results errors: inconsistent size of derivative and Hessian!\n";
+            output_stream << "\tdK = (" << dK->getSize(0) << ", "   << dK->getSize(1)  << ")  " << dK->getData()  << "\t" << dK  << "\n";
+            output_stream << "\td2K = (" << d2K->getSize(0) << ", " << d2K->getSize(1) << ")  " << d2K->getData() << "\t" << d2K << "\n";
             msg->callErrMsgTxt(output_stream);
         }
         return dim_K_c;
     }
     inline size_t dim_M() {
+        if(trialLL == NULL) {
+            return 0;
+        }
         return trialLL->getSize(0);
     }
     
@@ -144,7 +155,9 @@ class GPUGLM {
         std::vector<GPUGLM_computeBlock<FPTYPE> *> gpu_blocks;
         
         void syncStreams();
-        
+        unsigned int max_trials;
+        size_t dim_K_; 
+
     public:
         /* Primary constructor.
          * Takes in the set of args defined by GPUGLM_regressor_args and loads everything to the GPU(s).
@@ -179,6 +192,13 @@ class GPUGLM {
                  *         GPUGLM_GPUportion's are summed on host and returned
                  *
                  */
+
+        size_t dim_M() const {// number of trials
+            return max_trials;
+        }
+        size_t dim_K() { // number of parameters
+            return dim_K_;
+        }
         
 };
 

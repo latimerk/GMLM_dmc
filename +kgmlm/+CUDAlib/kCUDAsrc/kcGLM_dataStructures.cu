@@ -143,14 +143,15 @@ void GPUGLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGLM_params<FPTYPE> * glm_
             return;
         }
 
-        //sets some sizes
-        checkCudaErrors(dataset->d2LL->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
-        checkCudaErrors(dataset->dLL->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
-        checkCudaErrors(dataset->LL->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
-        checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_temp, -1), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
 
         //copy list of trials with nonzero weights to host only if the number is small enough for a sparse run
         if(trial_weights_nonzero_cnt_c <= dataset->max_trials_for_sparse_run) {
+            //sets some sizes
+            checkCudaErrors(dataset->d2LL->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+            checkCudaErrors(dataset->dLL->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+            checkCudaErrors(dataset->LL->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+            checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_temp, -1), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
+
             checkCudaErrors(trial_included_temp->resize(stream, trial_weights_nonzero_cnt_c), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
             checkCudaErrors(dataset->ridx_st_sall->resize(stream, trial_weights_nonzero_cnt_c), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
             checkCudaErrors(dataset->ridx_sa_all->resize(stream, dataset->dim_N_temp), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
@@ -177,6 +178,12 @@ void GPUGLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGLM_params<FPTYPE> * glm_
             trial_included = trial_included_0;
             dataset->ridx_a_all_c = dataset->ridx_a_all;
             dataset->ridx_t_all_c = dataset->ridx_t_all;
+
+            //sets some sizes
+            checkCudaErrors(dataset->d2LL->resize(stream, dataset->dim_N_total()), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for normal weighted run!");
+            checkCudaErrors(dataset->dLL->resize(stream, dataset->dim_N_total()), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for normal weighted run!");
+            checkCudaErrors(dataset->LL->resize(stream, dataset->dim_N_total()), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for normal weighted run!");
+            checkCudaErrors(dataset->lambda->resize(stream, dataset->dim_N_total(), -1), "GPUGLM_parameters_GPU::copyToGPU errors: could not set sizes for normal weighted run!");
         }
     }
     else {
@@ -320,6 +327,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
     switchToDevice();
     cudaError_t ce;
 
+    dt = GLMstructure->binSize;
     log_dt = log(GLMstructure->binSize);
     dim_N = new GPUData<size_t>(ce, GPUData_HOST_STANDARD, stream, block->trials.size()); //sets up dim_M()
     checkCudaErrors(ce, "GPUGLM_dataset_GPU errors: could not allocate dim_N on device!");
@@ -377,7 +385,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
         isInDataset_trial[block->trials[mm]->trial_idx] = true;
 
         FPTYPE nc = 0; // normalizing constant
-        if(GLMstructure->logLikeSettings == ll_poissExp) {
+        if(GLMstructure->logLikeSettings == ll_poissExp || GLMstructure->logLikeSettings == ll_poissSoftRec) {
             for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
                 FPTYPE Y_c = (*(block->trials[mm]->Y))[nn];
                 nc += (Y_c >= 0) ? -lgamma(floor(Y_c) + 1.0) : 0;
@@ -386,7 +394,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
         (*normalizingConstants_trial)[mm] = nc;
     }
 
-    id_a_trialM = new GPUData<unsigned int>(ce, GPUData_HOST_STANDARD, stream, dim_N_total_c);
+   id_a_trialM = new GPUData<unsigned int>(ce, GPUData_HOST_STANDARD, stream, dim_N_total_c);
     checkCudaErrors(ce, "GPUGLM_dataset_GPU errors: could not allocate id_a_trialM on device!");
 
     size_t N_total_ctr = 0;
@@ -407,9 +415,11 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
         
 
         //copy each trial to GPU
+    
     for(int mm = 0; mm < dim_M(); mm++) {
         // spike counts
         cudaPos copyOffset = make_cudaPos((*ridx_t_all)[mm], 0, 0);
+
         checkCudaErrors(Y->copyTo(stream, block->trials[mm]->Y, true, copyOffset), "GPUGLM_dataset_GPU errors: could not copy Y to device!");
 
         //coefficients
@@ -453,6 +463,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
     }
     X_temp = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, max_X_temp, GLMstructure->dim_K);
     checkCudaErrors(ce, "GPUGLM_dataset_GPU errors: could not allocate space for X_temp!" );
+    
 }
 
 // destructor

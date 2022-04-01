@@ -27,7 +27,7 @@
 
 namespace kCUDA { 
     
-enum logLikeType {ll_poissExp = 0, ll_sqErr = 1, ll_truncatedPoissExp = 2, ll_poissExpRefractory = 3};
+enum logLikeType {ll_poissExp = 0, ll_sqErr = 1, ll_truncatedPoissExp = 2, ll_poissSoftRec = 3, ll_poissExpRefractory = 4};
 
 // ll_poissExpRefractory uses the correction from Citi, L., Ba, D., Brown, E. N., & Barbieri, R. (2014). Likelihood methods for point processes with refractoriness. Neural computation, 26(2), 237-263.
     
@@ -85,7 +85,7 @@ class GLData {
 
         
         // destructor does not destroy memory
-        ~GLData() {
+        virtual ~GLData() {
         }
         
         //pointers to the data

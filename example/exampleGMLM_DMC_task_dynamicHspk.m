@@ -86,8 +86,11 @@ return;
 
 %% Bayesian inference via HMC
 
-if(~gmlm.isOnGPU())
-    gmlm.toGPU(GPUs_to_use);
+
+if(gpuDeviceCount() > 0 && ~gmlm.isOnGPU())
+    gmlm.toGPU(GPUs_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 %get settings (use DEBUG mode for fewer samples)

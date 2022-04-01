@@ -43,6 +43,8 @@ addParameter(p, 'includeCatSampleTest'  ,  true,    @islogical);
 addParameter(p, 'includeOnset'  ,  true,    @islogical);
 addParameter(p, 'includeOnsetSampleTest'  ,  true,    @islogical);
 addParameter(p, 'bases'  ,  DMC.modelBuilder.setupBasis_spline(),    @isstruct);
+addParameter(p, 'correctSTDOfGroups',  true,    @islogical);
+addParameter(p, 'coefficientSTD', 1, @isnumeric);
 
 
 parse(p, TaskInfo, varargin{:});
@@ -55,7 +57,11 @@ includeSubCatSampleTest = p.Results.includeSubCategorySampleTest;
 includeCatSampleTest    = p.Results.includeCatSampleTest;
 includeOnset            = p.Results.includeOnset;
 includeOnsetSampleTest  = p.Results.includeOnsetSampleTest;
+coefficientSTD = p.Results.coefficientSTD;
+correctSTDOfGroups = p.Results.correctSTDOfGroups;
 bases   = p.Results.bases;
+
+
 
 %%
 thetas = TaskInfo.Directions(:)';
@@ -71,7 +77,7 @@ cats_unique = cats_unique(:)';
 NU = numel(cats_unique);
 ND = numel(thetas);
 
-NU_sub = zeros(numel(cats),1);
+NU_sub = zeros(NU,1);
 if(isfield(TaskInfo, "Subcategories"))
     subcats   = TaskInfo.Subcategories(:)';
     
@@ -82,8 +88,8 @@ if(isfield(TaskInfo, "Subcategories"))
     subcats_unique = cell(NU,1);
     for cc = 1:NU
         subcats_unique{cc} = unique(subcats(cats == cats_unique(cc)));
-        subcats_unique{cc} = subcats_unique(:)';
-        NU_sub = numel(subcats_unique{cc});
+        subcats_unique{cc} = subcats_unique{cc}(:)';
+        NU_sub(cc) = numel(subcats_unique{cc});
     end
 else
     subcats = [];
@@ -153,12 +159,12 @@ if(strcmpi(dirTuningType, 'cosine') || strcmpi(dirTuningType, 'none'))
         NF = NF + 1;
     end
     if(includeSubCategory)
-        subcat_cols      = NF + 1;
-        NF = NF + 1;
-    end
-    if(includeSubCatSampleTest)
-        subcat_cols_st      = NF + 1;
-        NF = NF + 1;
+        subcat_cols      = NF + [1 2];
+        NF = NF + 2;
+        if(includeSubCatSampleTest)
+            subcat_cols_st      = NF + [1 2];
+            NF = NF + 2;
+        end
     end
     
     if(strcmpi(dirTuningType, 'cosine'))
@@ -177,18 +183,19 @@ if(strcmpi(dirTuningType, 'cosine') || strcmpi(dirTuningType, 'none'))
         end
     end
 elseif(strcmpi(dirTuningType, 'full'))
+    error('invalid option for model type: not implemented yet');
     if(dirSameSampleTest)
         if(includeOnsetSampleTest)
             onset_cols_st = NF + 1;
             NF = NF + 1;
         end
         if(includeCatSampleTest)
-            cat_cols_st   = NF + 1;
-            NF = NF + 1;
-        end
-        if(includeSubCatSampleTest)
-            subcat_cols_st   = NF + 1;
-            NF = NF + 1;
+            cat_cols_st   = NF + [1 2];
+            NF = NF + 2;
+            if(includeSubCatSampleTest)
+                subcat_cols_st   = NF + [1 2];
+                NF = NF + 2;
+            end
         end
     
         dir_cols1       = NF + (1:ND_used);
@@ -217,13 +224,13 @@ stimConfig = addCols(stimConfig, onset_cols, 'all');
 stimConfig = addCols(stimConfig, onset_cols_st, 'sample/test');
 
 if(includeCatSampleTest)
-    stimConfig = addCols(stimConfig, cat_cols,    'sample', -1 + 2*(cats(:) == cats_unique(1)));
-    stimConfig = addCols(stimConfig, cat_cols_st, 'test',   -1 + 2*(cats(:) == cats_unique(1)));
+    stimConfig = addCols(stimConfig, cat_cols,    'sample', (-1 + 2*(cats(:) == cats_unique(1))));
+    stimConfig = addCols(stimConfig, cat_cols_st, 'test',   (-1 + 2*(cats(:) == cats_unique(1))));
 elseif(includeCategory)
-    stimConfig = addCols(stimConfig, cat_cols, 'all',       -1 + 2*(cats(:) == cats_unique(1)));
+    stimConfig = addCols(stimConfig, cat_cols, 'all',       (-1 + 2*(cats(:) == cats_unique(1))));
 end
 
-if(includeSubCatSampleTest)
+if(includeSubCatSampleTest && includeSubCategory)
     for cc = 1:NU
         sc = -1 + 2*(subcats(:) == subcats_unique{cc});
         stimConfig = addCols(stimConfig, subcat_cols(cc),    'sample', sc.*(cats(:) == cats_unique(cc)));
@@ -236,14 +243,15 @@ elseif(includeSubCategory)
     end
 end
 
+
 if(dirSameSampleTest)
-    stimConfig = addCols(stimConfig, sine_cols,   'all',   sind(TaskInfo.Directions(:)));
+    stimConfig = addCols(stimConfig, sine_cols,   'all', sind(TaskInfo.Directions(:)));
     stimConfig = addCols(stimConfig, cosine_cols, 'all', cosd(TaskInfo.Directions(:)));
 else
     stimConfig = addCols(stimConfig, sine_cols,   'sample',   sind(TaskInfo.Directions(:)));
-    stimConfig = addCols(stimConfig, cosine_cols, 'sample', cosd(TaskInfo.Directions(:)));
-    stimConfig = addCols(stimConfig, sine_cols_st,   'test',   sind(TaskInfo.Directions(:)));
-    stimConfig = addCols(stimConfig, cosine_cols_st, 'test', cosd(TaskInfo.Directions(:)));
+    stimConfig = addCols(stimConfig, cosine_cols, 'sample',   cosd(TaskInfo.Directions(:)));
+    stimConfig = addCols(stimConfig, sine_cols_st,   'test',  sind(TaskInfo.Directions(:)));
+    stimConfig = addCols(stimConfig, cosine_cols_st, 'test',  cosd(TaskInfo.Directions(:)));
 end
 
 if(~isempty(dir_cols1))
@@ -264,22 +272,23 @@ coefs_ind_groups = {cat_cols,       "cat";
                     subcat_cols_st, "subcat_test";
                     onset_cols,     "onset";
                     onset_cols_st,  "onset-sample/test"};
+
 coefs_grp_groups = {[sine_cols cosine_cols],      "cosine_dir";
                     [sine_cols_st cosine_cols_st],   "cosine_dir_test"};
 
 coefs_ind_groups = coefs_ind_groups(~cellfun(@isempty, coefs_ind_groups(:,1)), :);
 coefs_grp_groups = coefs_grp_groups(~cellfun(@isempty, coefs_grp_groups(:,1)), :);
 
-NG_i         = sum(cellfun(@numel, coefs_ind_groups(:,1)));
-NG_g         = size(coefs_grp_groups, 1);
-NG = NG_i + NG_g + ~isempty(dir_cols1) + ~isempty(dir_cols2);
+NG_i  = sum(cellfun(@numel, coefs_ind_groups(:,1)));
+NG_g  = size(coefs_grp_groups, 1);
+NG   = NG_i + NG_g + ~isempty(dir_cols1) + ~isempty(dir_cols2);
 
 timing_idx = 1;
 stim_idx   = 2;
             
 stimPrior_setup.T(stim_idx).setup.parts = struct("type", cell(NG,1), "idx_hyperparams", [], "idx_params", [], "var", [], "name", []);
 ctr = 1;
-for gg = 1:NG_i
+for gg = 1:size(coefs_ind_groups, 1)
     c_idx = coefs_ind_groups{gg, 1};
     if(~all(c_idx > 0))
         warning('invalid idx');
@@ -329,6 +338,29 @@ stimPrior_setup.hyperparams.c.b = 8;
 stimPrior_setup.hyperparams.df_global = 3;
 stimPrior_setup.hyperparams.df_local  = 3;
 stimPrior_setup.hyperparams.H.nu = 3;
+
+
+%% NORMALIZATION
+% like z-scoring. Makes the shrinkage comparable across the different coefficients.
+if(correctSTDOfGroups)
+    for gg = 1:numel(stimPrior_setup.T(stim_idx).setup.parts)
+        gg_idx = stimPrior_setup.T(stim_idx).setup.parts(gg).idx_params;
+        stimPrior_setup.T(stim_idx).setup.parts(gg).normalizer_coeficient = [];
+        if(~isempty(gg_idx))
+            sts = find(squeeze(~all(stimConfig(:, gg_idx, :) == 0, [1 2]))); % if sample/test only or both
+
+            if(~isempty(sts))
+%                 sig = std(stimConfig(:, gg_idx, sts), 1, "all");
+                sig2 = mean(stimConfig(:, gg_idx, sts).^2, [1 3]); %% assumes 0 mean
+                if(all(sig2 > 0))
+                    cc = coefficientSTD./sqrt(sum(sig2));
+                    stimPrior_setup.T(stim_idx).setup.parts(gg).normalizer_coeficient = cc;
+                    stimConfig(:, gg_idx, sts) = stimConfig(:, gg_idx, sts).*cc;
+                end
+            end
+        end
+    end
+end
 end
 
 function [stimConfig] = addCols(stimConfig, cols, col_types, weights)
@@ -363,5 +395,4 @@ function [stimConfig] = addCols(stimConfig, cols, col_types, weights)
         end
     end
 end
-
 

@@ -33,7 +33,7 @@ p = inputParser;
 p.CaseSensitive = false;
 
 addRequired( p, 'TaskInfo'     ,     @isstruct);
-addParameter(p, 'dirTuningType'    , 'cosine', @ischar);
+addParameter(p, 'dirTuningType'    , 'cosine', @(aa)(ischar(aa) || isstring(aa)));
 addParameter(p, 'dirSameSampleTest',  true,    @islogical);
 addParameter(p, 'includeCategory'  ,  true,    @islogical);
 addParameter(p, 'includeSampleTest'  ,  true,    @islogical);

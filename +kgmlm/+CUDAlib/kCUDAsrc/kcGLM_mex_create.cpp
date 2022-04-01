@@ -60,6 +60,9 @@ private:
             case kCUDA::ll_poissExp:
                 GLMstructure->logLikeSettings = kCUDA::ll_poissExp;
                 break;
+            case kCUDA::ll_poissSoftRec:
+                GLMstructure->logLikeSettings = kCUDA::ll_poissSoftRec;
+                break;
             case kCUDA::ll_sqErr:
                 GLMstructure->logLikeSettings = kCUDA::ll_sqErr;
                 break;

@@ -29,6 +29,8 @@ namespace kCUDA {
     
     
 const unsigned int MAX_DIM_D = 6;
+//for templating the sparse matrix ops
+template <class FPTYPE> cudaDataType_t getCudaType();
     
 enum GPUData_HOST_ALLOCATION {GPUData_HOST_NONE = 0, GPUData_HOST_PAGELOCKED = 1, GPUData_HOST_STANDARD = 2}; 
 
@@ -411,18 +413,7 @@ class GPUGL_base  {
                 return true;
             }
         }
-        //Frees CUDA allocated host pointers and checks for errors
-      /*  template <typename T>
-        inline bool cudaSafeFreeHost(T * & a, const char * msg_str = "cudaFreeHost error") {
-            if(a) {
-                bool result = checkCudaErrors(cudaFreeHost(a), msg_str, true);
-                a = NULL;
-                return result;
-            }
-            else {
-                return true;
-            }
-        }*/
+
         //frees all CUDA pointers in a vector
         template <typename T>
         inline bool cudaSafeFreePtrVector(std::vector<T *> & arr, const char * msg_str = "cudaFree vector error") {
@@ -432,29 +423,11 @@ class GPUGL_base  {
             }
             return allFreed;
         }
-      /*  template <typename T>
-        inline bool cudaSafeFreeHostVector(std::vector<T *> & arr, const char * msg_str = "cudaFreeHost vector error") {
-            bool allFreed = true;
-            for (auto& it : arr) { 
-                allFreed = allFreed && cudaSafeFreeHost(it, msg_str);
-            }
-            return allFreed;
-        }*/
         
         inline bool switchToDevice(const bool printOnly = false) {
             return checkCudaErrors(cudaSetDevice(dev), "error switching to device", printOnly);
         }
         
-  /*      template <class vecType>
-        inline void copyVectorToGPU(vecType * & dest, const std::vector<vecType> host, const cudaStream_t stream = 0, const char * msg_str = "copyVectorToGPU vector error") {
-            checkCudaErrors(cudaMemcpyAsync(dest, host.data(), host.size() * sizeof(vecType), cudaMemcpyHostToDevice, stream), msg_str);
-        }
-        
-        template <class vecType>
-        inline void allocateAndCopyVectorToGPU(vecType * & dest, const std::vector<vecType> host, const cudaStream_t stream = 0, const char * msg_str = "allocateAndCopyVectorToGPU vector error") {
-            checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&(dest)), host.size() * sizeof(vecType)), msg_str);
-            copyVectorToGPU(dest, host, stream, msg_str);
-        }*/
         
     public:
         inline int getDev() const {

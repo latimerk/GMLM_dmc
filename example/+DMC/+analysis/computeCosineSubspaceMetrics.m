@@ -76,11 +76,12 @@ R_cat_test   = [0  0 1 -1 0 0];
 R_cosine  = [0 0 0 0 0 1];
 R_sine    = [0 0 0 0 1 0];
 
-dim_R_tot = size(samples.Groups(1).V,2) + size(samples.Groups(2).V,2);
+dim_R_stim = size(samples.Groups(1).V,2) ;
+dim_R_tot = dim_R_stim + size(samples.Groups(2).V,2);
 dim_P = size(samples.Groups(1).V,1);
 %% space
-stimFilt_cat_sample_means = zeros(NP , dim_R_tot);
-stimFilt_cat_test_means   = zeros(NP , dim_R_tot);
+stimFilt_cat_sample_means = zeros(NP , dim_R_stim);
+stimFilt_cat_test_means   = zeros(NP , dim_R_stim);
 
 %% for each sample
 for ss = 1:N_samples
@@ -95,7 +96,8 @@ for ss = 1:N_samples
     V_stim_0 = samples.Groups(1).V(:,:,sample_idx);
     V_all = orth(V_stim_0);
 
-    V_stim = (V_stim_0'*V_all) ./ sqrt(dim_P);
+    V_stim = zeros(dim_R_stim, dim_R_stim);
+    V_stim(:, 1:size(V_all,2)) = (V_stim_0'*V_all) ./ sqrt(dim_P);
 
     stim_T = bases.stim.B * samples.Groups(1).T{1}(:,:,sample_idx);
     stim_X = samples.Groups(1).T{2}(:,:,sample_idx);

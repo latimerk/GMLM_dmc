@@ -104,7 +104,7 @@ public:
 template <class FPTYPE>
 class matlab_GPUGMLM_computeOptions : public kCUDA::GPUGMLM_computeOptions<FPTYPE> {
 public:
-    matlab_GPUGMLM_computeOptions(const matlab::data::StructArray & GMLM_results, const std::vector<FPTYPE> & trial_weights) {
+    matlab_GPUGMLM_computeOptions(const matlab::data::StructArray & GMLM_results, const matlab::data::TypedArray<FPTYPE> * trial_weights_mat = NULL) {
 
         this->compute_trialLL =  !(GMLM_results[0]["trialLL"].isEmpty());
         
@@ -115,7 +115,7 @@ public:
         this->compute_dB =  !(GMLM_results[0]["dB"].isEmpty());
         
         //sets up trial weights
-        this->trial_weights = std::vector<FPTYPE>(trial_weights);
+        this->trial_weights = new GLData_matlab<FPTYPE>(trial_weights_mat);
         
         //for each group
         const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];
@@ -143,6 +143,7 @@ public:
     //destructor
     ~matlab_GPUGMLM_computeOptions() {
         //clears all the groups
+        delete this->trial_weights;
         for(int jj = 0; jj < this->Groups.size(); jj++) {
             delete this->Groups[jj];
         }
@@ -185,6 +186,7 @@ public:
         else {
             this->trialLL = new GLData_matlab<FPTYPE>();
         }
+        this->isSimultaneousPopulation = this->trialLL->getSize(1) > 1; // if results are expecting multiple neurons per trial
         
         //gets the tensor groups
         const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];
@@ -261,7 +263,7 @@ private:
     
 
     template <class FPTYPE>
-    void runComputation(const uint64_t GMLM_ptr, const matlab::data::StructArray & GMLM_params, const matlab::data::StructArray & GMLM_results, const std::vector<FPTYPE> & trial_weights) {
+    void runComputation(const uint64_t GMLM_ptr, const matlab::data::StructArray & GMLM_params, const matlab::data::StructArray & GMLM_results, const matlab::data::TypedArray<FPTYPE> * trial_weights) {
         if(GMLM_ptr == 0) {
             matlabPtr->feval(u"error", 0,
                 std::vector<matlab::data::Array>({ factory.createScalar("gpu pointer is not initialized!") }));
@@ -316,30 +318,22 @@ public:
                 std::vector<matlab::data::Array>({ factory.createScalar("gpu pointer is not initialized!") }));
         }
         else if(isDouble[0]) {
-            std::vector<double> trial_weights;
             if(inputs.size() >= 5 && !inputs[4].isEmpty()) {
-                const matlab::data::TypedArray<double> & trial_weights_mat =  inputs[4];
-                trial_weights.resize(trial_weights_mat.getNumberOfElements());
-                //MATLAB's API makes things really realy slow: I get around it via this sloppy forceful operation
-                double* ww = const_cast<double*>((trial_weights_mat.cbegin()).operator->());
-                for(int ii = 0; ii < trial_weights.size(); ii++) {
-                    trial_weights[ii] = ww[ii];
-                }
+                const matlab::data::TypedArray<double> trial_weights_mat = inputs[4];
+                runComputation<double>(gpu_ptr_a[0], GMLM_params, GMLM_results, &trial_weights_mat);
             }
-            runComputation<double>(gpu_ptr_a[0], GMLM_params, GMLM_results, trial_weights);
+            else {
+                runComputation<double>(gpu_ptr_a[0], GMLM_params, GMLM_results, NULL);
+            }
         }
         else {
-            std::vector<float> trial_weights;
             if(inputs.size() >= 5 && !inputs[4].isEmpty()) {
-                const matlab::data::TypedArray<float> & trial_weights_mat =  inputs[4];
-                trial_weights.resize(trial_weights_mat.getNumberOfElements());
-                //MATLAB's API makes things really realy slow: I get around it via this sloppy forceful operation
-                float* ww = const_cast<float*>((trial_weights_mat.cbegin()).operator->());
-                for(int ii = 0; ii < trial_weights.size(); ii++) {
-                    trial_weights[ii] = ww[ii];
-                }
+                const matlab::data::TypedArray<float> trial_weights_mat = inputs[4];
+                runComputation<float>(gpu_ptr_a[0], GMLM_params, GMLM_results, &trial_weights_mat);
             }
-            runComputation<float>(gpu_ptr_a[0], GMLM_params, GMLM_results, trial_weights);
+            else {
+                runComputation<float>(gpu_ptr_a[0], GMLM_params, GMLM_results, NULL);
+            }
         }
     }
 };

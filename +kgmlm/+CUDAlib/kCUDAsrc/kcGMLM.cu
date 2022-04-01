@@ -16,12 +16,12 @@
  *   License.txt, included with the software, for details.
  */
 #include "kcGMLM.hpp"
-#include "kcGMLM_computeBlock.hpp"
+#include "kcGMLM_dataStructures.hpp"
         
 namespace kCUDA {
     
 template <class FPTYPE>
-GPUGMLM<FPTYPE>::GPUGMLM(const GPUGMLM_structure_args <FPTYPE> * GMLMstructure, const std::vector<GPUGMLM_GPU_block_args<FPTYPE> *> blocks, std::shared_ptr<GPUGL_msg> msg_) {
+GPUGMLM<FPTYPE>::GPUGMLM(const GPUGMLM_structure_args <FPTYPE> * GMLMstructure, const std::vector<GPUGMLM_GPU_block_args<FPTYPE> *> blocks, std::shared_ptr<GPUGL_msg> msg_) : isSimultaneousPopulation_(GMLMstructure->isSimultaneousPopulation) {
     msg = msg_;
     // check to see if data is provided
     if(blocks.empty()) {
@@ -36,20 +36,26 @@ GPUGMLM<FPTYPE>::GPUGMLM(const GPUGMLM_structure_args <FPTYPE> * GMLMstructure, 
     }   
 
     //get the max trial and neuron index
-    unsigned int max_trials = 1;
-    unsigned int dim_P = 1;
+    max_trials = 1;
     for(auto bb : blocks) {
         for(auto mm : bb->trials) {
             max_trials = max(max_trials, mm->trial_idx + 1);
-            dim_P      = max(dim_P, mm->neuron + 1);
+            if(!isSimultaneousPopulation() && mm->neuron  >= GMLMstructure->dim_P) {
+                output_stream << "GPUGMLM errors: neuron number cannot exceed expected number of neurons (dim_P)!";
+                msg->callErrMsgTxt(output_stream);
+            }
         }
     }
             
     //build each block
     gpu_blocks.resize(blocks.size());
     for(int bb = 0; bb < blocks.size(); bb++) {
-        GPUGMLM_computeBlock<FPTYPE> * block = new GPUGMLM_computeBlock<FPTYPE>(GMLMstructure, blocks[bb], max_trials, dim_P, msg);
-        gpu_blocks[bb] = block;
+        if(isSimultaneousPopulation()) {
+            gpu_blocks[bb] = new GPUGMLMPop_computeBlock<FPTYPE>(GMLMstructure, blocks[bb], max_trials, msg);
+        }
+        else {
+            gpu_blocks[bb] = new GPUGMLM_computeBlock<FPTYPE>(GMLMstructure, blocks[bb], max_trials, msg);
+        }
     }
 }
 
@@ -88,21 +94,6 @@ void GPUGMLM<FPTYPE>::computeLogLikelihood_async(std::shared_ptr<GPUGMLM_params<
     for(auto bb: gpu_blocks) {
         bb->gatherResults(opts.get());
     }
-    /*std::vector<bool> isSparse;
-    //load params to each block
-    for(auto bb: gpu_blocks) {
-        isSparse.push_back(bb->loadParams(params, opts));
-    }
-
-    //call bits of LL computation
-    for(int bb = 0; bb < gpu_blocks.size(); bb++) {
-        gpu_blocks[bb]->computeRateParts(opts, isSparse[bb]);
-        gpu_blocks[bb]->computeLogLike(opts, isSparse[bb]);
-        gpu_blocks[bb]->computeDerivatives(opts,  isSparse[bb]);
-    }
-    for(auto bb: gpu_blocks) {
-        bb->gatherResults(opts);
-    }*/
 }
 template <class FPTYPE>
 void GPUGMLM<FPTYPE>::computeLogLikelihood_gather( GPUGMLM_results<FPTYPE> * results, const bool reset_needed_0) {

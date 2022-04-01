@@ -66,6 +66,7 @@ public:
         else {
             this->trialLL =  new GLData_matlab<FPTYPE>();
         }
+        this->isSimultaneousPopulation = this->trialLL->getSize(1) > 1; // if results are expecting multiple neurons per trial
         
         //gets the tensor groups
         const matlab::data::StructArray Groups_mat = GMLM_results[0]["Groups"];

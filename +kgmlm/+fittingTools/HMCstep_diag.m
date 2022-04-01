@@ -35,6 +35,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)% divergent trajectory
+                nlpost = inf; % divergent trajectory
                 break;
             end
 %             if(~all(M.\p.^2 < 1e3, "all"))
@@ -50,6 +51,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
             if(isinf(nlpost) || isnan(nlpost) || nlpost - nlpost_0 < -1e5 || nlpost - nlpost_0 > 1e8) % looks like a divergent trajectory; last condition is likely a numerical error
+                nlpost = inf; % divergent trajectory
                 break;
             end
 %             if(~all(abs(w) < 1e3, "all"))
@@ -60,6 +62,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)% divergent trajectory
+                nlpost = inf; % divergent trajectory
                 break;
             end
 %             if(~all(M.\p.^2 < 1e3, "all"))

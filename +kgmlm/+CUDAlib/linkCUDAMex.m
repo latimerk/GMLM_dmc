@@ -36,9 +36,7 @@ for ii = 1:length(fNames)
     end
 
     % rough way to select which library to use
-    if(contains(fName, 'GMLMPop'))
-        libName = 'kcGMLMPop_lib';
-    elseif(contains(fName, 'GMLM'))
+    if(contains(fName, 'GMLM'))
         libName = 'kcGMLM_lib';
     else
         libName = 'kcGLM_lib';

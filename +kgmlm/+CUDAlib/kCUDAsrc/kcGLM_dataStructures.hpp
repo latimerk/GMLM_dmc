@@ -141,6 +141,7 @@ private:
     friend class GPUGLM_computeBlock<FPTYPE>; 
 
     FPTYPE log_dt; // log of bin size
+    FPTYPE dt;
     
     size_t max_trial_length; // max trial length for pre-allocation
     

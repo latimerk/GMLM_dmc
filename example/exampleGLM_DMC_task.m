@@ -45,8 +45,10 @@ glm = kgmlm.kcGLM(GLMstructure, trials, TaskInfo.binSize_ms./1e3);
 return;
 %% do MLE then MAP fitting on GLM with hyperparameters set by evidence optimization
 %load to GPU
-if(~glm.isOnGPU())
+if(gpuDeviceCount() > 0 && ~glm.isOnGPU())
     glm.toGPU(GPU_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 %run evidence optimization
@@ -66,8 +68,10 @@ DMC.plottingTools.plotGLMFit(params_map, R_sample_stim, R_sample_stim_dirOnly, b
 return;
 %% cross-validated evidence optimization
 %load to GPU
-if(~glm.isOnGPU())
-    glm = glm.toGPU(GPU_to_use);
+if(gpuDeviceCount() > 0 && ~glm.isOnGPU())
+    glm.toGPU(GPU_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 K = 10;
@@ -84,8 +88,10 @@ glm = glm.freeGPU();
 return;
 %% Bayesian fitting with MCMC
 %load to GPU
-if(~glm.isOnGPU())
-    glm = glm.toGPU(GPU_to_use);
+if(gpuDeviceCount() > 0 && ~glm.isOnGPU())
+    glm.toGPU(GPU_to_use, 'useDoublePrecision', gpuDoublePrecision);
+else
+    warning("No GPUs found. CPU computation can be a lot slower!");
 end
 
 %run evidence optimization

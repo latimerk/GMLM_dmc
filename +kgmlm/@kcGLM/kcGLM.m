@@ -30,6 +30,8 @@ classdef kcGLM < handle
         gpuObj_ptr uint64 %uint64 pointer to the c++ object for the GLM loaded to the GPU
         gpus       uint32 % array for which GPUs are in use
         gpuDoublePrecision logical %if current GPU loading is double precision (if false, then single)
+
+        LL_info % for performing computations on CPU: add a bunch of extra variables to avoid accessing object too much (really slow in MATLAB)
     end
     
     %% Constructor
@@ -40,7 +42,7 @@ classdef kcGLM < handle
             end
             
             %% check for valid log like type
-            obj.validLogLikeTypes = ["poissExp", "sqErr", "truncatedPoissExp"];
+            obj.validLogLikeTypes = ["poissExp", "sqErr", "truncatedPoissExp", "poissSoftRec"];
             if(nargin < 4)
                 logLikeType = obj.validLogLikeTypes(1);
             end
@@ -423,9 +425,13 @@ classdef kcGLM < handle
                     log_like_per_trial(mm).log_like = tw(mm)*(-sum(exp(rr)) + rr'*obj.trials(mm).Y(vv) - sum(gammaln(obj.trials(mm).Y(vv)+1)));
                 elseif(ll_idx == 2) %sqErr
                     log_like_per_trial(mm).log_like = -tw(mm)*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2);
-                elseif(ll_idx == 3) %poissExp
+                elseif(ll_idx == 3) %truncatedPoissExp
                     rr = log_like_per_trial(mm).log_rate + log(obj.bin_size);
-                    log_like_per_trial(mm).log_like = kgmlm.utils.truncatedPoiss(rr(:),  obj.trials(mm).Y(:));;
+                    log_like_per_trial(mm).log_like = kgmlm.utils.truncatedPoiss(rr(:),  obj.trials(mm).Y(:));
+                elseif(ll_idx == 4) %poisson sofrec
+                    vv = obj.trials(mm).Y >= 0; %check for any censored values
+                    rr = kgmlm.utils.softrec(log_like_per_trial(mm).log_rate(vv))*(obj.bin_size);
+                    log_like_per_trial(mm).log_like = tw(mm)*(-sum(rr) + log(rr)'*obj.trials(mm).Y(vv) - sum(gammaln(obj.trials(mm).Y(vv)+1)));
                 else
                     error("invalid likelihood setting");
                 end
@@ -433,6 +439,53 @@ classdef kcGLM < handle
             
             log_like = sum([log_like_per_trial(:).log_like], 'all');
         end
+
+        function [results] = computeLogLikelihoodhod_v2(obj, params, opts, results)
+            obj.setupComputeStructuresHost();
+            if(nargin < 4)
+                results = obj.getEmptyResultsStruct(opts);
+            end
+            
+            LL_info_c = obj.LL_info;
+
+            K = cell2mat(params.Ks);
+            if(opts.d2K)
+                [ll,dll,n_d2ll_2] = LL_info_c.logLikeFun(LL_info_c.X*K, LL_info_c.Y, LL_info_c.bin_size);
+            elseif(opts.dK)
+                [ll,dll] = LL_info_c.logLikeFun(LL_info_c.X*K, LL_info_c.Y, LL_info_c.bin_size);
+                results.dK(:) = LL_info_c.X'*dll;
+            else
+                ll = LL_info_c.logLikeFun(LL_info_c.X*K, LL_info_c.Y, LL_info_c.bin_size);
+            end
+
+
+            if(opts.trialLL)
+                M = size(LL_info_c.dim_N_ranges,1) - 1;
+                for mm = 1:M
+                    results.trialLL(mm) = sum(ll(LL_info_c.dim_N_ranges(mm):(LL_info_c.dim_N_ranges(mm+1)-1),:),1) + LL_info_c.Y_const(mm);
+            
+                    if(~isempty(opts.trial_weights))
+                        results.trialLL(mm)  = results.trialLL(mm) .* opts.trial_weights(mm);
+                    end
+                end
+            end
+
+
+            if(opts.dK)
+                if(~isempty(opts.trial_weights))
+                    dll(LL_info_c.dim_N_ranges(mm):(LL_info_c.dim_N_ranges(mm+1)-1)) = dll(LL_info_c.dim_N_ranges(mm):(LL_info_c.dim_N_ranges(mm+1)-1)) * opts.trial_weights(mm);
+                end
+                results.dK(:) = LL_info_c.X'*dll;
+            end
+            if(opts.d2K)
+                if(~isempty(opts.trial_weights))
+                    n_d2ll_2(LL_info_c.dim_N_ranges(mm):(LL_info_c.dim_N_ranges(mm+1)-1)) = n_d2ll_2(LL_info_c.dim_N_ranges(mm):(LL_info_c.dim_N_ranges(mm+1)-1)) * sqrt(opts.trial_weights(mm));
+                end
+                X2 = LL_info_c.X.*n_d2ll_2;
+                results.d2K(:,:) = -(X2'*X2);
+            end
+        end
+
         
         % computes the log prior (as far as this function is aware, this is always on host)
         %   can add the result to a results struct or create a new struct
@@ -665,7 +718,7 @@ classdef kcGLM < handle
                 %if computer has only one GPU, can be set by default 
                 deviceNumbers = 0;
             end
-            if(~isnumeric(deviceNumbers) || ~all(fix(deviceNumbers) == deviceNumbers, 'all') || ~all(deviceNumbers >= 0 & deviceNumbers < gpuDeviceCount()))
+            if((nargin < 2 || isempty(deviceNumbers)) || ~isnumeric(deviceNumbers) || ~all(fix(deviceNumbers) == deviceNumbers, 'all') || ~all(deviceNumbers >= 0 & deviceNumbers < gpuDeviceCount()))
                 error("Invalid GPU device numbers given");
             end
             
@@ -778,27 +831,42 @@ classdef kcGLM < handle
     %methods for computing log likelihood (and derivatives) on GPU (Public)
     methods (Access = public)    
         
-        function [results] = computeLogLikelihood(obj, params, opts)
-            if(~obj.isOnGPU())
-                error("GLM is not on GPU.");
+        function [results] = computeLogLikelihood(obj, params, opts, results, runHost)
+            if(nargin < 5 || isempty(runHost))
+                runHost = ~obj.isOnGPU();
+            end
+            if(~obj.isOnGPU() && ~runHost)
+                error("GLM is not on GPU: must select runHost option to run on CPU.");
             end
             
             %allocate space for results
-            results = obj.getEmptyResultsStruct(opts);
-            
+            if(nargin < 4 || isempty(results))
+                results = obj.getEmptyResultsStruct(opts);
+            end
+
             %send to GPU
             for jj = 1:numel(params.Ks)
                 params.Ks{jj} = params.Ks{jj};
             end
             params.K = cell2mat(params.Ks);
-            kgmlm.CUDAlib.kcGLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            if(~runHost)
+                kgmlm.CUDAlib.kcGLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
+            else
+                results = obj.computeLogLikelihoodhod_v2(params, opts, results);
+            end
             results.log_likelihood = sum(results.trialLL);
         end
         
-        function [results] = computeLogPosterior(obj, params, opts, computeDerivativesForEvidenceOptimization)
+        function [results] = computeLogPosterior(obj, params, opts, computeDerivativesForEvidenceOptimization, results, runHost)
+            if(nargin < 6)
+                runHost = [];
+            end
+            if(nargin < 5)
+                results = [];
+            end
             
             %gets log likelihood
-            results = obj.computeLogLikelihood(params, opts);
+            results = obj.computeLogLikelihood(params, opts, results, runHost);
             
             %adds the prior
             if(nargin > 3 && computeDerivativesForEvidenceOptimization)
@@ -879,6 +947,8 @@ classdef kcGLM < handle
         [nle, ndle, params, results, ld, d_ld, sigma] = computeNLEvidence(obj, H, params, trial_weights);
         [params_map, results_map, params_init] = computeMAPevidenceOptimization(obj,  varargin);
         [params_map, results_test_map, results_train_map] = computeMAPevidenceOptimization_crossValidated(obj, foldIDs,  varargin);
+
+        [] = setupComputeStructuresHost(obj, reset);
     end
     
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

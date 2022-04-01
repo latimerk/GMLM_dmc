@@ -23,6 +23,14 @@ namespace kCUDA {
     
 bool GPU_USE_PAGELOCKED_HOST_STORAGE = true; // can enable/disable use of page-locked memory
 
+
+template <> cudaDataType_t getCudaType<float>() {
+return CUDA_R_32F;
+}
+template <> cudaDataType_t getCudaType<double>() {
+    return CUDA_R_64F;
+}  
+
 //=============================================================================================================================================================
 //=============================================================================================================================================================
 //=============================================================================================================================================================
@@ -557,28 +565,30 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         return CUBLAS_STATUS_INVALID_VALUE;
     }
 
+    const size_t MAX_COLS = 16;
+    const size_t MAX_COLS_ALGO0 = MAX_COLS * 8;
     const size_t MAX_DEFAULT = 2048;
     cublasGemmAlgo_t algo = CUBLAS_GEMM_ALGO0;
-    if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > 16) {
+    if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > MAX_COLS_ALGO0) {
         algo = CUBLAS_GEMM_DEFAULT;
     }
     
     #if __CUDA_ARCH__ >= 700
         if(sizeof(FPTYPE) <= 4) {
             algo = CUBLAS_GEMM_ALGO0_TENSOR_OP; 
-            if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > 16) {
+            if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > MAX_COLS_ALGO0) {
                 algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP;
             }
         }
     #endif
     
     //CUBLAS_GEMM_DEFAULT
-    //CUBLAS_GEMM_ALGO0 // fastest for all the typical multiplications I've done in double precision (DEFAULT is super slow for the big matrices!)
+    //CUBLAS_GEMM_ALGO0 // fastest for many of the typical multiplications I've done in double precision (DEFAULT can be super slow for the big tall-skinny matrices!)
     //CUBLAS_GEMM_DEFAULT_TENSOR_OP
     //CUBLAS_GEMM_ALGO0_TENSOR_OP 
 
     if(cols_op_B == 1) {
-        if(multType != NULL) {multType[0] = -10;};
+        if(multType != NULL) {multType[0] = 1;};
        //GEMV is sometimes way faster then GEMM (even on the same problem size) - call it if it's all that's needed
         size_t op_B_stride = (op_B == CUBLAS_OP_N) ? static_cast<size_t>(1) : B->getLD_gpu();
         for(int dd = 0; dd < depth && ce == CUBLAS_STATUS_SUCCESS; dd++) {
@@ -592,7 +602,7 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         }
     }
     else if(depth > 1) {
-        if(multType != NULL) {multType[0] = algo;};
+        if(multType != NULL) {multType[0] = 2;}; //{multType[0] = algo;};
         //for largish size of C, call GEMM (single - run below)
         ce = cublasGEMMEXStridedBatched(handle,
                                   op_A,
@@ -608,8 +618,25 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
                                   C->getInc_gpu(),
                                   depth, algo);
     }
+    else if(depth == 1 && (algo != CUBLAS_GEMM_DEFAULT_TENSOR_OP && algo != CUBLAS_GEMM_DEFAULT) && cols_op_B > MAX_COLS) {
+        if(multType != NULL) {multType[0] = 3;}; //{multType[0] = algo;};
+        //for largish size of C, call GEMM (single - run below)
+        
+        for(size_t cc = 0; cc < cols_op_B && ce == CUBLAS_STATUS_SUCCESS; cc += MAX_COLS) {
+            size_t cols_op_B_c = (cols_op_B - cc > MAX_COLS) ? MAX_COLS : (cols_op_B - cc);
+            ce = cublasGEMMEX(handle,
+                            op_A,
+                            op_B,
+                            rows_op_A, cols_op_B_c, cols_op_A,
+                            &alpha,
+                            getData_gpu(), getLD_gpu(),
+                            B->getData_gpu() + (B->getLD_gpu()) * cc, B->getLD_gpu(),
+                            &beta,
+                            C->getData_gpu() + (C->getLD_gpu()) * cc, C->getLD_gpu(), algo);
+        }
+    }
     else {
-        if(multType != NULL) {multType[0] = algo;};
+        if(multType != NULL) {multType[0] = 4;};// {multType[0] = algo;};
         ce = cublasGEMMEX(handle,
                           op_A,
                           op_B,

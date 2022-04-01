@@ -67,9 +67,12 @@ classdef GMLM < handle
         gpus       uint32 % array for which GPUs are in use
         gpuDoublePrecision logical %if current GPU loading is double precision (if false, then single)
         
-        populationData logical % if data is structured as a simultaneously recorded population
+        isSimultaneousPopulation logical % if data is structured as a simultaneously recorded population
         
         temp_storage_file
+
+        LL_info
+        X_groups
     end
     
     %% Constructor
@@ -78,9 +81,11 @@ classdef GMLM < handle
             if(nargin < 2 || nargin > 4)
                 error("GMLM constructor: two struct inputs required (GMLMstructure and trials)");
             end
+            obj.X_groups= [];
+            obj.LL_info = [];
             
             %% check for valid log like type
-            obj.validLogLikeTypes = ["poissExp", "sqErr", "truncatedPoissExp"];
+            obj.validLogLikeTypes = ["poissExp", "sqErr", "truncatedPoissExp", "poissSoftRec"];
             if(nargin < 4)
                 logLikeType = obj.validLogLikeTypes(1);
             end
@@ -291,12 +296,12 @@ classdef GMLM < handle
             N_neurons_per_trial = 1;
             if(~isfield(trials, "neuron") || all(arrayfun(@(aa) isempty(aa.neuron), trials), 'all'))
                 N_neurons_per_trial = size(trials(1).Y, 2);
-                obj.populationData = true;
+                obj.isSimultaneousPopulation = true;
                 if(N_neurons_per_trial == 1)
                     warning('Only 1 neuron found!');
                 end
             else
-                obj.populationData = false;
+                obj.isSimultaneousPopulation = false;
             end
             
             % check for spike observations
@@ -318,7 +323,7 @@ classdef GMLM < handle
                 end
                 
                 X_lin_size = 1;
-                if(obj.populationData)
+                if(obj.isSimultaneousPopulation)
                     X_lin_size = size(trials(1).X_lin, 3);
                     if(X_lin_size ~= N_neurons_per_trial && X_lin_size ~= 1)
                         error("GMLM constructor: X_lin is not a valid size!");
@@ -332,7 +337,7 @@ classdef GMLM < handle
             end
             
             %checks neuron number
-            if(~obj.populationData)
+            if(~obj.isSimultaneousPopulation)
                 if(~all(arrayfun(@(aa) isnumeric(aa.neuron), trials), 'all') && ~all(arrayfun(@(aa) ischar(aa.neuron) | isstring(aa.neuron), trials), 'all'))
                     error("GMLM constructor: invalid neuron indentifiers for trials (must be all numeric or all strings)");
                 end
@@ -478,7 +483,7 @@ classdef GMLM < handle
             end
             
             %sets local neuron index
-            if(~obj.populationData)
+            if(~obj.isSimultaneousPopulation)
                 [obj.neuronIdx, ~, idxs] = unique([trials(:).neuron]);
                 idxs = num2cell(idxs);
                 [obj.trials(:).neuron_idx] = idxs{:};
@@ -528,14 +533,14 @@ classdef GMLM < handle
     methods (Access = public)
 
         function [pp] = dim_P(obj) %number of neurons
-            if(obj.populationData)
+            if(obj.isSimultaneousPopulation)
                 pp = size(obj.trials(1).Y,2);
             else
                 pp = numel(obj.neuronIdx);
             end
         end
         function [ss] = dim_trialLL(obj, dim) %size of the trial log likelihood
-            if(obj.populationData)
+            if(obj.isSimultaneousPopulation)
                 ss = [obj.dim_M() obj.dim_P()];
             else
                 ss = [obj.dim_M() 1];
@@ -941,7 +946,7 @@ classdef GMLM < handle
             [params, dataType] = obj.getEmptyParamStruct('includeHyperparameters', includeHyperparameters, 'useDoublePrecision', useDoublePrecision);
             
             %% gets the log mean firing rate for each neuron 
-            if(obj.populationData)
+            if(obj.isSimultaneousPopulation)
                 total_bins = 0;
                 total_spks = zeros(obj.dim_P,1);
                 for tt = 1:obj.dim_M
@@ -1126,23 +1131,48 @@ classdef GMLM < handle
             end
         end
         
-        %normalizes a param struct so that each Groups(:).T{:} holds only normal vectors (for identifiability in the MLE)
-        function [params] = normalizeTensorParams(obj, params)
+        % spreads the component magnitudes among all modes
+        %OLD VERSION: normalizes a param struct so that each Groups(:).T{:} holds only normal vectors (for identifiability in the MLE)
+        function [params] = normalizeTensorParams(obj, params, V_only)
+            if(nargin < 3)
+                V_only = false;
+            end
             for jj = 1:obj.dim_J
-                if(obj.dim_R(jj) > 0)
-                    if(obj.dim_S(jj) > 1)
-                        mm = nan(obj.dim_S(jj),obj.dim_R(jj));
+                R = obj.dim_R(jj);
+                if(R > 0)
+                    S = obj.dim_S(jj);
+                    if(S > 1)
+                        mm = nan(obj.dim_S(jj)+1,R);
                         for ss = 1:obj.dim_S(jj)
-                            T = params.Groups(jj).T{ss};
-                            mm(ss,:) = sqrt(sum(T.^2, 1));
-                            params.Groups(jj).T{ss} = T./mm(ss,:);
+                            mm(ss,:) = sqrt(sum(params.Groups(jj).T{ss}.^2, 1));
                         end
-                        params.Groups(jj).V = params.Groups(jj).V.*prod(mm, 1);
+                        mm(end,:) = sqrt(sum(params.Groups(jj).V.^2, 1));
+                        if(~V_only)
+                            mm_0 = prod(mm,1).^(1/(S+1));
+                            mm = mm_0./mm;
+    
+                            for ss = 1:S
+                                params.Groups(jj).T{ss} = params.Groups(jj).T{ss} .*mm(ss,:);
+                            end
+                            params.Groups(jj).V = params.Groups(jj).V.*mm(end,:);
+                        else
+                            for ss = 1:S
+                                params.Groups(jj).T{ss} = params.Groups(jj).T{ss} ./mm(ss,:);
+                            end
+                            mm_0 = prod(mm(1:S,:),1);
+                            params.Groups(jj).V = params.Groups(jj).V.*mm_0;
+
+                        end
                     else
                         [u,s,v] = svd(params.Groups(jj).T{1} * params.Groups(jj).V');
-                        
-                        params.Groups(jj).T{1} = u(:, 1:obj.dim_R(jj));
-                        params.Groups(jj).V = v(:, 1:obj.dim_R(jj)) * s(1:obj.dim_R(jj), 1:obj.dim_R(jj));
+                        if(~V_only)
+                            sq = sqrt(s(1:R, 1:R));
+                            params.Groups(jj).T{1} = u(:, 1:R) * sq;
+                            params.Groups(jj).V = v(:, 1:R) * sq;
+                        else
+                            params.Groups(jj).T{1} = u(:, 1:R);
+                            params.Groups(jj).V = v(:, 1:R) * s(1:R, 1:R);
+                        end
                     end
                 end
             end
@@ -1183,7 +1213,7 @@ classdef GMLM < handle
             log_rate_per_trial = struct('log_rate', cell(size(obj.trials)));
             for mm = 1:obj.dim_M
                 dim_N = size(obj.trials(mm).Y, 1);
-                if(obj.populationData)
+                if(obj.isSimultaneousPopulation)
                     %add linear and constant term
                     if(obj.GMLMstructure.dim_B > 0)
                         if(size(obj.trials(mm).X_lin, 3) == 1)
@@ -1203,6 +1233,8 @@ classdef GMLM < handle
                     %add linear and constant term
                     if(obj.GMLMstructure.dim_B > 0)
                         log_rate_per_trial(mm).log_rate = obj.trials(mm).X_lin * params.B(:, neuron_idx) + params.W(neuron_idx);
+                    else
+                        log_rate_per_trial(mm).log_rate = params.W(neuron_idx);
                     end
                 end
                 
@@ -1232,7 +1264,7 @@ classdef GMLM < handle
                     G = sum(G, 3);
                     
                     % linearly weight the components and add to rate
-                    if(obj.populationData)
+                    if(obj.isSimultaneousPopulation)
                         log_rate_per_trial(mm).log_rate = G * params.Groups(jj).V' + log_rate_per_trial(mm).log_rate;
                     else
                         log_rate_per_trial(mm).log_rate = G * params.Groups(jj).V(neuron_idx,:)' + log_rate_per_trial(mm).log_rate;
@@ -1271,7 +1303,7 @@ classdef GMLM < handle
                     end
                     log_like_per_trial(mm).log_like   = tw(mm,:).*sum(log_like_per_trial(mm).log_like_0, 1);
                 elseif(ll_idx == 2) %sqErr
-                    log_like_per_trial(mm).log_like = -tw(mm,:).*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2, 1);
+                    log_like_per_trial(mm).log_like = -0.5*tw(mm,:).*sum((log_like_per_trial(mm).log_rate(:) - obj.trials(mm).Y(:)).^2, 1);
 
                 elseif(ll_idx == 3) %truncated Poisson
                     log_like_per_trial(mm).log_like_0  = zeros(size(obj.trials(mm).Y));
@@ -1281,6 +1313,15 @@ classdef GMLM < handle
 
                         log_like_per_trial(mm).log_like_0(:, pp) = kgmlm.utils.truncatedPoiss(rr, obj.trials(mm).Y(:, pp) );
 
+                    end
+                    log_like_per_trial(mm).log_like   = tw(mm,:).*sum(log_like_per_trial(mm).log_like_0, 1);
+                elseif(ll_idx == 4) %poisson sofrec
+                    log_like_per_trial(mm).log_like_0  = zeros(size(obj.trials(mm).Y));
+                    
+                    for pp = 1:size(obj.trials(mm).Y, 2)
+                        vv = obj.trials(mm).Y(:, pp) >= 0; %check for any censored values
+                        rr = kgmlm.utils.softrec(log_like_per_trial(mm).log_rate(vv, pp)); 
+                        log_like_per_trial(mm).log_like_0(vv, pp) = -rr* obj.bin_size + (log(rr) + log(obj.bin_size)).*obj.trials(mm).Y(vv, pp) - (gammaln(obj.trials(mm).Y(vv, pp)+1));
                     end
                     log_like_per_trial(mm).log_like   = tw(mm,:).*sum(log_like_per_trial(mm).log_like_0, 1);
                 else
@@ -1385,7 +1426,7 @@ classdef GMLM < handle
             if(~isempty(trial_weights))
                 if(numel(trial_weights) == obj.dim_M)
                     opts.trial_weights = trial_weights(:);
-                elseif(obj.populationData && size(trial_weights,1) == obj.dim_M && size(trial_weights,2) == obj.dim_P())
+                elseif(obj.isSimultaneousPopulation && size(trial_weights,1) == obj.dim_M && size(trial_weights,2) == obj.dim_P())
                     opts.trial_weights = trial_weights;
                 elseif(islogical(trial_weights) && trial_weights)
                     opts.trial_weights = ones(obj.dim_M, 1);
@@ -1691,6 +1732,7 @@ classdef GMLM < handle
             %% sets up GMLMstructure to send to GPU in correct datatypes and 0 indexing
             GMLMstructure_GPU = obj.GMLMstructure;
             
+            GMLMstructure_GPU.isSimultaneousPopulation = obj.isSimultaneousPopulation;
             GMLMstructure_GPU.dim_P = uint64(obj.dim_P); 
             GMLMstructure_GPU.max_trial_length = uint64(max(arrayfun(@(aa) size(aa.Y,1), obj.trials)));
             GMLMstructure_GPU.dim_B       = uint64(obj.dim_B);
@@ -1774,7 +1816,7 @@ classdef GMLM < handle
                     end
                     
                     %sets neuron index to int32 and 0 indexed 
-                    if(~obj.populationData)
+                    if(~obj.isSimultaneousPopulation)
                         trialBlocks(bb).trials(mm).neuron_idx = uint32(trialBlocks(bb).trials(mm).neuron_idx - 1);
                     end
                     
@@ -1801,11 +1843,7 @@ classdef GMLM < handle
             end
             
             %% call mex with (GMLMstructure_GPU, trialBlocks, useDoublePrecision), get pointer in return
-            if(obj.populationData)
-                obj.gpuObj_ptr = kgmlm.CUDAlib.kcGMLMPop_mex_create(GMLMstructure_GPU, trialBlocks, useDoublePrecision);
-            else
-                obj.gpuObj_ptr = kgmlm.CUDAlib.kcGMLM_mex_create(GMLMstructure_GPU, trialBlocks, useDoublePrecision);
-            end
+            obj.gpuObj_ptr = kgmlm.CUDAlib.kcGMLM_mex_create(GMLMstructure_GPU, trialBlocks, useDoublePrecision);
             obj.gpus = deviceNumbers;
             obj.gpuDoublePrecision = useDoublePrecision;
         end
@@ -1821,11 +1859,7 @@ classdef GMLM < handle
                 warning("GMLM is not loaded to GPU. Nothing to free.");
             else
                 % call mex file to delete GPU object pointer
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_clear(obj.gpuObj_ptr, obj.gpuDoublePrecision);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_clear(obj.gpuObj_ptr, obj.gpuDoublePrecision);
-                end
+                kgmlm.CUDAlib.kcGMLM_mex_clear(obj.gpuObj_ptr, obj.gpuDoublePrecision);
                 % erase pointer value
                 obj.gpuObj_ptr = 0;
                 obj.gpus = [];
@@ -1841,9 +1875,12 @@ classdef GMLM < handle
     %methods for computing log likelihood (and derivatives) on GPU (Public)
     methods (Access = public)    
         
-        function [results] = computeLogLikelihood(obj, params, opts, results)
-            if(~obj.isOnGPU())
-                error("GMLM is not on GPU.");
+        function [results] = computeLogLikelihood(obj, params, opts, results, runHost)
+            if(nargin < 5 || isempty(runHost))
+                runHost = ~obj.isOnGPU();
+            end
+            if(~obj.isOnGPU() && ~runHost)
+                error("GMLM is not on GPU: must select runHost option to run on CPU.");
             end
             
             useAsync = true;
@@ -1858,7 +1895,7 @@ classdef GMLM < handle
                     opts.dW = opts.dW | opts.dH;
     
                     if(nargin > 3)
-                        if(opts.dW && isempty(results.dW))
+                        if(opts.dW &&  isempty(results.dW))
                             error("Invalid results struct.");
                         end
                         if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
@@ -1893,39 +1930,32 @@ classdef GMLM < handle
                 end
             end
 
-            if(useAsync)
+            if(runHost)
+                if(nargin < 4 || isempty(results))
+                    results = obj.getEmptyResultsStruct(opts);
+                end
+                results = obj.computeLogLikelihood_host_v2(params, opts, results);
+            elseif(useAsync)
                 % sends LL computation to GPU
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-                end 
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
 
                 %sets up results
-                if(nargin >= 4)
+                if(nargin >= 4 && ~isempty(results))
                     results = obj.clearResultsStruct(results);
                 else
                     results = obj.getEmptyResultsStruct(opts);
                 end
     
                 % gets GPU results
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
-                end
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
             else
                 %allocate space for results
-                if(nargin < 4) %#ok<UNRCH> 
+                if(nargin < 4 || isempty(results)) %#ok<UNRCH> 
                     results = obj.getEmptyResultsStruct(opts);
                 end
                 
                 %send to GPU
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
-                end
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
             end
 
 
@@ -1940,9 +1970,12 @@ classdef GMLM < handle
             results.log_likelihood = sum(results.trialLL, 'all');
         end
         
-        function [results] = computeLogPosterior(obj, params, opts, results)
-            if(~obj.isOnGPU())
-                error("GMLM is not on GPU.");
+        function [results] = computeLogPosterior(obj, params, opts, results, runHost)
+            if(nargin < 5 || isempty(runHost))
+                runHost = ~obj.isOnGPU();
+            end
+            if(~obj.isOnGPU() && ~runHost)
+                error("GMLM is not on GPU: must select runHost option to run on CPU.");
             end
 
             useAsync = true;
@@ -1993,16 +2026,18 @@ classdef GMLM < handle
                 end
             end
 
-            if(useAsync)
-                % sends LL computation to GPU
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
+            if(runHost)
+                if(nargin < 4 || isempty(results))
+                    results = obj.getEmptyResultsStruct(opts);
                 end
+                results = obj.computeLogLikelihood_host_v2(params, opts, results);
+                results = obj.computeLogPrior(params_0, opts, results, false);
+            elseif(useAsync)
+                % sends LL computation to GPU
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_async(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, opts, opts.trial_weights);
                 
                 %adds the prior
-                if(nargin >= 4)
+                if(nargin >= 4 && ~isempty(results))
                     results = obj.clearResultsStruct(results);
                 else
                     results = obj.getEmptyResultsStruct(opts);
@@ -2010,23 +2045,15 @@ classdef GMLM < handle
                 results = obj.computeLogPrior(params_0, opts, results, false);
     
                 % gets GPU results
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
-                end
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL_gather(obj.gpuObj_ptr, obj.gpuDoublePrecision, results);
                 results.log_likelihood = sum(results.trialLL, 'all');
             else
-                if(nargin >= 4) %#ok<UNRCH> 
+                if(nargin >= 4 && ~isempty(results)) %#ok<UNRCH> 
                     results = obj.clearResultsStruct(results);
                 else
                     results = obj.getEmptyResultsStruct(opts);
                 end
-                if(obj.populationData)
-                    kgmlm.CUDAlib.kcGMLMPop_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
-                else
-                    kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
-                end
+                kgmlm.CUDAlib.kcGMLM_mex_computeLL(obj.gpuObj_ptr, obj.gpuDoublePrecision, params, results, opts.trial_weights);
                 results.log_likelihood = sum(results.trialLL, 'all');
                 results = obj.computeLogPrior(params_0, opts, results, false);
             end
@@ -2141,7 +2168,12 @@ classdef GMLM < handle
         [params_map, results_test_map, results_train_map]              = computeMAP_crossValidated(obj, foldIDs, params_init, varargin);
         
         [samples, summary, HMC_settings, paramStruct, M] = runHMC_simple(obj, params_init, settings, varargin);
+        [samples, samples_file_format, summary, HMC_settings, paramStruct, M] = runHMC_simpleLowerRAM(obj, params_init, settings, varargin);
         [HMC_settings]                                   = setupHMCparams(obj, nWarmup, nSamples, debugSettings);
+
+
+        [results] = computeLogLikelihood_host_v2(obj, params, opts, results);
+        [] = setupComputeStructuresHost(obj, reset);
     end
     
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -2276,6 +2308,6 @@ classdef GMLM < handle
             end
         end
         
-        [optSetup, opts_empty] = getOptimizationSettings(obj, alternating_opt, trial_weights, optStruct);
+        [optSetup, opts_empty] = getOptimizationSettings(obj, alternating_opt, trial_weights, optStruct, includeHyperparams);
     end
 end

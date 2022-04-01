@@ -50,6 +50,10 @@ private:
         GMLMstructure->binSize = binSize[0];
         const matlab::data::TypedArray<const uint64_t> dim_B = GMLMstructure_mat[0]["dim_B"];
         GMLMstructure->dim_B  = dim_B[0];
+        const matlab::data::TypedArray<const uint64_t> dim_P = GMLMstructure_mat[0]["dim_P"];
+        GMLMstructure->dim_P  = dim_P[0];
+        const matlab::data::TypedArray<const bool> isSimultaneousPopulation = GMLMstructure_mat[0]["isSimultaneousPopulation"];
+        GMLMstructure->isSimultaneousPopulation  = isSimultaneousPopulation[0];
         
         const matlab::data::TypedArray<const int> logLikeSettings = GMLMstructure_mat[0]["logLikeSettings"];
         int logLikeSettings_temp = logLikeSettings[0];
@@ -62,6 +66,9 @@ private:
                 break;
             case kCUDA::ll_truncatedPoissExp:
                 GMLMstructure->logLikeSettings = kCUDA::ll_truncatedPoissExp;
+                break;
+            case kCUDA::ll_poissSoftRec:
+                GMLMstructure->logLikeSettings = kCUDA::ll_poissSoftRec;
                 break;
             default:
                 matlabPtr->feval(u"error", 0,
@@ -189,8 +196,10 @@ private:
                 gpuBlocks[bb]->trials[mm]->trial_idx = trial_idx[0];
             
                 //neuron id
-                const matlab::data::TypedArray<const uint32_t> neuron_idx = trials_mat[mm]["neuron_idx"];
-                gpuBlocks[bb]->trials[mm]->neuron = neuron_idx[0];
+                if(!GMLMstructure->isSimultaneousPopulation) {
+                    const matlab::data::TypedArray<const uint32_t> neuron_idx = trials_mat[mm]["neuron_idx"];
+                    gpuBlocks[bb]->trials[mm]->neuron = neuron_idx[0];
+                }
                 
                 //gets spike counts 
                 const matlab::data::TypedArray<const FPTYPE> Y = trials_mat[mm]["Y"];
@@ -202,7 +211,8 @@ private:
                 
                 //linear term
                 const matlab::data::TypedArray<const FPTYPE> X_lin = trials_mat[mm]["X_lin"];
-                if(GMLMstructure->dim_B > 0 && (X_lin.getDimensions()[0] != gpuBlocks[bb]->trials[mm]->dim_N() || X_lin.getDimensions()[1] != GMLMstructure->dim_B)) {
+                if(GMLMstructure->dim_B > 0 && (X_lin.getDimensions()[0] != gpuBlocks[bb]->trials[mm]->dim_N(msgObj) || X_lin.getDimensions()[1] != GMLMstructure->dim_B)
+                    || (GMLMstructure->isSimultaneousPopulation && (X_lin.getDimensions().size() > 2  && X_lin.getDimensions()[2] != 1 && X_lin.getDimensions()[2] != GMLMstructure->dim_P))) {
                     matlabPtr->feval(u"error", 0,
                         std::vector<matlab::data::Array>({ factory.createScalar("Trial's X_lin is not the correct size") }));
                 }
@@ -242,7 +252,7 @@ private:
                         //if shared regressor exists
                         if(!(GMLMstructure->Groups[jj]->X_shared[ff]->empty())) {
                             const matlab::data::TypedArray<const int> iX_shared_ff = iX_shared[ff];
-                            if(iX_shared_ff.getDimensions()[0] != gpuBlocks[bb]->trials[mm]->dim_N()) {
+                            if(iX_shared_ff.getDimensions()[0] != gpuBlocks[bb]->trials[mm]->dim_N(msgObj)) {
                                 matlabPtr->feval(u"error", 0,
                                     std::vector<matlab::data::Array>({ factory.createScalar("Trial group iX_shared structure does not match dim_N") }));
                             }
@@ -262,7 +272,7 @@ private:
                             if(X_local_ff_size.size() >= 3) {
                                 dim_A_c = X_local_ff_size[2];
                             }
-                            if(X_local_ff_size[0] != gpuBlocks[bb]->trials[mm]->dim_N() || X_local_ff_size[1] != dim_F || (dim_A_c != GMLMstructure->Groups[jj]->dim_A && dim_A_c > 1)) {
+                            if(X_local_ff_size[0] != gpuBlocks[bb]->trials[mm]->dim_N(msgObj) || X_local_ff_size[1] != dim_F || (dim_A_c != GMLMstructure->Groups[jj]->dim_A && dim_A_c > 1)) {
                                 matlabPtr->feval(u"error", 0,
                                     std::vector<matlab::data::Array>({ factory.createScalar("Trial group X_local structure does not match factor/event size") }));
                             }

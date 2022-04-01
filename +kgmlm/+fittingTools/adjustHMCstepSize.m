@@ -15,6 +15,8 @@ if(~isempty(ww))
     ps = stepSizeSettings;
     ps.e_0 = max(stepSizeSettings.e_0,stepSizeState.e);
     ps.mu = log(10*stepSizeSettings.e_0);
+
+    ps.delta = ps.delta(min(numel(ps.delta), ww));
     
     tt = ss - sample_1 + 1;
     [stepSizeState.x_t,stepSizeState.x_bar_t,stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_p_accept_new, stepSizeState.H_sum, stepSizeState.x_bar_t, tt);
@@ -34,7 +36,16 @@ stepSizeState.e     = min(stepSizeSettings.max_step_size, stepSizeState.e );
 stepSizeState.e_bar = min(stepSizeSettings.max_step_size, stepSizeState.e_bar );
 
 HMC_state.stepSize = stepSizeState;
-HMC_state.steps   = min(stepSizeSettings.maxSteps,      ceil(stepSizeSettings.stepL/HMC_state.stepSize.e));
+
+ll = [];
+if(isfield(stepSizeSettings,"maxSteps_trial"))
+    ll = find(ss <= stepSizeSettings.maxSteps_trial, 1, "last");
+end
+
+if(isempty(ll))
+    ll = numel(stepSizeSettings.maxSteps);
+end
+HMC_state.steps   = min(stepSizeSettings.maxSteps(ll),      ceil(stepSizeSettings.stepL/HMC_state.stepSize.e));
 
 end
 
@@ -53,7 +64,7 @@ function [x_t, x_bar_t, H_sum] = dualAverageStepSizeUpdate_internal(ps, log_h, H
         a_tt = min(1,exp(double(log_h)));
     else
         % penalty for divergent transitions?
-        a_tt = -1;
+        a_tt = 0;
     end
 
     %update with last step (algorithm 5 in NUTS paper)

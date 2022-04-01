@@ -3,10 +3,10 @@ Generalized multilinear model for dimensionality reduction of neural population 
 While this code is intended for modeling responses during decision-making tasks, it could be used more broadly for tensor regression.
 Currently, the code primarily supports Poisson spike count observations, but squared errors are also included.
 The main GMLM class can work with simultaneously or independently recorded neurons. The example scripts currently only show the setup for the individual recording configuration.
-MODEL FITTING REQUIRES NVIDIA GPUS.
+Model fitting runs best on GPUs, but an okay set of host code is now included.
 
 The core of the code is a C++/CUDA library with optimized log likelihood and derivative computations.
-This code requires a CUDA capable GPU (toolkit v11.3).
+This code requires a CUDA capable GPU (toolkit v11.3+).
 Currently, only a MATLAB interface is given, but it's possible I'll get around to adding a Python interface.
 While I could get the model working in PyTorch or Tensorflow, running inference like HMC needed all the performance I could get. That's why it's in CUDA with a bunch of initial data structure setup.
 
@@ -19,6 +19,10 @@ Code tested using:
 CUDA 11.3
 MATLAB R2020a
 TensorToolbox 3.1
+
+Python bindings are coming soon!
+A basic library can be compiled using the cmake function and there are a couple Python scripts that setup the GMLM.
+However, no model fitting code is given.
 
 ## Citation (preprint)
 ```

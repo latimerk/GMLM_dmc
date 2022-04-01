@@ -30,7 +30,7 @@ GPUGLM<FPTYPE>::GPUGLM(const GPUGLM_structure_args <FPTYPE> * GLMstructure, cons
     }      
 
     //get the max trial and neuron index
-    unsigned int max_trials = 1;
+    max_trials = 1;
     for(auto bb : blocks) {
         for(auto mm : bb->trials) {
             max_trials = max(max_trials, mm->trial_idx + 1);
@@ -38,6 +38,7 @@ GPUGLM<FPTYPE>::GPUGLM(const GPUGLM_structure_args <FPTYPE> * GLMstructure, cons
     }
             
     //build each block
+    dim_K_ = GLMstructure->dim_K;
     gpu_blocks.resize(blocks.size());
     for(int bb = 0; bb < blocks.size(); bb++) {
         GPUGLM_computeBlock<FPTYPE> * block = new GPUGLM_computeBlock<FPTYPE>(GLMstructure, blocks[bb], max_trials, msg);

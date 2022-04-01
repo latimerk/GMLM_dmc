@@ -118,6 +118,8 @@ end
 opts = gmlm.getComputeOptionsStruct(false);
 
 
+[results_est, results_all, ll_host, params] = kgmlm.diagnostics.checkDerivatives(gmlm, params, [], [], use_posterior);
+
 % no derivatives
 results = gmlm.computeLogPosterior(params, opts); %#ok<*NASGU>
 pauseMessage(pauseAtParts, "Computed LL...\n");
@@ -148,7 +150,6 @@ end
 results = gmlm.computeLogPosterior(params, opts);
     
 %% run derivative checker
-[results_est, results_all, ll_host, params] = kgmlm.diagnostics.checkDerivatives(gmlm, params, [], [], use_posterior);
 figure(1);
 clf;
 plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
@@ -173,7 +174,7 @@ clf;
 plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
 pauseMessage(pauseAtParts, sprintf("Done with weighted LL 2...\n"));
 
-if(gmlm.populationData)
+if(gmlm.isSimultaneousPopulation   )
     %random weights - full full
     [results_est, results_all, ll_host] = kgmlm.diagnostics.checkDerivatives(gmlm, params, gmlm.dim_M, true, use_posterior);
     figure(4);

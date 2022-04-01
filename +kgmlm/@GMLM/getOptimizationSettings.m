@@ -1,12 +1,19 @@
 %% gets combinations of parameters to optimize for MLE/MAP estimates
-function [optSetup, opts_empty] = getOptimizationSettings(obj, alternating_opt, trial_weights, optStruct)
-
-if(nargin < 4 || isempty(optStruct))
-    optStruct = obj.getComputeOptionsStruct(true, 'trial_weights', trial_weights, 'includeHyperparameters', false);
+function [optSetup, opts_empty] = getOptimizationSettings(obj, alternating_opt, trial_weights, optStruct, includeHyperparams)
+if(nargin < 5)
+    includeHyperparams = false;
 end
 
-opts_empty  = obj.getComputeOptionsStruct(false, 'trial_weights', trial_weights, 'includeHyperparameters', false);
+if(nargin < 4 || isempty(optStruct))
+    optStruct = obj.getComputeOptionsStruct(true, 'trial_weights', trial_weights, 'includeHyperparameters', includeHyperparams);
+end
+
+opts_empty  = obj.getComputeOptionsStruct(false, 'trial_weights', trial_weights, 'includeHyperparameters', includeHyperparams);
     
+if(alternating_opt && includeHyperparams)
+    error("Invalid setup!");
+end
+
 if(alternating_opt)
     % setup subsets of variables to optimize alternatingly such that each optimization will be concave
 
@@ -47,7 +54,7 @@ if(alternating_opt)
         end
     end
 else
-    optSetup  = obj.getComputeOptionsStruct(true, 'includeHyperparameters', false);
+    optSetup  = obj.getComputeOptionsStruct(true, 'includeHyperparameters', includeHyperparams);
     optSetup.dW = true & optStruct.dW;
     optSetup.dB = obj.dim_B > 0 & optStruct.dB;
 
