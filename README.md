@@ -32,6 +32,7 @@ To compile the library and run the example:
 user@DESKTOP:~/PROJECTHOME$ mkdir build
 user@DESKTOP:~/PROJECTHOME$ cd build
 user@DESKTOP:~/PROJECTHOME$ cmake ..
+user@DESKTOP:~/PROJECTHOME$ make
 user@DESKTOP:~/PROJECTHOME$ cd ../Python
 user@DESKTOP:~/PROJECTHOME$ python gmlmExample.py
 ```
