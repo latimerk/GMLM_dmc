@@ -9,7 +9,6 @@ LL_info = obj.LL_info;
 X_groups = obj.X_groups;
 X_lin = LL_info.X_lin;
 Y = LL_info.Y;
-llType = LL_info.logLikeType;
 dt = LL_info.bin_size;
 dim_N_ranges = LL_info.dim_N_ranges;
 
@@ -91,30 +90,16 @@ for jj = 1:J
 end
 
 %% compute term-wise log-rate
-if(strcmpi(llType, "poissExp"))
-    log_rate = log_rate + log(dt);
-    ex = exp(log_rate);
-    ll = -ex + log_rate.*Y;
-    if(compute_dll)
-        dll = -ex + Y;
-    end
-elseif(strcmpi(llType, "poissSoftRec"))
-    if(compute_dll)
-        [f,g] = kgmlm.utils.softrec(log_rate);
-        dll = -g*dt + Y.*(g./f);
-    else
-        f = kgmlm.utils.softrec(log_rate);
-    end
-    ll = -f*dt + Y.*(log(f) - log(dt));
-elseif(strcmpi(llType, "sqErr"))
-    errY = log_rate - Y;
-    ll = -0.5*err.^2;
-    if(compute_dll)
-        dll = -errY;
-    end
+
+
+LL_info_c = obj.LL_info;
+
+if(compute_dll)
+    [ll,dll] = LL_info_c.logLikeFun(log_rate, Y, dt);
 else
-    error("unkown log likelihood");
+    ll = LL_info_c.logLikeFun(log_rate, Y, dt);
 end
+
 if(~isempty(opts.trial_weights) && compute_dll)
     for mm = 1:M
         dll(dim_N_ranges(mm):(dim_N_ranges(mm)-1),:) = dll(dim_N_ranges(mm):(dim_N_ranges(mm+1)-1),:) .* opts.trial_weights(mm,:);
@@ -132,7 +117,7 @@ if(opts.trialLL)
     end
 end
 
-results.trialLL(:,:) = trialLL;
+results.trialLL(1:size(trialLL,1),:) = trialLL;
 
 %% do any requested derivatives
 if(opts.dW)

@@ -5,6 +5,5 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 project(kcGMLMProject LANGUAGES CXX CUDA)
 
-add_subdirectory(+kgmlm/+CUDAlib/kCUDAsrc)
-
+add_subdirectory(src)
 add_subdirectory(Python/src)

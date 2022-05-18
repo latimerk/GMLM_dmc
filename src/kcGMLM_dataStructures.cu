@@ -239,7 +239,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         msg->callErrMsgTxt(output_stream);
     }
     bool reset_sizes = false;
-    if(opts != NULL && !opts->trial_weights->empty()) {
+    if(opts != NULL && opts->update_weights && !opts->trial_weights->empty()) {
         size_t trial_weights_nonzero_cnt_c = 0;
         dataset->dim_N_temp = 0;
         dataset->dim_N_neuron_temp.assign(dim_P(), 0);
@@ -318,10 +318,14 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         //checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
         checkCudaErrors(cudaEventRecord(paramsLoaded_event, stream), "GPUGMLM_parameters_GPU::copyToGPU errors: could not add event to stream for sparse run!");
     }
-    else {
+    else if(opts->update_weights) {
         // this says all trial weights are 1 (normal log likelihood computation)
         trial_weights  = trial_weights_0;
         reset_sizes = true;
+        checkCudaErrors(cudaEventRecord(paramsLoaded_event), "GPUGMLM_parameters_GPU::copyToGPU errors: could not record event!");
+    }
+    else {
+        reset_sizes = false;
         checkCudaErrors(cudaEventRecord(paramsLoaded_event), "GPUGMLM_parameters_GPU::copyToGPU errors: could not record event!");
     }
 
@@ -382,7 +386,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         msg->callErrMsgTxt(output_stream);
     }
     bool reset_sizes = false;
-    if(opts != NULL && opts->trial_weights->size() != 0) {
+    if(opts != NULL && opts->update_weights && opts->trial_weights->size() != 0) {
         size_t trial_weights_nonzero_cnt_c = 0;
         dataset->dim_N_temp = 0;
         checkCudaErrors(trial_weights_temp->resize(stream, -1, opts->trial_weights->getSize(1)), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not set sizes for sparse run!");
@@ -458,10 +462,14 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         //checkCudaErrors( cudaStreamSynchronize(stream), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not synchronize stream for sparse run!");
         checkCudaErrors(cudaEventRecord(paramsLoaded_event, stream), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not add event to stream for sparse run!");
     }    
-    else {
+    else if(opts->update_weights) {
         // this says all trial weights are 1 (normal log likelihood computation)
         trial_weights  = trial_weights_0;
         reset_sizes = true;
+        checkCudaErrors(cudaEventRecord(paramsLoaded_event), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not record event!");
+    }
+    else {
+        reset_sizes = false;
         checkCudaErrors(cudaEventRecord(paramsLoaded_event), "GPUGMLMPop_parameters_GPU::copyToGPU errors: could not record event!");
     }
 

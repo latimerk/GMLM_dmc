@@ -136,7 +136,7 @@ bool GPUGMLM_computeBlock<FPTYPE>::loadParams(const GPUGMLM_params<FPTYPE> * par
 
         //for each group, multiply coefficients by X*T -> XT
         for(int jj = 0; jj < dim_J && jj < dataset->dim_J(); jj++) {
-            dataset->Groups[jj]->multiplyCoefficients(isSparseRun, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], params->paramsLoaded_event);
+            dataset->Groups[jj]->multiplyCoefficients(isSparseRun, opts->update_weights, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], params->paramsLoaded_event);
         }
     }
     else {
@@ -455,7 +455,7 @@ void GPUGMLM_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOptio
     
     //for each Group
     for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, opts->update_weights, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
     } 
     
          //launch kernel to sum dLL -> dW, dB for each trial?
@@ -1082,7 +1082,7 @@ __global__ void kernel_getGroupX_local_full(GPUData_kernel<FPTYPE> X_temp, const
 
 //functions to multiply the tensor coefficients by the current parameters
 template <class FPTYPE>
-void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded) {
+void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const bool update_weights, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded) {
     this->checkCudaErrors(set_dim_R(params->dim_R(), stream), "GPUGMLM_dataset_Group_GPU errors: could not set dim_R!");
     if(params->dim_R() == 0) {
         return;
@@ -1093,21 +1093,21 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
     }
     this->checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
     
-    if(isSparseRun) {
+    if(isSparseRun && update_weights) {
         this->checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
     }
-    else {
+    else if(update_weights) {
         this->checkCudaErrors(lambda_v->resize(stream, parent->lambda->getSize_max(0), -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
     }
 
     for(int dd = 0; dd < dim_D(); dd++) {
         
         GPUData<FPTYPE> * X_c = X[dd];
-        if(isSparseRun) {
+        if(isSparseRun && update_weights) {
             this->checkCudaErrors(X_temp[dd]->resize(  stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
             this->checkCudaErrors(lambda_d[dd]->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
         }
-        else {
+        else if(update_weights) {
             this->checkCudaErrors(lambda_d[dd]->resize(stream, lambda_d[dd]->getSize_max(0),-1,-1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for full runs.");
         }
         if((*isSharedIdentity)[dd]) {
@@ -1116,22 +1116,23 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparse
 
         if(isSparseRun && !(*isShared)[dd]) {
             // if sparse run and local regressors, build matrix then multiply
-            dim3 block_size;
-            if(dim_F(dd) > 8) { 
-                block_size.y = 8;
+            if(update_weights) {
+                dim3 block_size;
+                if(dim_F(dd) > 8) { 
+                    block_size.y = 8;
+                }
+                else if(dim_F(dd) >= 4) { 
+                    block_size.y = 4;
+                }
+                    block_size.y = 1;
+                block_size.x = 1024 / block_size.y;
+                dim3 grid_size;
+                grid_size.x = parent->dim_N_temp / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
+                grid_size.y = 1;
+                kernel_getGroupX_local_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), 
+                                            parent->ridx_sa_all->device());
+                this->checkCudaErrors("GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors:  kernel_getGroupX_local_full launch failed");
             }
-            else if(dim_F(dd) >= 4) { 
-                block_size.y = 4;
-            }
-                block_size.y = 1;
-            block_size.x = 1024 / block_size.y;
-            dim3 grid_size;
-            grid_size.x = parent->dim_N_temp / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
-            grid_size.y = 1;
-            kernel_getGroupX_local_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), 
-                                        parent->ridx_sa_all->device());
-            this->checkCudaErrors("GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors:  kernel_getGroupX_local_full launch failed");
-
             X_c = X_temp[dd];
         }
 
@@ -1480,7 +1481,7 @@ __global__ void kernel_dLL_mult(GPUData_kernel<FPTYPE> lambda_d, const GPUData_k
 }
 
 template <class FPTYPE>
-void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event) {
+void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, const bool update_weights, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event) {
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
@@ -1529,20 +1530,21 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
             GPUData<FPTYPE> * X_c;
             if((*isShared)[dd] && isSparseRun) { 
                 //  if doing sparse run with shared regressor, builds temporary X matrix
-                dim3 block_size;
-                block_size.y = 1;
-                block_size.x = 1024 / block_size.y;
-                dim3 grid_size;
-                grid_size.x = parent->dim_N_temp  / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
-                grid_size.y = 1;
-                
+                if(update_weights) {
+                    dim3 block_size;
+                    block_size.y = 1;
+                    block_size.x = 1024 / block_size.y;
+                    dim3 grid_size;
+                    grid_size.x = parent->dim_N_temp  / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
+                    grid_size.y = 1;
+                    
 
-                kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), parent->dLL->device(),
-                                            	iX[dd]->device(), 
-                                                parent->ridx_sa_all->device(),
-                                                (*isSharedIdentity)[dd]);
-                this->checkCudaErrors("GPUGMLM_dataset_Group_GPU::computeDerivatives errors:  kernel_getGroupX_shared_full launch failed");
-
+                    kernel_getGroupX_shared_full<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), parent->dLL->device(),
+                                                    iX[dd]->device(), 
+                                                    parent->ridx_sa_all->device(),
+                                                    (*isSharedIdentity)[dd]);
+                    this->checkCudaErrors("GPUGMLM_dataset_Group_GPU::computeDerivatives errors:  kernel_getGroupX_shared_full launch failed");
+                }
                 X_c   = X_temp[dd];
                 phi_c = lambda_d[dd];
             }

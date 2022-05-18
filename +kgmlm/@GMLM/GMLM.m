@@ -70,9 +70,11 @@ classdef GMLM < handle
         isSimultaneousPopulation logical % if data is structured as a simultaneously recorded population
         
         temp_storage_file
+        destroy_temp_storage_file logical
 
         LL_info
         X_groups
+
     end
     
     %% Constructor
@@ -506,6 +508,7 @@ classdef GMLM < handle
             obj.gpuDoublePrecision = true;
             
             obj.temp_storage_file = [];
+            obj.destroy_temp_storage_file = true;
         end
     end
     
@@ -519,7 +522,7 @@ classdef GMLM < handle
             end
             
             % delete any storage files used (for example, by MCMC)
-            if(~isempty(obj.temp_storage_file) && (isstring(obj.temp_storage_file) || ischar(obj.temp_storage_file)) && exist(obj.temp_storage_file, 'file'))
+            if(obj.destroy_temp_storage_file && ~isempty(obj.temp_storage_file) && (isstring(obj.temp_storage_file) || ischar(obj.temp_storage_file)) && exist(obj.temp_storage_file, 'file'))
                 fprintf('GMLM destructor: deleting temporary storage file (%s).\n', obj.temp_storage_file);
                 delete(obj.temp_storage_file);
                 obj.temp_storage_file = [];
@@ -2031,6 +2034,7 @@ classdef GMLM < handle
                     results = obj.getEmptyResultsStruct(opts);
                 end
                 results = obj.computeLogLikelihood_host_v2(params, opts, results);
+                results.log_likelihood = sum(results.trialLL, 'all');
                 results = obj.computeLogPrior(params_0, opts, results, false);
             elseif(useAsync)
                 % sends LL computation to GPU
@@ -2173,7 +2177,7 @@ classdef GMLM < handle
 
 
         [results] = computeLogLikelihood_host_v2(obj, params, opts, results);
-        [] = setupComputeStructuresHost(obj, reset);
+        [] = setupComputeStructuresHost(obj, reset, order);
     end
     
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -2214,7 +2218,7 @@ classdef GMLM < handle
         %
         %
         function [results, dataType] = getEmptyResultsStruct(obj, opts)
-            useDoublePrecision = isa(opts.trial_weights, 'double');
+            useDoublePrecision = obj.gpuDoublePrecision;%isa(opts.trial_weights, 'double');
             if(useDoublePrecision)
                 dataType = 'double';
             else

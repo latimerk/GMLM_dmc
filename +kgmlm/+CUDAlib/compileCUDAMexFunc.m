@@ -17,16 +17,16 @@ end
       
 
 if(nargin > 0 && numel(fNames) == 1)
-    [~, ~, ~, ~, sourceDir, objDir] = kgmlm.CUDAlib.myCUDAPaths();
+    [~, ~, ~, ~, sourceDir, objDir, ~, mexSourceDir] = kgmlm.CUDAlib.myCUDAPaths();
         
-    if(~isfolder(sourceDir))
-        error('CUDA source directory not found! %s\n',sourceDir);
+    if(~isfolder(mexSourceDir))
+        error('CUDA source directory not found! %s\n',mexSourceDir);
     end 
     if(~isfolder(objDir))
         mkdir(objDir);
     end
     
-    compileCUDAlibMex = @(fName) mex('-c', sprintf('%s/%s',sourceDir,fName), '-outdir', objDir, sprintf('-I%s', sourceDir));%,'COMPFLAGS=$COMPFLAGS /std:c++14'
+    compileCUDAlibMex = @(fName) mex('-c', sprintf('%s/%s',mexSourceDir,fName), '-outdir', objDir, sprintf('-I%s', sourceDir), sprintf('-I%s', mexSourceDir));%,'COMPFLAGS=$COMPFLAGS /std:c++14'
     
     compileCUDAlibMex(fNames);
 else

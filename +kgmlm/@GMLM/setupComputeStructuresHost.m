@@ -1,4 +1,4 @@
-function [] = setupComputeStructuresHost(obj, reset)
+function [] = setupComputeStructuresHost(obj, reset, order)
 if(nargin < 2)
     reset = false;
 end
@@ -6,12 +6,15 @@ if(~isempty(obj.LL_info) &&  ~reset)
     return;
 end
 
-if(obj.isSimultaneousPopulation)
-    order = 1:numel(obj.trials);
-else
-    [neuronIdx,order] = sort(obj.neuronIdx);
-    neuronIdx_u = unique(neuronIdx);
+if(nargin < 3 || isempty(order))
+    if(obj.isSimultaneousPopulation)
+        order = 1:numel(obj.trials);
+    else
+        [neuronIdx,order] = sort(obj.neuronIdx);
+        neuronIdx_u = unique(neuronIdx);
+    end
 end
+
 trs = obj.trials(order);
 
 obj.LL_info = struct();
@@ -38,8 +41,6 @@ obj.LL_info.X_lin = X_lin;
 obj.LL_info.Y = cell2mat({trs(:).Y}');
 obj.LL_info.bin_size = obj.bin_size;
 
-N = obj.dim_N();
-N = N(order);
 
 llType = obj.logLikeType;
 obj.LL_info.logLikeType = llType;
@@ -52,6 +53,25 @@ else
     obj.LL_info.Y_const = zeros(numel(trs), size(obj.LL_info.Y,2));
 end
 
+if(strcmpi(llType, "poissExp"))
+    obj.LL_info.logLikeFun = @kgmlm.utils.poissExpLL;
+elseif(strcmpi(llType, "poissSoftRec"))
+    obj.LL_info.logLikeFun = @kgmlm.utils.poissSoftRecLL;
+elseif(strcmpi(llType, "truncatedPoissExp"))
+    obj.LL_info.logLikeFun = @kgmlm.utils.truncatedPoissExpLL;
+elseif(strcmpi(llType, "sqErr"))
+    obj.LL_info.logLikeFun = @kgmlm.utils.sqErrLL;
+else
+    error("Invalid log likelihood");
+end
+
+
+
+N = obj.dim_N();
+N = N(order);
+obj.LL_info.dim_N = N;
+obj.LL_info.dim_N_ranges = cumsum([1;N]);
+
 if(~obj.isSimultaneousPopulation)
     P = obj.dim_P;
     dim_N_neuron = zeros(P,1);
@@ -61,9 +81,6 @@ if(~obj.isSimultaneousPopulation)
     obj.LL_info.dim_N_neuron = N_neuron;
     obj.LL_info.dim_N_neuron_ranges = cumsum([1;N_neuron]);
 end
-
-obj.LL_info.dim_N = N;
-obj.LL_info.dim_N_ranges = cumsum([1;N]);
 
 
 for jj = 1:obj.dim_J

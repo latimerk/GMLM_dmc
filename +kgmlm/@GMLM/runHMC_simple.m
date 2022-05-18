@@ -19,6 +19,7 @@ p.CaseSensitive = false;
 addRequired(p, "params_init",  @(aa)(isstruct(aa) | isempty(aa)));
 addRequired(p, "settings", @isstruct);
 addParameter(p, "figure" ,    nan, @isnumeric);
+addParameter(p, "printFunc" ,    []);
 addParameter(p, "optStruct" ,   [], @(aa) isempty(aa) | obj.verifyComputeOptionsStruct(aa));
 addParameter(p, "sampleHyperparameters", true, @islogical);
 addParameter(p, "trial_weights"   ,  [], @(aa) isempty(aa) | (numel(aa) == obj.dim_M & isnumeric(aa)));
@@ -34,6 +35,7 @@ HMC_settings       = p.Results.settings;
 trial_weights      = p.Results.trial_weights;
 sampleHyperparameters = p.Results.sampleHyperparameters;
 figNum = p.Results.figure;
+printFunc      = p.Results.printFunc;
 saveUnscaled      = p.Results.saveUnscaled;
 saveSinglePrecision      = p.Results.saveSinglePrecision;
     
@@ -195,6 +197,7 @@ end
 %makes space for trialLL without ever making the full matrix in RAM: this is a cludge around the compression that mafile puts in automatically
 Z = zeros(TotalSamples,1,dataType);
 fprintf("Preallocating HD space to store LLs for each trial (~%.3f gb)...\n", whos("Z").bytes * DT(1) * DT(2) / 1e9);
+obj.destroy_temp_storage_file = true;
 obj.temp_storage_file = HMC_settings.trialLLfile;
 fileID = fopen(HMC_settings.trialLLfile, "w");
 for ii = 1:DT(1)
@@ -324,11 +327,13 @@ for sample_idx = start_idx:TotalSamples
     
     %% get HMC sample
     % run HMC step
+    B = 1;%max((sample_idx-2) * -0.002 + 2, 1);
+
     w_init = obj.vectorizeParams(paramStruct, optStruct);
     nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct, resultStruct);
     try
         HMC_state.e_scale = samples.e_scale(sample_idx);
-        [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, HMC_settings.M_const * M, nlpostFunction, HMC_state);
+        [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, HMC_settings.M_const * M, nlpostFunction, HMC_state, B);
         if(samples.accepted(sample_idx))
             paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct);
         end
@@ -341,11 +346,15 @@ for sample_idx = start_idx:TotalSamples
     
     
     %% store samples
+    paramStruct2 = paramStruct;
     if(scaled_WB)
         params_0 = obj.GMLMstructure.scaleParams(paramStruct);
 
         samples.W(:,  sample_idx) = params_0.W(:);
         samples.B(:,:,sample_idx) = params_0.B(:,:);
+
+        paramStruct2.W(:) = params_0.W(:);
+        paramStruct2.B(:) = params_0.B(:);
 
         if(saveUnscaled)
             samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
@@ -369,11 +378,14 @@ for sample_idx = start_idx:TotalSamples
             samples.Groups(jj).V(:,:,sample_idx) = params_0.V;
             metrics.Groups(jj).N(:, sample_idx) = sum(params_0.V.^2,1);
 
+            paramStruct2.Groups(jj).V(:) = params_0.V(:);
+
             if(saveUnscaled)
                 samples.Groups(jj).V_scaled(:,:,sample_idx) = paramStruct.Groups(jj).V;
             end
             for ss = 1:S(jj)
                 samples.Groups(jj).T{ss}(:,:,sample_idx) = params_0.T{ss};
+                paramStruct2.Groups(jj).T{ss}(:) = params_0.T{ss}(:);
                 if(saveUnscaled)
                     samples.Groups(jj).T_scaled{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
                 end
@@ -425,6 +437,9 @@ for sample_idx = start_idx:TotalSamples
         else
             total_errors = sum(samples.errors(1:sample_idx), "omitnan");
             fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n", HMC_state.stepSize.e, HMC_state.steps, total_errors);
+        end
+        if(~isempty(printFunc))
+            printFunc(paramStruct2);
         end
         
         clear ww;

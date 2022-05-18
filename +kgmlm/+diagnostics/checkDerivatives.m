@@ -10,7 +10,7 @@ opts_all   = gmlm.getComputeOptionsStruct(true);
 
 if(nargin > 2 && ~isempty(numberOfTrialsForSGrun) && numberOfTrialsForSGrun > 0)
     nz = randperm(gmlm.dim_M, numberOfTrialsForSGrun);
-    if(nargin < 4 || isempty(perNeuronWeights) || ~perNeuronWeights || ~gmlm.populationData)
+    if(nargin < 4 || isempty(perNeuronWeights) || ~perNeuronWeights || ~gmlm.isSimultaneousPopulation)
         opts_empty.trial_weights = zeros(gmlm.dim_M,1);
         ws = rand(numberOfTrialsForSGrun,1)*2;
         opts_empty.trial_weights(nz) = ws;

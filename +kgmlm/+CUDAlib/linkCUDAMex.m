@@ -7,7 +7,7 @@ else
 end
 
 clear mex;
-[~, CUDAdirectory, CUDAlibSubdirectory, MATLABdirectory, sourceDir, objDir, mexDir] = kgmlm.CUDAlib.myCUDAPaths();
+[~, CUDAdirectory, CUDAlibSubdirectory, MATLABdirectory, ~, objDir, mexDir, mexSourceDir] = kgmlm.CUDAlib.myCUDAPaths();
 
 
 for ii = 1:length(fNames)
@@ -51,10 +51,10 @@ end
 if(nargin > 1 && doReset)
     if(ispc)
         mex('-outdir',mexDir,['-I' CUDAdirectory 'include/'], ... 
-            ['-L' CUDAlibSubdirectory], '-lcudart', [sourceDir 'kcResetDevices.cpp']);
+            ['-L' CUDAlibSubdirectory], '-lcudart', [mexSourceDir 'kcResetDevices.cpp']);
     else
         mex('-outdir',mexDir,['-I' CUDAdirectory 'include/'], ['-L' MATLABdirectory 'sys/os/glnxa64/'],'-lstdc++',...
-            ['-L' CUDAlibSubdirectory], '-lcudart', [sourceDir 'kcResetDevices.cpp']);
+            ['-L' CUDAlibSubdirectory], '-lcudart', [mexSourceDir 'kcResetDevices.cpp']);
     end
 end
 

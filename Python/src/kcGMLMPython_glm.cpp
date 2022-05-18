@@ -1,3 +1,18 @@
+/*
+ * kcGMLMPython_glm.cpp
+ * Structures for linking my C++/CUDA GLM code to Python via pybind11.
+ *   
+ *  References
+ *   Kenneth Latimer & David Freeedman (2021). Low-dimensional encoding of 
+ *   decisions in parietal cortex reflects long-term training history.
+ *   bioRxiv
+ *
+ *  Copyright (c) 2022 Kenneth Latimer
+ *
+ *   This software is distributed under the GNU General Public
+ *   License (version 3 or later); please refer to the file
+ *   License.txt, included with the software, for details.
+ */
 #include "kcGMLMPython_glm.hpp"
 
 namespace kCUDA { 

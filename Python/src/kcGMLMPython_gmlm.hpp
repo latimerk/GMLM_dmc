@@ -1,3 +1,18 @@
+/*
+ * kcGMLMPython_gmlm.hpp
+ * Structures for linking my C++/CUDA GMLM code to Python via pybind11.
+ *   
+ *  References
+ *   Kenneth Latimer & David Freeedman (2021). Low-dimensional encoding of 
+ *   decisions in parietal cortex reflects long-term training history.
+ *   bioRxiv
+ *
+ *  Copyright (c) 2022 Kenneth Latimer
+ *
+ *   This software is distributed under the GNU General Public
+ *   License (version 3 or later); please refer to the file
+ *   License.txt, included with the software, for details.
+ */
 #ifndef GMLM_PYTHON_GMLM_H
 #define GMLM_PYTHON_GMLM_H
 
@@ -24,7 +39,7 @@ class GPUGMLM_trialGroup_python : public GPUGMLM_trial_Group_args<FPTYPE> {
                 delete ixx;
             }
         }
-        int addLocalMode(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> X_) {
+        int addLocalFactor(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> X_) {
             X_numpy.push_back(X_);
             this->X.push_back(new GLData_numpy<FPTYPE>(X_));
 
@@ -32,7 +47,7 @@ class GPUGMLM_trialGroup_python : public GPUGMLM_trial_Group_args<FPTYPE> {
             this->iX.push_back(new GLData_numpy<int>(iX_numpy[iX_numpy.size() - 1]));
             return X_numpy.size() - 1;
         }
-        int addSharedIdxMode(py::array_t<int, py::array::f_style | py::array::forcecast> iX_) {
+        int addSharedIdxFactor(py::array_t<int, py::array::f_style | py::array::forcecast> iX_) {
             iX_numpy.push_back(iX_);
             this->iX.push_back(new GLData_numpy<int>(iX_));
 
@@ -77,7 +92,7 @@ class GPUGMLM_trial_python : public GPUGMLM_trial_args<FPTYPE> {
             delete this->Y;
             delete this->X_lin;
         }
-        void addGroup(std::shared_ptr<GPUGMLM_trialGroup_python<FPTYPE>> group) {
+        int addGroup(std::shared_ptr<GPUGMLM_trialGroup_python<FPTYPE>> group) {
             if(this->dim_N() != group->dim_N()) {
                 throw py::value_error("Trial group does have the correct number of elements.");
             }
@@ -85,6 +100,7 @@ class GPUGMLM_trial_python : public GPUGMLM_trial_args<FPTYPE> {
                 Groups_shared.push_back(group);
                 this->Groups.push_back(group.get());
             }
+            return this->Groups.size() - 1;
         }
         size_t getNumGroups() const {
             return this->Groups.size();
@@ -149,6 +165,12 @@ class GPUGMLM_group_structure_python : public GPUGMLM_structure_Group_args<FPTYP
                     throw py::value_error("'modeDimensions' must be positive.");
                 }
             }
+            if(this->dim_A < 1) {
+                throw py::value_error("'dim_A' must be positive.");
+            }
+            if(this->dim_R_max < 1) {
+                throw py::value_error("'dim_R_max' must be positive.");
+            }
 
             size_t max_factor = 0;
             for(auto ss : modeParts) {
@@ -203,6 +225,12 @@ class GPUGMLM_group_structure_python : public GPUGMLM_structure_Group_args<FPTYP
         size_t getFactorDim(unsigned int factor) const {
             return this->dim_F(factor);
         }
+        size_t getModeDim(unsigned int mode) const {
+            if(mode >= this->dim_T.size()) {
+                throw py::value_error("mode index too large.");
+            }
+            return this->dim_T[mode];
+        }
         size_t getSharedRegressorDim(unsigned int factor) const {
             if(isSharedRegressor(factor)) {
                 return this->X_shared[factor]->getSize(0);
@@ -250,6 +278,12 @@ class GPUGMLM_structure_python : public GPUGMLM_structure_args<FPTYPE> {
                 throw py::value_error("Invalid group.");
             }
             return groups_shared[jj];
+        }
+        size_t getNumNeurons() {
+            return this->dim_P;
+        }
+        size_t getNumLinearTerms() {
+            return this->dim_B;
         }
     private:
         std::vector<std::shared_ptr<GPUGMLM_group_structure_python<FPTYPE>>> groups_shared;
@@ -836,6 +870,9 @@ class kcGMLM_python {
         }
         std::shared_ptr<GPUGMLM_params_python<FPTYPE>> getParams() {
             return params;
+        }
+        std::shared_ptr<GPUGMLM_structure_python<FPTYPE>> getGMLMStructure() {
+            return structure;
         }
 
         ~kcGMLM_python() {

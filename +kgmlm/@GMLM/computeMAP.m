@@ -32,7 +32,7 @@ function [params_map, results_map, hess_est] = computeMAP(obj, params_init, vara
     addParameter(p, 'display'         , 'off', @(aa)(isstring(aa) | ischar(aa)));
     addParameter(p, 'trial_weights'   ,  [], @(aa) isempty(aa) | (numel(aa) == obj.dim_M & isnumeric(aa)));
     addParameter(p, 'optStruct' ,   [], @(aa) isempty(aa) | obj.verifyComputeOptionsStruct(aa));
-    addParameter(p, 'optHyperparams'         , true, @islogical);
+    addParameter(p, 'optHyperparams'         , false, @islogical);
 
     parse(p, params_init, varargin{:});
     % then set/get all the inputs out of this structure

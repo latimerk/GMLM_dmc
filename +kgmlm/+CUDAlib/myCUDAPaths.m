@@ -1,4 +1,4 @@
-function [ projectHome, CUDAdirectory, CUDAlibSubdirectory, MATLABdirectory, sourceDir, objDir, mexDir ] = myCUDAPaths(  )
+function [ projectHome, CUDAdirectory, CUDAlibSubdirectory, MATLABdirectory, sourceDir, objDir, mexDir, mexSourceDir ] = myCUDAPaths(  )
 %MYPATHS this function contains path information to the CUDA and MATLAB folders.
 %   This is used for compiling CUDA files into mex files.
 
@@ -16,11 +16,12 @@ end
 
 objDir    = [ projectHome '/+kgmlm/+CUDAlib/kCUDAobj/'];
 mexDir    = [ projectHome '/+kgmlm/+CUDAlib/'];
-sourceDir = [ projectHome '/+kgmlm/+CUDAlib/kCUDAsrc/'];
+sourceDir = [ projectHome '/src/'];
+mexSourceDir = [ projectHome '/+kgmlm/+CUDAlib/kCUDAsrc/'];
 
 %% 2. Set absolute path for directory where CUDA installation lives:
 if(ispc)
-    CUDAdirectory   = 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.5/';
+    CUDAdirectory   = 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/';
     CUDAlibSubdirectory = [CUDAdirectory '/lib/x64/'];
     CUDALibFile = [CUDAlibSubdirectory 'cuda.lib'];
 else

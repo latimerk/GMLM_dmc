@@ -135,6 +135,7 @@ public:
     bool compute_dW;
     bool compute_trialLL; // if you don't want to copy all the individual trial likelihoods back to host
     
+    bool update_weights = true;
     GLData<FPTYPE> * trial_weights; // EMPTY or (max_trials x 1) or (max_trials x dim_P). Weighting for each trial (if 0, doesn't compute trial at all). Can be used for SGD
                                     // if EMPTY: all trial weights 1
                                     // if (max_trials x 1): weights for each trial

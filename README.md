@@ -20,9 +20,21 @@ CUDA 11.3
 MATLAB R2020a
 TensorToolbox 3.1
 
-Python bindings are coming soon!
-A basic library can be compiled using the cmake function and there are a couple Python scripts that setup the GMLM.
-However, no model fitting code is given.
+# Python bindings (work in progress)
+
+A basic library can be compiled using the cmake function and there are a couple Python scripts that setup the GMLM for GPUs.
+There is a bit of demo code for building a GMLM and fitting it in **`gmlmExample.py`**.
+
+The API requires **[pybind11](https://github.com/pybind/pybind11)**
+
+To compile the library and run the example:
+```console
+user@DESKTOP:~/PROJECTHOME$ mkdir build
+user@DESKTOP:~/PROJECTHOME$ cd build
+user@DESKTOP:~/PROJECTHOME$ cmake ..
+user@DESKTOP:~/PROJECTHOME$ cd ../Python
+user@DESKTOP:~/PROJECTHOME$ python gmlmExample.py
+```
 
 ## Citation (preprint)
 ```

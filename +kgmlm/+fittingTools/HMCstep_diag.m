@@ -5,9 +5,12 @@
 %
 % Takes in a negative log posterior function (return [nlpost, dnlpost] given vector of parameters)
 %   The negative is so that this function uses the same function as optimizers
-function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state)
+function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state, B)
     if(isfield(HMC_state, "e_scale") || ~isempty(HMC_state.e_scale))
         HMC_state.stepSize.e = HMC_state.stepSize.e * HMC_state.e_scale;
+    end
+    if(nargin < 5 || isempty(B))
+        B = 1;
     end
 
     
@@ -19,7 +22,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     
     %% get initial probability of params and derivatives
     [nlpost_0, ndW, ~, results_init] = nlpostFunction(w_init);
-    H_0 = -nlpost_0 + lp_momentum_0; 
+    H_0 = -B*nlpost_0 + lp_momentum_0; 
     
     %% run the HMC
     err = false;
@@ -33,7 +36,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     try
         for tt = 1:HMC_state.steps
             %% move momentums
-            [p, errs] = momentumStep(p, -ndW, HMC_state);
+            [p, errs] = momentumStep(p, -ndW*B, HMC_state);
             if(errs)% divergent trajectory
                 nlpost = inf; % divergent trajectory
                 break;
@@ -50,7 +53,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             end
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
-            if(isinf(nlpost) || isnan(nlpost) || nlpost - nlpost_0 < -1e5 || nlpost - nlpost_0 > 1e8) % looks like a divergent trajectory; last condition is likely a numerical error
+            if(isinf(nlpost) || isnan(nlpost) || abs(nlpost - nlpost_0) > 1e6) % looks like a divergent trajectory; last condition is likely a numerical error in the settings I'm in: could need to adjust in extreme conditions
                 nlpost = inf; % divergent trajectory
                 break;
             end
@@ -60,7 +63,7 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             
 
             %% move momentums
-            [p, errs] = momentumStep(p, -ndW, HMC_state);
+            [p, errs] = momentumStep(p, -ndW*B, HMC_state);
             if(errs)% divergent trajectory
                 nlpost = inf; % divergent trajectory
                 break;
@@ -72,10 +75,10 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
         
         %% get final state log prob
         lp_momentum = logProbMomentum(p, M);
-        H_s = -nlpost + lp_momentum; 
+        H_s = -B*nlpost + lp_momentum; 
         
         log_p_accept = H_s - H_0;
-        if(isnan(log_p_accept) || isinf(log_p_accept))
+        if(isnan(log_p_accept) || isinf(log_p_accept) || isnan(nlpost) || isinf(nlpost) || isnan(lp_momentum) || isinf(lp_momentum))
             error('HMC accept probability is nan!');
         end
     catch ee %#ok<NASGU>

@@ -205,7 +205,7 @@ end
 function [] = plotDerivativeComparison(results_all, results_est, ll_host, use_posterior)
     
     NR = numel(results_all.Groups) + 1;
-    NC = max(4, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1 + use_posterior);
+    NC = max(5, max(arrayfun(@(aa) numel(aa.dT), results_all.Groups)) + 1 + use_posterior);
     
     subplot(NR, NC, 1);
     plot([ ll_host(:) results_all.trialLL(:)])
@@ -231,7 +231,7 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host, use_po
     title('dB');
 
     if(use_posterior && isfield(results_all, "dH"))
-        subplot(NR, NC, 4);
+        subplot(NR, NC, 5);
         plot([results_all.dH(:) results_est.dH(:)])
         title('dH');
     end

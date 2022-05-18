@@ -137,7 +137,7 @@ bool GPUGMLMPop_computeBlock<FPTYPE>::loadParams(const GPUGMLM_params<FPTYPE> * 
 
         //for each group, multiply coefficients by X*T -> XT
         for(int jj = 0; jj < dim_J && jj < dataset->dim_J(); jj++) {
-            dataset->Groups[jj]->multiplyCoefficients(isSparseRun, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], params->paramsLoaded_event);
+            dataset->Groups[jj]->multiplyCoefficients(isSparseRun, opts->update_weights, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], params->paramsLoaded_event);
         }
     }
     else {
@@ -159,24 +159,76 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeRateParts(const GPUGMLM_computeOpti
     }
 }
 
+
+/*Kernel for each observation
+ *  for sparse runs with compute_dB, saves out the partial X_lin into X_lin_temp
+ */        
+template <class FPTYPE>
+__global__ void kernel_setup_X_lin_temp(
+        const GPUData_kernel<FPTYPE> X_lin ,
+        const GPUData_kernel<unsigned int> id_a_trialM,
+        const GPUData_kernel<FPTYPE> trial_weights,
+        const GPUData_kernel<unsigned int> ridx_sa_all,
+        GPUData_kernel<FPTYPE> X_lin_temp) {
+    //current observation index
+
+    for(size_t row_0 = blockIdx.x * blockDim.x; row_0 < X_lin_temp.x; row_0 += blockDim.x * gridDim.x) {
+        size_t row = row_0 + threadIdx.x;
+        size_t Xlin_row = row; //if full run
+        if(ridx_sa_all.y > 0 && row < ridx_sa_all.x) {
+            //if sparse run
+            Xlin_row = ridx_sa_all[row];
+        }
+        FPTYPE tw_c = 1;
+        if(row < X_lin_temp.x && trial_weights.y == 1) {
+            unsigned int tr_idx = id_a_trialM[Xlin_row];
+            if(trial_weights.x > tr_idx) {
+                tw_c = trial_weights[tr_idx];
+            }
+        }
+        __syncthreads();
+        for(unsigned int pp_0 = blockIdx.y * blockDim.y; pp_0 < X_lin_temp.z; pp_0 += blockDim.y * gridDim.y) {
+            unsigned int pp = pp_0 + threadIdx.y;
+
+            if(X_lin_temp.z > 1 && row < X_lin_temp.x && trial_weights.y > 1 && pp < trial_weights.y) {
+                unsigned int tr_idx = id_a_trialM[Xlin_row];
+                if(trial_weights.x > tr_idx) {
+                    tw_c = trial_weights(tr_idx, pp);
+                }
+            }
+
+            bool elementIncluded = row < X_lin_temp.x && pp < X_lin_temp.z && tw_c != 0;
+
+            __syncwarp();
+
+            for(int bb = 0; bb < X_lin.y; bb++) {
+                if(elementIncluded) {
+                    if(ridx_sa_all.y > 0 && (pp == 0 || X_lin_temp.z > 1)) { // for dB when doing sparse run
+                        X_lin_temp(row, bb, pp) = X_lin(Xlin_row, bb, pp);
+                    }
+                }
+                __syncwarp();
+            }
+            __syncthreads();
+        }
+    }
+}
+
 /*Kernel for each observation
  * Summarizes the contributions from each tensor group (lambda), linear term (X_lin,B), baseline rate (w,log_dt)
  * Returns the  observation-wise log like (LL - no normalizing constant) and it's derivative portion (dLL)
  *
- *  for sparse runs with compute_dB, saves out the partial X_lin into X_lin_temp
  */        
 template <class FPTYPE>
 __global__ void kernel_getObs_LL_pop(GPUData_kernel<FPTYPE> LL, GPUData_kernel<FPTYPE> dLL,
         const GPUData_kernel<FPTYPE> Y,
         const GPUData_kernel<FPTYPE> lambda,
-        const GPUData_kernel<FPTYPE> X_lin ,
-        const GPUData_kernel<FPTYPE> B     , 
+        bool addW,
         const GPUData_kernel<FPTYPE> W, 
         const FPTYPE log_dt, const FPTYPE dt,
         const GPUData_kernel<unsigned int> id_a_trialM,
         const GPUData_kernel<FPTYPE> trial_weights,
         const GPUData_kernel<unsigned int> ridx_sa_all,
-        GPUData_kernel<FPTYPE> X_lin_temp, const bool compute_dB,
         const logLikeType logLikeSettings, const GPUData_kernel<FPTYPE> logLikeParams) {
     //current observation index
 
@@ -213,19 +265,15 @@ __global__ void kernel_getObs_LL_pop(GPUData_kernel<FPTYPE> LL, GPUData_kernel<F
 
             if(elementIncluded) {
                 Y_c = Y(Xlin_row, pp);
-                log_rate = W[pp];
+                if(!addW) {
+                    log_rate = W[pp];
+                }
+                else {
+                    log_rate = W[pp] + LL(row, pp);
+                }
             }
             __syncwarp();
 
-            for(int bb = 0; bb < X_lin.y; bb++) {
-                if(elementIncluded) {
-                    log_rate += X_lin(Xlin_row, bb, pp) * B(bb, pp);
-                    if(ridx_sa_all.y > 0 && compute_dB && (pp == 0 || X_lin_temp.z > 1)) { // for dB when doing sparse run
-                        X_lin_temp(row, bb, pp) = X_lin(Xlin_row, bb, pp);
-                    }
-                }
-                __syncwarp();
-            }
             
             for(int jj = 0; jj < lambda.z; jj++) {
                 if(elementIncluded) {
@@ -392,8 +440,40 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOption
     this->switchToDevice();
          //launch kernel to sum lambda, X_lin*B -> LL, dLL (launch over all observations)
          //launch kernel to sum lambda for each trial
+
+         
+    GPUData<FPTYPE> * X_lin_c = isSparseRun ?  dataset->X_lin_temp : dataset->X_lin;
+
+    if(isSparseRun && opts->update_weights) {
+        dataset->X_lin_temp->resize(stream, dataset->LL->getSize(0));
+
+        dim3 block_size;
+        block_size.x = 1024/block_size.y;
+        dim3 grid_size;
+        size_t max_blocks_needed  = dataset->LL->getSize(0) / block_size.x + ( (dataset->LL->getSize(0) % block_size.x == 0) ? 0 : 1);
+        size_t blocks_to_use = 1024;
+        grid_size.x  = min(max_blocks_needed, blocks_to_use);
+        grid_size.y = dataset->X_lin_temp->getSize(2) / block_size.y + ( (dataset->X_lin_temp->getSize(2) % block_size.y == 0) ? 0 : 1);
+        kernel_setup_X_lin_temp<<<grid_size, block_size, 0, stream>>>( dataset->X_lin->device(),
+                dataset->id_a_trialM->device(),
+                params->trial_weights->device(),
+                dataset->ridx_a_all_c->device(),
+                dataset->X_lin_temp->device());
+    }
+
+    //X_lin*B -> LL
+    if(dataset->dim_B() > 0) {
+        cublasStatus_t ce;
+        if(X_lin_c->getInc_gpu() == 0) {
+            ce = X_lin_c->GEMM(dataset->LL, params->B, cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N);
+        }       
+        else {
+            ce = X_lin_c->GEMVs(dataset->LL, params->B, cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N);
+        }
+        this->checkCudaErrors(ce, "GPUGMLMPop_computeBlock::computeLogLike errors:  X_lin * B launch failed");
+    }
     
-    //X_lin*B + W + log_dt + sum(lambda) -> LL for each neuron
+    //LL + W + log_dt + sum(lambda) -> LL for each neuron
     this->checkCudaErrors(dataset->waitForGroups_LL(stream), "GPUGMLM_computeBlock::computeLogLike errors:  waitForGroups_LL failed");
 
     dim3 block_size;
@@ -406,10 +486,6 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOption
     else {
     	block_size.y = 1;
     }
-
-    if(opts->compute_dB && isSparseRun) {
-        dataset->X_lin_temp->resize(stream, dataset->LL->getSize(0));
-    }
     
         
     block_size.x = 1024/block_size.y;
@@ -419,20 +495,22 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeLogLike(const GPUGMLM_computeOption
     grid_size.x  = min(max_blocks_needed, blocks_to_use);
     grid_size.y = dataset->dim_P() / block_size.y + ( (dataset->dim_P() % block_size.y == 0) ? 0 : 1);
 
-    //this->output_stream << " grid_size.y  = " << grid_size.y  << ", " << " block_size.y  = " << block_size.y << "\n";
-    //this->msg->printMsgTxt(output_stream);
+    /*this->output_stream << " grid_size.y  = " << grid_size.y  << ", " << " block_size.y  = " << block_size.y << "\n";
+    this->output_stream << " grid_size.x  = " << grid_size.x  << ", " << " block_size.x  = " << block_size.x << "\n";
+    this->output_stream << " dim_P  = " << dataset->dim_P() << ", " << " dataset->LL->getSize(0) = " << dataset->LL->getSize(0) << "\n";
+    this->msg->printMsgTxt(this->output_stream);
+    this->checkCudaErrors("PRE GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_getObs_LL launch failed");*/
 
     kernel_getObs_LL_pop<<<grid_size, block_size, 0, stream>>>(dataset->LL->device(), dataset->dLL->device(),
                   dataset->Y->device(),
                   dataset->lambda->device(),
-                  dataset->X_lin->device(),
-                   params->B->device(),
+                  dataset->dim_B() > 0,
                    params->W->device(), dataset->log_dt, dataset->dt,
                   dataset->id_a_trialM->device(),
                   params->trial_weights->device(),
                   dataset->ridx_a_all_c->device(),
-                  dataset->X_lin_temp->device(), opts->compute_dB, 
                    params->logLikeSettings, params->logLikeParams->device());
+                   
     this->checkCudaErrors("GPUGMLMPop_computeBlock::computeLogLike errors:  kernel_getObs_LL launch failed");
     this->checkCudaErrors(cudaEventRecord(LL_event, stream), "GPUGMLMPop_computeBlock::computeLogLike errors: could not add LL event to stream!");
 
@@ -477,6 +555,7 @@ __global__ void kernel_sum_dW_pop( GPUData_kernel<FPTYPE> dW,  const GPUData_ker
     }
 }
 
+
 template <class FPTYPE>
 void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOptions<FPTYPE> * opts, const bool isSparseRun) {
     if(params->getNumberOfNonzeroWeights() == 0) { //nothing to compute
@@ -488,7 +567,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOp
          
     //for each Group
     for(int jj = 0; jj < dim_J; jj++) {
-        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
+        dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, opts->update_weights, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
     }   
     
     if(opts->compute_dW) {
@@ -507,6 +586,8 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOp
 
     if(opts->compute_dB && dataset->dim_B() > 0) {
         GPUData<FPTYPE> * X_lin_c = isSparseRun ?  dataset->X_lin_temp : dataset->X_lin;
+
+
         cublasStatus_t ce;
         if(X_lin_c->getSize(2) == 1) { //if one shared X_lin term
             ce = X_lin_c->GEMM(results->dB,  dataset->dLL, cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N);
@@ -1071,7 +1152,7 @@ __global__ void kernel_getGroupX_local_full_pop(GPUData_kernel<FPTYPE> X_temp, c
 
 //functions to multiply the tensor coefficients by the current parameters
 template <class FPTYPE>
-void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded) {
+void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSparseRun, const bool update_weights, const GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const cudaStream_t stream, const cublasHandle_t cublasHandle, cudaEvent_t & paramsLoaded) {
     this->checkCudaErrors(set_dim_R(params->dim_R(), stream), "GPUGMLMPop_dataset_Group_GPU errors: could not set dim_R!");
     if(params->dim_R() == 0) {
         return;
@@ -1082,19 +1163,19 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSpa
     }
     this->checkCudaErrors(cudaStreamWaitEvent(stream, paramsLoaded, 0), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not wait for event.");
 
-    if(isSparseRun) {
+    if(isSparseRun && update_weights) {
         this->checkCudaErrors(lambda_v->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
     }
-    else {
+    else if(update_weights) {
         this->checkCudaErrors(lambda_v->resize(stream, parent->lambda->getSize_max(0), -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
     }
     for(int dd = 0; dd < dim_D(); dd++) {
         GPUData<FPTYPE> * X_c = X[dd];
-        if(isSparseRun) {
+        if(isSparseRun && update_weights) {
             this->checkCudaErrors(X_temp[dd]->resize(  stream, parent->dim_N_temp, -1, -1), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
             this->checkCudaErrors(lambda_d[dd]->resize(stream, parent->dim_N_temp, -1, -1), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
         }
-        else {
+        else if(update_weights) {
             this->checkCudaErrors(lambda_d[dd]->resize(stream, lambda_d[dd]->getSize_max(0),-1,-1), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not set size for full runs.");
         }
         if((*isSharedIdentity)[dd]) {
@@ -1103,22 +1184,23 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSpa
 
         if(isSparseRun && !(*isShared)[dd]) {
             // if sparse run and local regressors, build matrix then multiply
-            dim3 block_size;
-            if(dim_F(dd) > 8) { 
-                block_size.y = 8;
-            }
-            else if(dim_F(dd) >= 4) { 
-                block_size.y = 4;
-            }
+            if(update_weights) {
+                dim3 block_size;
+                if(dim_F(dd) > 8) { 
+                    block_size.y = 8;
+                }
+                else if(dim_F(dd) >= 4) { 
+                    block_size.y = 4;
+                }
                 block_size.y = 1;
-            block_size.x = 1024 / block_size.y;
-            dim3 grid_size;
-            grid_size.x = parent->dim_N_temp / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
-            grid_size.y = 1;
-            kernel_getGroupX_local_full_pop<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), 
-                                        parent->ridx_sa_all->device());
-            this->checkCudaErrors("GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors:  kernel_getGroupX_local_full launch failed");
-
+                block_size.x = 1024 / block_size.y;
+                dim3 grid_size;
+                grid_size.x = parent->dim_N_temp / block_size.x + ((parent->dim_N_temp  % block_size.x == 0)? 0:1);
+                grid_size.y = 1;
+                kernel_getGroupX_local_full_pop<<<grid_size, block_size, 0, stream>>>(X_temp[dd]->device(), X[dd]->device(), 
+                                            parent->ridx_sa_all->device());
+                this->checkCudaErrors("GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors:  kernel_getGroupX_local_full launch failed");
+            }
             X_c = X_temp[dd];
         }
 
@@ -1451,7 +1533,7 @@ __global__ void kernel_getGroupX_shared_full_pop(GPUData_kernel<FPTYPE> X_temp, 
 }
 
 template <class FPTYPE>
-void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event) {
+void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group_GPU<FPTYPE> * results, const bool isSparseRun, const bool update_weights, GPUGMLM_parameters_Group_GPU<FPTYPE> * params, const GPUGMLM_group_computeOptions * opts, const cudaStream_t stream, const cublasHandle_t cublasHandle, const cusparseHandle_t cusparseHandle, cudaEvent_t & main_LL_event) {
     if(params->dim_R() == 0) {
         return; //nothing to compute
     }
@@ -1535,7 +1617,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Gr
                 phi_c = phi_d;
             }
             else { 
-                if((*isShared)[dd]) { 
+                if((*isShared)[dd] && update_weights) { 
                     //  if doing sparse run with shared regressor, builds temporary X matrix (local regressors)
                     dim3 block_size;
                     block_size.y = 1;
