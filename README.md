@@ -30,11 +30,11 @@ The API requires **[pybind11](https://github.com/pybind/pybind11)**
 To compile the library and run the example:
 ```console
 user@DESKTOP:~/PROJECTHOME$ mkdir build
-user@DESKTOP:~/PROJECTHOME$ cd build
-user@DESKTOP:~/PROJECTHOME$ cmake ..
-user@DESKTOP:~/PROJECTHOME$ make
-user@DESKTOP:~/PROJECTHOME$ cd ../Python
-user@DESKTOP:~/PROJECTHOME$ python gmlmExample.py
+user@DESKTOP:~/PROJECTHOME/build$ cd build
+user@DESKTOP:~/PROJECTHOME/build$ cmake ..
+user@DESKTOP:~/PROJECTHOME/build$ make
+user@DESKTOP:~/PROJECTHOME/Python$ cd ../Python
+user@DESKTOP:~/PROJECTHOME/Python$ python gmlmExample.py
 ```
 
 ## Citation (preprint)
