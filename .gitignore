@@ -17,5 +17,7 @@
 *.manifest
 *.exp
 *.obj
+*.so
 TempData/
 Python/__pycache__
+Python/pyGMLM/__pycache__
