@@ -37,6 +37,14 @@ user@DESKTOP:~/PROJECTHOME/Python$ cd ../Python
 user@DESKTOP:~/PROJECTHOME/Python$ python gmlmExample.py
 ```
 
+The Python code includes a CPU version with Numpy.
+However, this still requires compiling the C++ library to make sure that the same code handles organizing the GMLM and trial structures - Sorry, this is an annoying and less flexible design choice on my part to not make everything in Python.
+However, the library can be compiled without needing any cuda by passing in an option to cmake: <code>cmake -DWITH_GPU=Off ..</code>.
+
+The library can be compiled to use single-precision data (double is default) using the <code>-DWITH_DOUBLE_PRECISION=Off</code> cmake option.
+Given pybind11's limitations with templating, it was way easier to just require recompiling that supporting both simultaneously.
+If there's any real demand to include both, I could add better support for both precisions.
+
 ## Citation (preprint)
 ```
 Latimer, K. W., & Freedman, D. J. (2021). Low-dimensional encoding of decisions in parietal cortex reflects long-term training history. bioRxiv.

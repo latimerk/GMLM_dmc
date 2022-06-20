@@ -5,27 +5,25 @@
 %
 % Takes in a negative log posterior function (return [nlpost, dnlpost] given vector of parameters)
 %   The negative is so that this function uses the same function as optimizers
-function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state, B)
+function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state, p_init)
     if(isfield(HMC_state, "e_scale") || ~isempty(HMC_state.e_scale))
         HMC_state.stepSize.e = HMC_state.stepSize.e * HMC_state.e_scale;
     end
-    if(nargin < 5 || isempty(B))
-        B = 1;
-    end
-
     
     %% generate initial momentum
-    p_init = generateMomentum(M);
+    if(nargin < 5 || isempty(p_init))
+        p_init = generateMomentum(M);
+    end
     
     %% get initial probability of momentum
     lp_momentum_0 = logProbMomentum(p_init, M);
     
     %% get initial probability of params and derivatives
     [nlpost_0, ndW, ~, results_init] = nlpostFunction(w_init);
-    H_0 = -B*nlpost_0 + lp_momentum_0; 
+    H_0 = -nlpost_0 + lp_momentum_0; 
     
     %% run the HMC
-    err = false;
+    divergent = false;
     w = w_init;
     p = p_init;
     
@@ -36,15 +34,11 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
     try
         for tt = 1:HMC_state.steps
             %% move momentums
-            [p, errs] = momentumStep(p, -ndW*B, HMC_state);
+            [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)% divergent trajectory
                 nlpost = inf; % divergent trajectory
                 break;
             end
-%             if(~all(M.\p.^2 < 1e3, "all"))
-%                 fprintf("runaway momentum?\n");
-%             end
-
             %% move positions
             [w, errs] = paramStep(w, p, M, HMC_state);
             if(errs)
@@ -53,41 +47,39 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
             end
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
-            if(isinf(nlpost) || isnan(nlpost) || abs(nlpost - nlpost_0) > 1e6) % looks like a divergent trajectory; last condition is likely a numerical error in the settings I'm in: could need to adjust in extreme conditions
-                nlpost = inf; % divergent trajectory
-                break;
-            end
-%             if(~all(abs(w) < 1e3, "all"))
-%                 fprintf("runaway vars?\n");
-%             end
             
 
             %% move momentums
-            [p, errs] = momentumStep(p, -ndW*B, HMC_state);
+            [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)% divergent trajectory
                 nlpost = inf; % divergent trajectory
                 break;
             end
-%             if(~all(M.\p.^2 < 1e3, "all"))
-%                 fprintf("runaway momentum?\n");
-%             end
+            
+            lp_momentum = logProbMomentum(p, M);
+            H_s = -nlpost + lp_momentum; 
+
+            divergence = H_s - H_0;
+            if(isnan(divergence) || isinf(divergence))
+                nlpost = inf; % divergent trajectory
+                break;
+            end
         end
         
         %% get final state log prob
-        lp_momentum = logProbMomentum(p, M);
-        H_s = -B*nlpost + lp_momentum; 
+        log_p_accept = min(0, divergence);
         
-        log_p_accept = H_s - H_0;
         if(isnan(log_p_accept) || isinf(log_p_accept) || isnan(nlpost) || isinf(nlpost) || isnan(lp_momentum) || isinf(lp_momentum))
             error('HMC accept probability is nan!');
         end
     catch ee %#ok<NASGU>
         %p_accept = 1e-14;
-        err = true;
+        
         log_p_accept    = nan;%log(p_accept);
         w_new = w_init;
         results = results_init;
         accepted        = false;
+        divergent = true;
         
 %         msgText = getReport(ee,'extended');
 %         fprintf('HMC reaching inf/nan values with step size %.4f: %s\n\tAuto-rejecting sample and setting p_accept = %e.\n\tError Message: %s\n',ees,errorMessageStr,p_accept,msgText);
@@ -109,6 +101,10 @@ function [accepted, err, w_new, log_p_accept, results] = HMCstep_diag(w_init, M,
         w_new = w_init;
         accepted = false;
         results = results_init;
+    end
+
+    if(abs(divergence) > 1e3)
+        divergent = true;
     end
 end
  

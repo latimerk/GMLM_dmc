@@ -352,6 +352,7 @@ class GPUGL_base  {
         inline bool checkCudaErrors(const char * msg_str = "CUDA error", const bool printOnly = false) {
             return checkCudaErrors(cudaGetLastError(), msg_str, printOnly);
         }
+
         inline bool checkCudaErrors(const cublasStatus_t ce, const char * msg_str = "CUBLAS error", const bool printOnly = false) {
             if(ce == CUBLAS_STATUS_SUCCESS) {
                 return true;
@@ -363,11 +364,11 @@ class GPUGL_base  {
             else {
                 msg->callErrMsgTxt(output_stream);
             }
-            return true;
+            return false;
         }
         inline bool checkCudaErrors(const cusparseStatus_t ce, const char * msg_str = "CUSPARSE error", const bool printOnly = false) {
             if(ce == CUSPARSE_STATUS_SUCCESS) {
-                return false;
+                return true;
             }
             output_stream << msg_str << " - cusparseError " << cusparseGetErrorString(ce) << std::endl;
             if(printOnly) {

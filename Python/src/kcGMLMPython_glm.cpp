@@ -42,14 +42,20 @@ kcGLM_python<FPTYPE>::~kcGLM_python() {
 
 template <class FPTYPE>
 bool kcGLM_python<FPTYPE>::isOnGPU() {
-    return kcglm != NULL;
+    #ifdef USE_GPU
+        return kcglm != NULL;
+    #else
+        return false;
+    #endif
 }
 template <class FPTYPE>
 void kcGLM_python<FPTYPE>::freeGPU() {
-    if(isOnGPU()) {
-        delete kcglm;
-        kcglm = NULL;
-    }
+    #ifdef USE_GPU
+        if(isOnGPU()) {
+            delete kcglm;
+            kcglm = NULL;
+        }
+    #endif
 }
 template <class FPTYPE>
 int kcGLM_python<FPTYPE>::addBlock(std::shared_ptr<kcGLM_trialBlock<FPTYPE>> block) {
@@ -61,59 +67,75 @@ int kcGLM_python<FPTYPE>::addBlock(std::shared_ptr<kcGLM_trialBlock<FPTYPE>> blo
 
 template <class FPTYPE>
 void kcGLM_python<FPTYPE>::toGPU() {
-    if(blocks.empty()) {
-        throw std::length_error("No trial blocks given!");
-    }
-    for(auto bb : blocks) {
-        if(bb->trials.empty()) {
-            throw std::length_error("Empty trial block found!");
+    #ifdef USE_GPU
+        if(blocks.empty()) {
+            throw std::length_error("No trial blocks given!");
         }
-    }
+        for(auto bb : blocks) {
+            if(bb->trials.empty()) {
+                throw std::length_error("Empty trial block found!");
+            }
+        }
 
-    freeGPU();
-    kcglm = new GPUGLM<FPTYPE>(structure, blocks, msg);
+        freeGPU();
+        kcglm = new GPUGLM<FPTYPE>(structure, blocks, msg);
 
-    //setup result
-    results->setupResults(kcglm->dim_M());
+        //setup result
+        results->setupResults(kcglm->dim_M());
+    #else
+        throw std::runtime_error("GPU access not available: compiled with CPU only.");
+    #endif
 }
 
 // compute log likelihood: returns trial-wise LL
 template <class FPTYPE>
 py::array_t<FPTYPE, py::array::f_style> kcGLM_python<FPTYPE>::computeLogLikelihood(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> K) {
-    //setup compute options
-    opts->reset();
-    opts->compute_trialLL = true;
-    
-    runComputation(K);
+    #ifdef USE_GPU
+        //setup compute options
+        opts->reset();
+        opts->compute_trialLL = true;
+        
+        runComputation(K);
 
-    //return the numpy array
-    return results->getTrialLL();
+        //return the numpy array
+        return results->getTrialLL();
+    #else
+        throw std::runtime_error("GPU access not available: compiled with CPU only.");
+    #endif
 }
 
 // compute log likelihood gradient
 template <class FPTYPE>
 py::array_t<FPTYPE, py::array::f_style> kcGLM_python<FPTYPE>::computeLogLikelihood_grad(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> K) {
-    //setup compute options
-    opts->reset();
-    opts->compute_dK      = true;
+    #ifdef USE_GPU
+        //setup compute options
+        opts->reset();
+        opts->compute_dK      = true;
 
-    runComputation(K);
+        runComputation(K);
 
-    //return the numpy array
-    return results->getDK();
+        //return the numpy array
+        return results->getDK();
+    #else
+        throw std::runtime_error("GPU access not available: compiled with CPU only.");
+    #endif
 }
 
 // compute log likelihood hessian
 template <class FPTYPE>
 py::array_t<FPTYPE, py::array::f_style> kcGLM_python<FPTYPE>::computeLogLikelihood_hess(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> K) {
-    //setup compute options
-    opts->reset();
-    opts->compute_d2K     = true;
+    #ifdef USE_GPU
+        //setup compute options
+        opts->reset();
+        opts->compute_d2K     = true;
 
-    runComputation(K);
+        runComputation(K);
 
-    //return the numpy array
-    return results->getD2K();
+        //return the numpy array
+        return results->getD2K();
+    #else
+        throw std::runtime_error("GPU access not available: compiled with CPU only.");
+    #endif
 }
         
 
@@ -121,16 +143,20 @@ py::array_t<FPTYPE, py::array::f_style> kcGLM_python<FPTYPE>::computeLogLikeliho
 
 template <class FPTYPE>
 void kcGLM_python<FPTYPE>::runComputation(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> K) {
-    //assume options are already setup
-    if(!isOnGPU()) {
-        throw py::buffer_error("kcGLM not on GPU!");
-    }
+    #ifdef USE_GPU
+        //assume options are already setup
+        if(!isOnGPU()) {
+            throw py::buffer_error("kcGLM not on GPU!");
+        }
 
-    //setup parameters
-    params->setK(K);
+        //setup parameters
+        params->setK(K);
 
-    //call log likelihood function
-    kcglm->computeLogLikelihood(params, opts, results);
+        //call log likelihood function
+        kcglm->computeLogLikelihood(params, opts, results);
+    #else
+        throw std::runtime_error("GPU access not available: compiled with CPU only.");
+    #endif
 }
 
 

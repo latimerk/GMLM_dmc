@@ -43,8 +43,8 @@ HMC_settings.stepSize.mu    = log(10*HMC_settings.stepSize.e_0);
 HMC_settings.stepSize.max_step_size = 0.25;
     % randomly scales step size (make smaller somtimes)
 
-HMC_settings.stepSize.scales   = [1    0.5  0.1];  %scales
-HMC_settings.stepSize.P_scales = [0.85 0.1  0.05];  %P(scale): must sum to 1
+HMC_settings.stepSize.scales   = [1    0.5   0.1];  %scales
+HMC_settings.stepSize.P_scales = [0.9  0.06  0.04];  %P(scale): must sum to 1
 
 HMC_settings.stepSize.scaleRanges = nWarmup + [1 nSamples];
 
@@ -57,41 +57,35 @@ if(~debugSettings)
         warning('Default HMC warmup schedule espected at least %d samples. Schedule will need to be modified.', nWarmup_min);
     end
     if(nWarmup >= 60e3)
-        HMC_settings.M_est.first_sample  = [20001 40001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-        HMC_settings.M_est.samples       = [30000 55000];
+        HMC_settings.M_est.first_sample  = [25001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+        HMC_settings.M_est.samples       = [55000];
         
         HMC_settings.stepSize.schedule   = [2      10000;
-                                            10001  20000;
-                                            30001  35000;
-                                            35001  40000;
-                                            55001  nWarmup]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+                                            10001  25000;
+                                            55001  60000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
     
-        HMC_settings.stepSize.scaleRanges = [20001 30000;
-                                             40001 55000;
+        HMC_settings.stepSize.scaleRanges = [25001  55000;
                                              nWarmup + [1 nSamples]];
     elseif(nWarmup >= 50e3)
-        HMC_settings.M_est.first_sample  = [15001 35001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-        HMC_settings.M_est.samples       = [25000 45000];
+        HMC_settings.M_est.first_sample  = [25001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+        HMC_settings.M_est.samples       = [45000];
         
-        HMC_settings.stepSize.schedule   = [2       8000;
-                                             8001  15000;
-                                            25001  30000;
-                                            35001  40000;
-                                            45001  nWarmup]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+        HMC_settings.stepSize.schedule   = [2      10000;
+                                            10001  25000;
+                                            45001  50000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
     
-        HMC_settings.stepSize.scaleRanges = [15001 25000;
-                                             35001 45000;
+        HMC_settings.stepSize.scaleRanges = [25001  45000;
                                              nWarmup + [1 nSamples]];
 
     elseif(nWarmup >= 40e3)
-        HMC_settings.M_est.first_sample  = [22001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-        HMC_settings.M_est.samples       = [37000];
+        HMC_settings.M_est.first_sample  = [15001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+        HMC_settings.M_est.samples       = [35000];
         
         HMC_settings.stepSize.schedule   = [2      10000;
-                                            10001  22000;
-                                            37001  40000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+                                            10001  15000;
+                                            35001  40000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
     
-        HMC_settings.stepSize.scaleRanges = [22001  37000;
+        HMC_settings.stepSize.scaleRanges = [15001  35000;
                                              nWarmup + [1 nSamples]];
     elseif(nWarmup >= 35e3)
         HMC_settings.M_est.first_sample  = [20001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
@@ -104,25 +98,43 @@ if(~debugSettings)
         HMC_settings.stepSize.scaleRanges = [20001  32000;
                                              nWarmup + [1 nSamples]];
     elseif(nWarmup >= 30e3)
-        HMC_settings.M_est.first_sample  = [12001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
-        HMC_settings.M_est.samples       = [27000];
+%         HMC_settings.M_est.first_sample  = [12001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+%         HMC_settings.M_est.samples       = [27000];
+%         
+%         HMC_settings.stepSize.schedule   = [2       6000;
+%                                             12001  12000;
+%                                             27001  30000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+%     
+%         HMC_settings.stepSize.scaleRanges = [12001  27000;
+%                                              nWarmup + [1 nSamples]];
+
         
-        HMC_settings.stepSize.schedule   = [2       6000;
-                                            12001  12000;
-                                            27001  30000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+        HMC_settings.M_est.first_sample  = []; 
+        HMC_settings.M_est.samples       = [];
+        
+        HMC_settings.stepSize.schedule   = [2      15000;
+                                            15001  25000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
     
-        HMC_settings.stepSize.scaleRanges = [12001  27000;
-                                             nWarmup + [1 nSamples]];
+        HMC_settings.stepSize.scaleRanges = [25001 nSamples];
     elseif(nWarmup >= 25e3)
-        HMC_settings.M_est.first_sample  = [12001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
+        HMC_settings.M_est.first_sample  = [10001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
         HMC_settings.M_est.samples       = [22000];
         
-        HMC_settings.stepSize.schedule   = [2      6000;
-                                            6001   12000;
+        HMC_settings.stepSize.schedule   = [2      4000;
+                                            4001   7000;
                                             22001  25000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
     
-        HMC_settings.stepSize.scaleRanges = [12001  22000;
+        HMC_settings.stepSize.scaleRanges = [7001  22000;
                                              nWarmup + [1 nSamples]];
+    elseif(nWarmup >= 20e3)
+        
+        HMC_settings.M_est.first_sample  = []; 
+        HMC_settings.M_est.samples       = [];
+        
+        HMC_settings.stepSize.schedule   = [2      10000;
+                                            10001  18000]; %each row gives a range of trials to estimate step size (restarts estimation at each sample = schedule(ii,1))
+    
+        HMC_settings.stepSize.scaleRanges = [18001 nSamples];
     else
         HMC_settings.M_est.first_sample  = [ 8001]; %when to estimate cov matrix. At sample=samples(ii), will use first_sample(samples(ii)):sample
         HMC_settings.M_est.samples       = [13000];
@@ -186,4 +198,6 @@ HMC_settings.nWarmup  = nWarmup;
 HMC_settings.nSamples = nSamples;
 
 
-
+if(isempty(HMC_settings.M_est.samples))
+    warning("HMC settings will only use the initial mass matrix - no estimation of the posterior covariance.\n");
+end

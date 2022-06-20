@@ -962,7 +962,7 @@ GPUGMLM_dataset_Group_GPU<FPTYPE>::GPUGMLM_dataset_Group_GPU(const int groupNum_
                     &beta,
                     *( spi_phi_d[dd] ),
                     getCudaType<FPTYPE>(),
-                    CUSPARSE_SPMV_ALG_DEFAULT,
+                    CUSPARSE_SPMV_COO_ALG1, //CUSPARSE_SPMV_ALG_DEFAULT,
                     &(buffer));
             this->checkCudaErrors(cusparse_stat, "GPUGMLM_dataset_Group_GPU errors: getting buffer size for SpMV failed.");
 
@@ -1598,7 +1598,7 @@ void GPUGMLM_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Group
                                  &beta,
                                  *(spi_phi_d[dd]),
                                  getCudaType<FPTYPE>(),
-                                 CUSPARSE_SPMV_ALG_DEFAULT,
+                                 CUSPARSE_SPMV_COO_ALG1, //CUSPARSE_SPMV_ALG_DEFAULT,
                                  spi_buffer[dd]->getData_gpu());
                     this->checkCudaErrors(cusparse_stat, "GPUGMLM_dataset_Group_GPU errors: S*lambda->phi_t SpMV failed.");
                 

@@ -522,7 +522,7 @@ classdef GMLM < handle
             end
             
             % delete any storage files used (for example, by MCMC)
-            if(obj.destroy_temp_storage_file && ~isempty(obj.temp_storage_file) && (isstring(obj.temp_storage_file) || ischar(obj.temp_storage_file)) && exist(obj.temp_storage_file, 'file'))
+            if( ~isempty(obj.temp_storage_file) && obj.destroy_temp_storage_file &&(isstring(obj.temp_storage_file) || ischar(obj.temp_storage_file)) && exist(obj.temp_storage_file, 'file'))
                 fprintf('GMLM destructor: deleting temporary storage file (%s).\n', obj.temp_storage_file);
                 delete(obj.temp_storage_file);
                 obj.temp_storage_file = [];

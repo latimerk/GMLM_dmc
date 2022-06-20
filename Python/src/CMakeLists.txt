@@ -4,7 +4,12 @@ find_package(pybind11 CONFIG REQUIRED)
 include_directories(${kcGMLMProject_SOURCE_DIR}/src)
 link_directories(${kcGMLMProject_SOURCE_DIR}/obj/)
 
-pybind11_add_module(pyGMLMcuda MODULE  kcGMLMPython.cpp kcGMLMPython_glm.cpp)
 
-target_link_libraries(pyGMLMcuda PRIVATE  kcGMLM  -lcuda -lcudadevrt -lcudart  -lcusparse -lcublas)
+if(WITH_GPU)
+    pybind11_add_module(pyGMLMcuda MODULE  kcGMLMPython.cpp kcGMLMPython_glm.cpp)
+    target_link_libraries(pyGMLMcuda PRIVATE  kcGMLM  -lcuda -lcudadevrt -lcudart  -lcusparse -lcublas)
+else()
+    pybind11_add_module(pyGMLMcuda MODULE  kcGMLMPython.cpp kcGMLMPython_glm.cpp)
+endif()
+
 set_property(TARGET pyGMLMcuda PROPERTY LIBRARY_OUTPUT_DIRECTORY ${kcGMLMProject_SOURCE_DIR}/Python/pyGMLM)

@@ -59,11 +59,11 @@ for ww = 1:numel(params.W)
     for ii = 1:numel(xxs)
         params_c = params;
         params_c.W(ww) = params_c.W(ww) + xxs(ii);
-        try
+%         try
             results_c = lfun(params_c, opts_empty);
-        catch
-            fprintf("error!\n");
-        end
+%         catch
+%             fprintf("error!\n");
+%         end
         dd(ii) = results_c.(rf);
     end
     results_est.dW(ww) = (cs*dd)./dx;

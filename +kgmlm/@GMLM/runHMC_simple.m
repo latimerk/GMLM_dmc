@@ -25,7 +25,6 @@ addParameter(p, "sampleHyperparameters", true, @islogical);
 addParameter(p, "trial_weights"   ,  [], @(aa) isempty(aa) | (numel(aa) == obj.dim_M & isnumeric(aa)));
 addParameter(p, "saveUnscaled" ,    false, @islogical);
 addParameter(p, "saveSinglePrecision" ,    false, @islogical);
-addParameter(p, "H_var" ,    1^2, @(aa)(isscalar(aa) && aa > 0) );
 
 parse(p, params_init, HMC_settings, varargin{:});
 % then set/get all the inputs out of this structure
@@ -57,40 +56,37 @@ if(~isempty(trial_weights))
 end
 
 
-H_var = p.Results.H_var; %initial momentum term for hyperparams
-
-
-M_scale = 1;
-W_scale = M_scale;
-B_scale = M_scale;
-T_scale = M_scale;
-V_scale = M_scale;
-
-
-paramStruct_2 = paramStruct;
-paramStruct_2.W(:) = W_scale;
-if(isfield(paramStruct_2, "B"))
-    paramStruct_2.B(:) = B_scale;
-end
-if(isfield(paramStruct_2, "H"))
-    paramStruct_2.H(:) = H_var;
-end
-for jj = 1:J
-    if(isfield(paramStruct_2.Groups(jj), "H"))
-        paramStruct_2.Groups(jj).H(:) = H_var;
-    end
-    paramStruct_2.Groups(jj).V(:) = V_scale;
-    for ss = 1:S(jj)
-         paramStruct_2.Groups(jj).T{ss}(:) = T_scale;
-    end
-end
 
 
 TotalParameters = numel(obj.vectorizeParams(paramStruct, optStruct));
-M = obj.vectorizeParams(paramStruct_2, optStruct);
-if(isfield(HMC_settings, "M_init"))
-    M = obj.vectorizeParams(HMC_settings.M_init, optStruct);
+if(~isfield(HMC_settings, "M_init"))
+    W_scale = 1;
+    B_scale = 1;
+    T_scale = 1;
+    V_scale = 1;
+    H_scale = 1;
+
+    HMC_settings.M_init = paramStruct;
+    HMC_settings.M_init.W(:) = W_scale;
+    if(isfield(HMC_settings.M_init, "B"))
+        HMC_settings.M_init.B(:) = B_scale;
+    end
+    if(isfield(HMC_settings.M_init, "H"))
+        HMC_settings.M_init.H(:) = H_scale;
+    end
+    for jj = 1:J
+        if(isfield(HMC_settings.M_init.Groups(jj), "H"))
+            HMC_settings.M_init.Groups(jj).H(:) = H_scale;
+        end
+        HMC_settings.M_init.Groups(jj).V(:) = V_scale;
+        for ss = 1:S(jj)
+             HMC_settings.M_init.Groups(jj).T{ss}(:) = T_scale;
+        end
+    end
 end
+M = obj.vectorizeParams(HMC_settings.M_init, optStruct);
+
+
 
 %% initialize space for samples
 TotalSamples = HMC_settings.nWarmup + HMC_settings.nSamples;
@@ -295,9 +291,11 @@ if(~isnan(figNum) && ~isinf(figNum))
 end
 
 %%
-vectorizedSamples = nan(TotalParameters, HMC_settings.M_est.samples(end), dataType);
-if(sample_idx <= HMC_settings.M_est.samples(end))
-    vectorizedSamples(:, sample_idx) = obj.vectorizeParams(paramStruct, optStruct);
+if(~isempty(HMC_settings.M_est.samples))
+    vectorizedSamples = nan(TotalParameters, HMC_settings.M_est.samples(end), dataType);
+    if(sample_idx <= HMC_settings.M_est.samples(end))
+        vectorizedSamples(:, sample_idx) = obj.vectorizeParams(paramStruct, optStruct);
+    end
 end
 start_idx = 2;
 
@@ -327,13 +325,12 @@ for sample_idx = start_idx:TotalSamples
     
     %% get HMC sample
     % run HMC step
-    B = 1;%max((sample_idx-2) * -0.002 + 2, 1);
 
     w_init = obj.vectorizeParams(paramStruct, optStruct);
     nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct, resultStruct);
     try
         HMC_state.e_scale = samples.e_scale(sample_idx);
-        [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init, HMC_settings.M_const * M, nlpostFunction, HMC_state, B);
+        [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init,  M, nlpostFunction, HMC_state);
         if(samples.accepted(sample_idx))
             paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct);
         end
@@ -341,7 +338,12 @@ for sample_idx = start_idx:TotalSamples
         error("HMC step failed");
     end
     % adjust step size: during warmup
-    HMC_state = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state, HMC_settings.stepSize, samples.log_p_accept(sample_idx));
+    if(~samples.errors(sample_idx))
+        lpa = samples.log_p_accept(sample_idx);
+    else
+        lpa = nan;
+    end
+    HMC_state = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state, HMC_settings.stepSize, lpa);
     samples.e(:,sample_idx) = [HMC_state.stepSize.e; HMC_state.stepSize.e_bar];
     
     
@@ -405,7 +407,7 @@ for sample_idx = start_idx:TotalSamples
     samples.log_post(sample_idx)   = resultStruct.log_post;
     samples.log_like(sample_idx)   = resultStruct.log_likelihood;
     
-    if(sample_idx <= HMC_settings.M_est.samples(end))
+    if(~isempty(HMC_settings.M_est.samples) && sample_idx <= HMC_settings.M_est.samples(end))
         vectorizedSamples(:, sample_idx) = w_new; 
     end
      
@@ -433,10 +435,10 @@ for sample_idx = start_idx:TotalSamples
         if(sample_idx > HMC_settings.nWarmup)
             total_errors_post = sum(samples.errors((HMC_settings.nWarmup+1):sample_idx), "omitnan");
             total_errors_during = sum(samples.errors(1:HMC_settings.nWarmup), "omitnan");
-            fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC early rejects post warmup = %d (during warmup %d)\n", HMC_state.stepSize.e, HMC_state.steps, total_errors_post, total_errors_during);
+            fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC divergences post warmup = %d (during warmup %d)\n", HMC_state.stepSize.e, HMC_state.steps, total_errors_post, total_errors_during);
         else
             total_errors = sum(samples.errors(1:sample_idx), "omitnan");
-            fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n", HMC_state.stepSize.e, HMC_state.steps, total_errors);
+            fprintf("\tcurrent step size = %e, HMC steps = %d, num HMC divergences = %d\n", HMC_state.stepSize.e, HMC_state.steps, total_errors);
         end
         if(~isempty(printFunc))
             printFunc(paramStruct2);

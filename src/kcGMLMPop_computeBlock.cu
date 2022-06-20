@@ -1011,6 +1011,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             output_stream << " group " << groupNum << "\n";
             output_stream << " factor " << dd << "\n";
             this->checkCudaErrors(cusparse_stat, output_stream.str().c_str());
+            output_stream.str("");
             output_stream.clear();
 
             //setup dense handle for phi_d
@@ -1033,7 +1034,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
                     &beta,
                     *( spi_phi_d[dd] ),
                     getCudaType<FPTYPE>(),
-                    CUSPARSE_SPMV_ALG_DEFAULT,
+                    CUSPARSE_SPMV_COO_ALG1,//CUSPARSE_SPMV_ALG_DEFAULT,
                     &(buffer));
             this->checkCudaErrors(cusparse_stat, "GPUGMLMPop_dataset_Group_GPU errors: getting buffer size for SpMV failed.");
 
@@ -1608,9 +1609,20 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Gr
                                  &beta,
                                  *(spi_phi_d[dd]),
                                  getCudaType<FPTYPE>(),
-                                 CUSPARSE_SPMV_ALG_DEFAULT,
-                                 spi_buffer[dd]->getData_gpu());
-                    this->checkCudaErrors(cusparse_stat, "GPUGMLMPop_dataset_Group_GPU errors: S*lambda->phi_t SpMV failed.");
+                                 CUSPARSE_SPMV_COO_ALG1, //CUSPARSE_SPMV_ALG_DEFAULT,
+                                 spi_buffer[dd]->getData_gpu()); //spi_buffer[dd]->getData_gpu()
+
+                    this->output_stream << "GPUGMLMPop_dataset_Group_GPU errors: S*lambda->phi_t SpMV failed.\n";
+                    this->output_stream << " rr = " << rr << ", dim_R = " << params->dim_R() << ", dd = " << dd << "\n";
+                    this->output_stream << "buffer size " << spi_buffer_size[dd]  << "\n";
+                    const char * cc = spi_buffer[dd]->getData_gpu();
+                    long long cc2 = reinterpret_cast<long long>(cc);
+                    this->output_stream << "buffer address " << cc2   << " (% 128 = " <<  cc2 % 128 << ")" << "\n";
+
+                    this->checkCudaErrors(cusparse_stat, output_stream.str().c_str());
+
+                    this->output_stream.str("");
+                    this->output_stream.clear();
                 }
 
                 X_c   = X[dd];

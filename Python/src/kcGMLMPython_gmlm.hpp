@@ -55,6 +55,22 @@ class GPUGMLM_trialGroup_python : public GPUGMLM_trial_Group_args<FPTYPE> {
             this->X.push_back(new GLData_numpy<FPTYPE>(X_numpy[X_numpy.size() - 1]));
             return X_numpy.size() - 1;
         }
+        py::array_t<int, py::array::f_style | py::array::forcecast> getSharedIdxFactor(unsigned int idx) {
+            if(idx < iX_numpy.size()) {
+                return iX_numpy[idx];
+            }
+            else {
+                throw py::value_error("Invalid factor index.");
+            }
+        }
+        py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> getLocalFactor(unsigned int idx) {
+            if(idx < X_numpy.size()) {
+                return X_numpy[idx];
+            }
+            else {
+                throw py::value_error("Invalid factor index.");
+            }
+        }
         size_t getFactorDim(unsigned int factor) const {
             return this->dim_F(factor);
         }
@@ -85,13 +101,25 @@ class GPUGMLM_trial_python : public GPUGMLM_trial_args<FPTYPE> {
                 throw py::value_error("Trial does not have a valid setup.");
             }
         }
-        GPUGMLM_trial_python(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> Y_, py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> X_lin_, int trialNum) : GPUGMLM_trial_python(Y_, X_lin_, trialNum, 0) {
+        GPUGMLM_trial_python(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> Y_, py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> X_lin_, int trialNum) : GPUGMLM_trial_python(Y_, X_lin_, trialNum, -1) {
 
         }
         ~GPUGMLM_trial_python() {
             delete this->Y;
             delete this->X_lin;
         }
+
+        py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> getObservations() {
+            return Y_numpy;
+        }
+        py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> getLinearCoefficients() {
+            return X_lin_numpy;
+        }
+        int getNeuronNum() {
+            return this->neuron;
+        }
+
+        
         int addGroup(std::shared_ptr<GPUGMLM_trialGroup_python<FPTYPE>> group) {
             if(this->dim_N() != group->dim_N()) {
                 throw py::value_error("Trial group does have the correct number of elements.");
@@ -102,11 +130,23 @@ class GPUGMLM_trial_python : public GPUGMLM_trial_args<FPTYPE> {
             }
             return this->Groups.size() - 1;
         }
+        std::shared_ptr<GPUGMLM_trialGroup_python<FPTYPE>> getGroup(unsigned int grpIdx) {
+            if(grpIdx < getNumGroups()) {
+                return Groups_shared[grpIdx];
+            }
+            else {
+                throw py::value_error("Invalid group index.");
+            }
+        }
+
         size_t getNumGroups() const {
             return this->Groups.size();
         }
         size_t getDimN() const {
             return this->dim_N();
+        }
+        int getTrialNum() {
+            return this->trial_idx;
         }
     private:
         py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> X_lin_numpy;
@@ -139,6 +179,17 @@ class GPUGMLM_trialBlock_python : public GPUGMLM_GPU_block_args<FPTYPE> {
                 output_stream << "Invalid trial error number " << vd << "\n";
                 msg->printMsgTxt(output_stream);
                 throw py::value_error("Trial does not match GMLM structure.");
+            }
+        }
+        size_t getNumTrials() const {
+            return this->trials_shared.size();
+        }
+        std::shared_ptr<GPUGMLM_trial_python<FPTYPE>> getTrial(unsigned int tr) {
+            if(tr < getNumTrials()) {
+                return trials_shared[tr];
+            }
+            else {
+                throw py::value_error("Trial number invbalid.");
             }
         }
     private:
@@ -195,6 +246,10 @@ class GPUGMLM_group_structure_python : public GPUGMLM_structure_Group_args<FPTYP
             }
         }
 
+        std::vector<unsigned int> getModeParts() {
+            return this->factor_idx;
+        }
+
 
         void setSharedRegressors(unsigned int partNum, py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> X_shared_) {
             if(partNum >= X_shared_numpy.size()) {
@@ -237,6 +292,14 @@ class GPUGMLM_group_structure_python : public GPUGMLM_structure_Group_args<FPTYP
             }
             else {
                 return 0;
+            }
+        }
+        py::array_t<FPTYPE, py::array::f_style> getSharedRegressor(unsigned int factor) const {
+            if(isSharedRegressor(factor)) {
+                return this->X_shared_numpy[factor];
+            }
+            else {
+                throw py::value_error("Invalid shared regressor index.");
             }
         }
         size_t getNumFactors() const {
@@ -284,6 +347,15 @@ class GPUGMLM_structure_python : public GPUGMLM_structure_args<FPTYPE> {
         }
         size_t getNumLinearTerms() {
             return this->dim_B;
+        }
+        bool isSimultaneousRecording() {
+            return this->isSimultaneousPopulation;
+        }
+        FPTYPE getBinSize() {
+            return this->binSize;
+        }
+        logLikeType getLogLikeType() {
+            return this->logLikeSettings;
         }
     private:
         std::vector<std::shared_ptr<GPUGMLM_group_structure_python<FPTYPE>>> groups_shared;
@@ -784,15 +856,33 @@ class kcGMLM_python {
             msg = std::make_shared<GPUGL_msg_python>();
         }
         inline bool isOnGPU() {
-            return kcgmlm != NULL;
+            #ifdef USE_GPU
+                return kcgmlm != NULL;
+            #else
+                return false;
+            #endif
         }
         inline void freeGPU() {
-            if(isOnGPU()) {
-                delete kcgmlm;
-                kcgmlm = NULL;
-            }
-            resultsWaiting = false;
+            #ifdef USE_GPU
+                if(isOnGPU()) {
+                    delete kcgmlm;
+                    kcgmlm = NULL;
+                }
+                resultsWaiting = false;
+            #endif
         }
+        std::shared_ptr<GPUGMLM_trialBlock_python<FPTYPE>>  getBlock(unsigned int block) {
+            if(block < blocks_shared.size()) {
+                return  blocks_shared[block];
+            }
+            else {
+                throw py::value_error("Invalid block index.");
+            }
+        }
+        int getNumBlocks() {
+            return blocks_shared.size();
+        }
+
         int addBlock(std::shared_ptr<GPUGMLM_trialBlock_python<FPTYPE>> block) {
             freeGPU();
             if(!(structure->validateTrialStructure(block.get()))) {
@@ -801,54 +891,86 @@ class kcGMLM_python {
 
             blocks_shared.push_back(block);
             blocks.push_back(block.get()); // gross to store both the shared & raw pointer, but my simple API needed the raw pointers and I don't want to change that 
+            
+            
+            // create results
+            unsigned int maxTrialIdx = 0;
+            for(int bb = 0; bb < blocks_shared.size(); bb++) {
+                for(int mm = 0; mm < blocks_shared[bb]->getNumTrials(); mm++) {
+                    int trIdx   = blocks_shared[bb]->getTrial(mm)->getTrialNum();
+                    maxTrialIdx = trIdx > maxTrialIdx ? trIdx : maxTrialIdx;
+                }
+            }
+            results = std::make_shared<GPUGMLM_results_python<FPTYPE>>(structure, maxTrialIdx + 1);
+            
             return blocks.size()-1;
         }
         void toGPU() {
-            freeGPU();
+            #ifdef USE_GPU
+                freeGPU();
 
-            // send to GPU
-            kcgmlm = new GPUGMLM<FPTYPE>(structure.get(), blocks, msg);
+                // send to GPU
+                kcgmlm = new GPUGMLM<FPTYPE>(structure.get(), blocks, msg);
 
-            // create options default
-            opts = std::make_shared<GPUGMLM_computeOptions_python<FPTYPE>>(structure, kcgmlm->numTrials(), true); 
-            // create results
-            results = std::make_shared<GPUGMLM_results_python<FPTYPE>>(structure, kcgmlm->numTrials()); 
+                // create options default
+                opts = std::make_shared<GPUGMLM_computeOptions_python<FPTYPE>>(structure, kcgmlm->numTrials(), true); 
+                
+            #else
+                throw std::runtime_error("GPU access not available: compiled with CPU only.");
+            #endif
         }
         // compute log likelihood: returns trial-wise LL
         std::shared_ptr<GPUGMLM_results_python<FPTYPE>> computeLogLikelihood(std::shared_ptr<GPUGMLM_params_python<FPTYPE>> params_) {
-            if(!(params_->verifyParams(structure))) {
-                throw py::value_error("Parameters object does not match GMLM structure.");
-            }
-            if(!isOnGPU()) {
-                throw py::value_error("GMLM not on GPU!");
-            }
-            params = params_;
-            results->matchRank(params);
-            kcgmlm->computeLogLikelihood(params, opts, results.get());
-            resultsWaiting = true;
-            return results;
+            #ifdef USE_GPU
+                if(!(params_->verifyParams(structure))) {
+                    throw py::value_error("Parameters object does not match GMLM structure.");
+                }
+                if(!isOnGPU()) {
+                    throw py::value_error("GMLM not on GPU!");
+                }
+                params = params_;
+                results->matchRank(params);
+                kcgmlm->computeLogLikelihood(params, opts, results.get());
+                resultsWaiting = true;
+                return results;
+            #else
+                throw std::runtime_error("GPU access not available: compiled with CPU only.");
+            #endif
         }
         void computeLogLikelihood_async(std::shared_ptr<GPUGMLM_params_python<FPTYPE>> params_) {
-            if(!(params_->verifyParams(structure))) {
-                throw py::value_error("Parameters object does not match GMLM structure.");
-            }
-            if(!isOnGPU()) {
-                throw py::value_error("GMLM not on GPU!");
-            }
-            params = params_;
-            kcgmlm->computeLogLikelihood_async(params, opts);
-            results->matchRank(params);
-            resultsWaiting = true;
+            #ifdef USE_GPU
+                if(!(params_->verifyParams(structure))) {
+                    throw py::value_error("Parameters object does not match GMLM structure.");
+                }
+                if(!isOnGPU()) {
+                    throw py::value_error("GMLM not on GPU!");
+                }
+                params = params_;
+                kcgmlm->computeLogLikelihood_async(params, opts);
+                results->matchRank(params);
+                resultsWaiting = true;
+            #else
+                throw std::runtime_error("GPU access not available: compiled with CPU only.");
+            #endif
+        }
+        
+        std::shared_ptr<GPUGMLM_results_python<FPTYPE>> getResultsStruct() {
+            // returns whatever is in the results structure
+            return results;
         }
         std::shared_ptr<GPUGMLM_results_python<FPTYPE>> getResults() {
-            if(!isOnGPU()) {
-                throw py::value_error("GMLM not on GPU!");
-            }
-            if(!resultsWaiting) {
-                throw py::value_error("No results to collect from GPU! Call 'computeLogLikelihood_async' first.");
-            }
-            kcgmlm->computeLogLikelihood_gather(results.get(), true);
-            return results;
+            #ifdef USE_GPU
+                if(!isOnGPU()) {
+                    throw py::value_error("GMLM not on GPU!");
+                }
+                if(!resultsWaiting) {
+                    throw py::value_error("No results to collect from GPU! Call 'computeLogLikelihood_async' first.");
+                }
+                kcgmlm->computeLogLikelihood_gather(results.get(), true);
+                return results;
+            #else
+                throw std::runtime_error("GPU access not available: compiled with CPU only.");
+            #endif
         }
 
         // set options
