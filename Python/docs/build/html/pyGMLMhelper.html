@@ -1,0 +1,449 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+    <title>pyGMLMhelper &#8212; pyGMLM 0.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css" />
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="pyGMLMcuda" href="pyGMLMcuda.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="module-pyGMLM.pyGMLMhelper">
+<span id="pygmlmhelper"></span><h1>pyGMLMhelper<a class="headerlink" href="#module-pyGMLM.pyGMLMhelper" title="Permalink to this headline">¶</a></h1>
+<p>This submodule contains convenience wrappers for performing operations like maximum likelihood estimation.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyGMLM.pyGMLMhelper.</span></span><span class="sig-name descname"><span class="pre">GMLMHelper</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gmlm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.kcGMLM" title="pyGMLM.pyGMLMcuda.kcGMLM"><span class="pre">pyGMLM.pyGMLMcuda.kcGMLM</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper" title="Permalink to this definition">¶</a></dt>
+<dd><p>Wrapper class for the kcGMLM object (built in pybind11).
+Helps access the C++ functions of that class for operations like optimization.</p>
+<p>This is for the GMLM likelihood only: no hyperparameters are used or considered by the functions in this class.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.GMLM_structure">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">GMLM_structure</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.ModelStructure" title="pyGMLM.pyGMLMcuda.ModelStructure"><span class="pre">pyGMLM.pyGMLMcuda.ModelStructure</span></a></em><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.GMLM_structure" title="Permalink to this definition">¶</a></dt>
+<dd><p>The  GMLM structure.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gmlm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.kcGMLM" title="pyGMLM.pyGMLMcuda.kcGMLM"><span class="pre">pyGMLM.pyGMLMcuda.kcGMLM</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.__init__" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>gmlm</strong> – The constructed built kcGMLM object.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper._get_F">
+<span class="sig-name descname"><span class="pre">_get_F</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">factor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factor_idxs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim_F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_group</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.ParametersGroup" title="pyGMLM.pyGMLMcuda.ParametersGroup"><span class="pre">pyGMLM.pyGMLMcuda.ParametersGroup</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.ndarray</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper._get_F" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the full coefficient for a factor using the Khatri-Rao product</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>factor</strong> – whether or not to compute the derivatives too.</p></li>
+<li><p><strong>factor_idxs</strong> – the factor numbers of each mode</p></li>
+<li><p><strong>dim_F</strong> – the total size expected for this factor</p></li>
+<li><p><strong>params_group</strong> – the tensor group’s parameters object</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>The full factor coefficients.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.compute_gradient_and_negative_log_likelihood_vectorized">
+<span class="sig-name descname"><span class="pre">compute_gradient_and_negative_log_likelihood_vectorized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.compute_gradient_and_negative_log_likelihood_vectorized" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the negative log likelihood and gradient for a set of vectorized parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><p>A tuple (f,g)</p>
+<blockquote>
+<div><p>f (float): Log likelihood.</p>
+<p>g (np.ndarray): Flattened gradient in order: -dW, -dB, -Group[0].dV, -Group[0].dT[0], …, -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], …</p>
+</div></blockquote>
+</p>
+</dd>
+<dt class="field-odd">Raises</dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – if the GMLM has not been sent to the GPU</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.compute_gradient_negative_log_likelihood_vectorized">
+<span class="sig-name descname"><span class="pre">compute_gradient_negative_log_likelihood_vectorized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.ndarray</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.compute_gradient_negative_log_likelihood_vectorized" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the gradient of the negative log likelihood for a set of vectorized parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>-dW, -dB, -Group[0].dV, -Group[0].dT[0], …, -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], …</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>Flattened gradient in order</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>RuntimeError</strong> – if the GMLM has not been sent to the GPU</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.compute_log_likelihood">
+<span class="sig-name descname"><span class="pre">compute_log_likelihood</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.compute_log_likelihood" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the log likelihood for the current parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Log likelihood.</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>RuntimeError</strong> – if the GMLM has not been sent to the GPU</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.compute_negative_log_likelihood_vectorized">
+<span class="sig-name descname"><span class="pre">compute_negative_log_likelihood_vectorized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.compute_negative_log_likelihood_vectorized" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the negative log likelihood for a set of vectorized parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Negative log likelihood.</p>
+</dd>
+<dt class="field-odd">Raises</dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – if the GMLM has not been sent to the GPU</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.devectorize_parameters">
+<span class="sig-name descname"><span class="pre">devectorize_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.devectorize_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sets the parameters from a vector. Stored in self.params.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.dim_P">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dim_P</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.dim_P" title="Permalink to this definition">¶</a></dt>
+<dd><p>The number of neurons in the GMLM.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.is_simultaneous_recording">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_simultaneous_recording</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.is_simultaneous_recording" title="Permalink to this definition">¶</a></dt>
+<dd><p>Whether the all neurons are recorded on each trial or whether a trial only has one neuron.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.params">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">params</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.Parameters" title="pyGMLM.pyGMLMcuda.Parameters"><span class="pre">pyGMLM.pyGMLMcuda.Parameters</span></a></em><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.params" title="Permalink to this definition">¶</a></dt>
+<dd><p>The current parameter object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.randomize_parameters">
+<span class="sig-name descname"><span class="pre">randomize_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.randomize_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sets all the parameters to be i.i.d. normal with mean 0 and the given standard deviation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>std</strong> (<em>float</em>) – the standard deviation (defaults to 1 for standard normal).</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.results">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">results</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.Results" title="pyGMLM.pyGMLMcuda.Results"><span class="pre">pyGMLM.pyGMLMcuda.Results</span></a></em><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.results" title="Permalink to this definition">¶</a></dt>
+<dd><p>The current results object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.vectorize_gradient">
+<span class="sig-name descname"><span class="pre">vectorize_gradient</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.ndarray</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.vectorize_gradient" title="Permalink to this definition">¶</a></dt>
+<dd><p>Builds a vectorized form of the gradient of the current results (of log likelihood, not negative log likelihood).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>dW, dB, Group[0].dV, Group[0].dT[0], …, Group[0].dT[S_0-1], Group[1].dV, Group[1].dT[0], …</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>Flattened gradient in order</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelper.vectorize_parameters">
+<span class="sig-name descname"><span class="pre">vectorize_parameters</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.ndarray</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelper.vectorize_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Builds a vectorized form of the parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>Flattened parameters in order</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyGMLM.pyGMLMhelper.</span></span><span class="sig-name descname"><span class="pre">GMLMHelperCPU</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gmlm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.kcGMLM" title="pyGMLM.pyGMLMcuda.kcGMLM"><span class="pre">pyGMLM.pyGMLMcuda.kcGMLM</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gmlm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="pyGMLMcuda.html#pyGMLM.pyGMLMcuda.kcGMLM" title="pyGMLM.pyGMLMcuda.kcGMLM"><span class="pre">pyGMLM.pyGMLMcuda.kcGMLM</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.__init__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Puts all the trials together into one compact structure for computing the log likelihood
+and derivative using numpy computations.</p>
+<p>This still uses the GMLM data in the C++ objects. This choice I made is annoying, but it keeps all the trial checking &amp; organizing
+code the same for both the CPU and GPU versions. Currently, I don’t plan to make a Python version of the class holding all the GMLM data,
+despite the fact that it’d be easier to work with. So for now, the C++ module must still be compiled even to run this numpy version
+(with cmake option ‘-DWITH_GPU=Off’ to not require the CUDA library if desired).
+Sorry for the inconvenience.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>GMLMHelper</strong> – The GMLM object</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>ValueError</strong> – if the trial setup doesn’t work</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU._get_DfDT">
+<span class="sig-name descname"><span class="pre">_get_DfDT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode_idxs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim_F</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_group</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU._get_DfDT" title="Permalink to this definition">¶</a></dt>
+<dd><p>Helper function for building a structure for derivative computation.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_gradient_and_negative_log_likelihood_vectorized">
+<span class="sig-name descname"><span class="pre">compute_gradient_and_negative_log_likelihood_vectorized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_gradient_and_negative_log_likelihood_vectorized" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the negative log likelihood and gradient for a set of vectorized parameters.
+Computations done on CPU;</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><p>A tuple (f,g)</p>
+<blockquote>
+<div><p>f (float): Log likelihood.</p>
+<p>g (np.ndarray): Flattened gradient in order: -dW, -dB, -Group[0].dV, -Group[0].dT[0], …, -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], …</p>
+</div></blockquote>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_gradient_negative_log_likelihood_vectorized">
+<span class="sig-name descname"><span class="pre">compute_gradient_negative_log_likelihood_vectorized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.ndarray</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_gradient_negative_log_likelihood_vectorized" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the gradient of the negative log likelihood for a set of vectorized parameters.
+Computations done on CPU;</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>-dW, -dB, -Group[0].dV, -Group[0].dT[0], …, -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], …</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>Flattened gradient in order</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_log_likelihood">
+<span class="sig-name descname"><span class="pre">compute_log_likelihood</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_log_likelihood" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the log likelihood for the current parameters.
+Computations done on CPU;</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Log likelihood.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_log_likelihood_cpu">
+<span class="sig-name descname"><span class="pre">compute_log_likelihood_cpu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">computeDerivatives</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_log_likelihood_cpu" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the log likelihood for the current parameters using the CPU.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>computeDerivatives</strong> – whether or not to compute the derivatives too.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Log likelihood.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_negative_log_likelihood_vectorized">
+<span class="sig-name descname"><span class="pre">compute_negative_log_likelihood_vectorized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_vector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.compute_negative_log_likelihood_vectorized" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the negative log likelihood for a set of vectorized parameters.
+Computations done on CPU;</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param_vector</strong> – Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], …, Group[0].T[S_0-1], Group[1].V, Group[1].T[0], …</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Negative log likelihood.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.derivative_log_like_function">
+<span class="sig-name descname"><span class="pre">derivative_log_like_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_rate</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.derivative_log_like_function" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the log likelihood and derivative  for each bin given the linear term and observed spike counts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>log_rate</strong> – linear term in each bin. For Poisson with exponential nonlinearity, this is the log spike rate.</p></li>
+<li><p><strong>Y</strong> – spike count in each bin. Should be the same size as log_rate</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>(log likelihood of each bin. Same size as log_rate and Y, derivative of the log likelihood of each bin. Same size as log_rate and Y)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.log_like_function">
+<span class="sig-name descname"><span class="pre">log_like_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_rate</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.ndarray</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.log_like_function" title="Permalink to this definition">¶</a></dt>
+<dd><p>Computes the log likelihood for each bin given the linear term and observed spike counts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>log_rate</strong> – linear term in each bin. For Poisson with exponential nonlinearity, this is the log spike rate.</p></li>
+<li><p><strong>Y</strong> – spike count in each bin. Should be the same size as log_rate</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Log likelihood of each bin. Same size as log_rate and Y</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pyGMLM.pyGMLMhelper.GMLMHelperCPU.toGPU">
+<span class="sig-name descname"><span class="pre">toGPU</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pyGMLM.pyGMLMhelper.GMLMHelperCPU.toGPU" title="Permalink to this definition">¶</a></dt>
+<dd><p>Overwrites the toGPU function for the helper to raise an error - this type of object will not send to GPU.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">pyGMLM</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="pyGMLMcuda.html">pyGMLMcuda</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">pyGMLMhelper</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="pyGMLMcuda.html" title="previous chapter">pyGMLMcuda</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2022, Kenneth Latimer.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 4.4.0</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/pyGMLMhelper.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

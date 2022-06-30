@@ -29,37 +29,37 @@ def softplusD(x):
     g = 1/(1+nex);
     return (f,g);  
 
-def poissExpLL(x, y, dt):
+def LL_poiss_exp(x, y, dt):
     x += np.log(dt);
     rate = boundedExp(x);
     f = -rate + y * x;
     return f;
-def poissExpDLL(x, y, dt):
+def DLL_poiss_exp(x, y, dt):
     x += np.log(dt);
     rate = boundedExp(x);
     f = -rate + y * x;
     g = -rate + y;
     return (f,g);
 
-def poissExpLL_nc(y):
+def LL_poiss_exp_nc(y):
     return -gammaln(y+1);
 
-def poissSoftRecLL(x, y, dt):
+def LL_poiss_softplus(x, y, dt):
     rate = softplus(x);
     log_rate = np.log(rate);
     f = -rate*dt + y*(log_rate + np.log(dt));
     return f;
-def poissSoftRecDLL(x, y, dt):
+def DLL_poiss_softplus(x, y, dt):
     (rate, drate) = softplusD(x);
     log_rate = np.log(rate);
     f = -rate*dt + y*(log_rate + np.log(dt));
     g = -drate*dt + y*(drate/rate);
     return (f,g);
 
-def poissSoftRecLL_nc(y):
+def LL_poiss_softplus_nc(y):
     return -gammaln(y+1);
 
-def truncatedPoissExpLL(x, y, dt):
+def LL_truncpoiss_exp(x, y, dt):
     x += np.log(dt);
     rate     = boundedExp(x);
     expNrate = boundedExp(-rate(spks));
@@ -75,7 +75,7 @@ def truncatedPoissExpLL(x, y, dt):
 
     return f;
 
-def truncatedPoissExpDLL(x, y, dt):
+def DLL_truncpoiss_exp(x, y, dt):
     x += np.log(dt);
     rate     = boundedExp(x);
     expNrate = boundedExp(-rate(spks));
@@ -97,20 +97,20 @@ def truncatedPoissExpDLL(x, y, dt):
     return (f,g);
 
     
-def truncatedPoissExpLL_nc(y):
+def LL_truncpoiss_exp_nc(y):
     return np.zeros(y.shape);
 
-def sqErrLL(x, y, dt):
+def LL_squared_error(x, y, dt):
     d = x - y;
     f = -d ** 2;
     return f;
-def sqErrDLL(x, y, dt):
+def DLL_squared_error(x, y, dt):
     d = x - y;
     f = -d ** 2;
     g = -2 * d;
     return (f,g);
 
-def sqErrLL_nc(y):
+def LL_squared_error_nc(y):
     return np.zeros(y.shape);
 
 
@@ -119,7 +119,7 @@ Classes to store and access the gmlm functionality easier.
 '''
 
 
-class gmlmHelper:
+class GMLMHelper:
     """
     Wrapper class for the kcGMLM object (built in pybind11).
     Helps access the C++ functions of that class for operations like optimization.
@@ -133,39 +133,41 @@ class gmlmHelper:
           gmlm: The constructed built kcGMLM object.
         """
         self._gmlm = gmlm;
-        self._gmlmStructure = gmlm.getGMLMStructure();
-        self._params  = self._gmlm.getParams();
-        self._results = self._gmlm.getResultsStruct();
+        self._gmlm_structure = self._gmlm.get_GMLM_structure();
+        self._params  = self._gmlm.get_params();
+        self._results = self._gmlm.get_results_struct();
 
     @property
     def dim_P(self) -> int:
         """The number of neurons in the GMLM."""
-        return self._gmlmStructure.getNumNeurons()
+        return self._gmlm_structure.get_num_neurons()
 
     @property
-    def gmlmStructure(self) -> pyGMLMcuda.kcGMLM_modelStructure:
+    def GMLM_structure(self) -> pyGMLMcuda.ModelStructure:
         """The  GMLM structure."""
-        return self._gmlmStructure;
+        return self._gmlm_structure;
 
     @property
-    def params(self) -> pyGMLMcuda.kcGMLM_parameters:
+    def params(self) -> pyGMLMcuda.Parameters:
         """The current parameter object."""
         return self._params;
         
     @property
-    def results(self) -> pyGMLMcuda.kcGMLM_results:
+    def results(self) -> pyGMLMcuda.Results:
         """The current results object."""
         return self._results;
 
     @property
-    def isSimultaneousRecording(self) -> bool:
+    def is_simultaneous_recording(self) -> bool:
         """Whether the all neurons are recorded on each trial or whether a trial only has one neuron."""
-        return self._gmlmStructure.isSimultaneousRecording()
+        return self._gmlm_structure.is_simultaneous_recording()
 
     def toGPU(self) -> None:
         self._gmlm.toGPU();
+    def freeGPU(self) -> None:
+        self._gmlm.freeGPU();
 
-    def vectorizeParameters(self) -> np.ndarray:
+    def vectorize_parameters(self) -> np.ndarray:
         """
         Builds a vectorized form of the parameters. 
 
@@ -173,85 +175,85 @@ class gmlmHelper:
           Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
 
         """
-        ps = [self._params.getW().flatten(order='F'), self._params.getB().flatten(order='F')];
+        ps = [self._params.get_W().flatten(order='F'), self._params.get_B().flatten(order='F')];
 
-        numGroups = self._gmlmStructure.getNumGroups()
-        for jj in range(numGroups):
-            grp_params = self._params.getGroupParams(jj);
-            grp_structure = self._gmlmStructure.getGroup(jj);
+        num_groups = self._gmlm_structure.get_num_groups()
+        for jj in range(num_groups):
+            grp_params = self._params.get_group_params(jj);
+            grp_structure = self._gmlm_structure.get_group(jj);
 
-            dim_R = grp_params.getRank();
+            dim_R = grp_params.get_rank();
             if(dim_R == 0):
                 continue;
 
-            ps.append(grp_params.getV().flatten(order='F'));
-            numModes = grp_structure.getNumModes();
-            for ss in range(numModes):
-                ps.append(grp_params.getT(ss).flatten(order='F'));
+            ps.append(grp_params.get_V().flatten(order='F'));
+            num_modes = grp_structure.get_num_modes();
+            for ss in range(num_modes):
+                ps.append(grp_params.get_T(ss).flatten(order='F'));
                 
         return np.concatenate(ps);
 
-    def vectorizeGradient(self) -> np.ndarray:
+    def vectorize_gradient(self) -> np.ndarray:
         """
         Builds a vectorized form of the gradient of the current results (of log likelihood, not negative log likelihood). 
 
         Returns:
           Flattened gradient in order: dW, dB, Group[0].dV, Group[0].dT[0], ..., Group[0].dT[S_0-1], Group[1].dV, Group[1].dT[0], ...
         """
-        grad = [self._results.getDW().flatten(order='F'), self._results.getDB().flatten(order='F')];
+        grad = [self._results.get_DW().flatten(order='F'), self._results.get_DB().flatten(order='F')];
 
-        numGroups = self._gmlmStructure.getNumGroups()
-        for jj in range(numGroups):
-            grp_params = self._params.getGroupParams(jj);
-            grp_structure = self._gmlmStructure.getGroup(jj);
+        num_groups = self._gmlm_structure.get_num_groups()
+        for jj in range(num_groups):
+            grp_params = self._params.get_group_params(jj);
+            grp_structure = self._gmlm_structure.get_group(jj);
 
-            dim_R = grp_params.getRank();
+            dim_R = grp_params.get_rank();
             if(dim_R == 0):
                 continue;
 
-            grp_results = self._results.getGroupResults(jj);
-            grad.append(grp_results.getDV().flatten(order='F'));
-            numModes = grp_structure.getNumModes();
-            for ss in range(numModes):
-                grad.append(grp_results.getDT(ss).flatten(order='F'));
+            grp_results = self._results.get_group_results(jj);
+            grad.append(grp_results.get_DV().flatten(order='F'));
+            num_modes = grp_structure.get_num_modes();
+            for ss in range(num_modes):
+                grad.append(grp_results.get_DT(ss).flatten(order='F'));
 
         return np.concatenate(grad);
 
-    def devectorizeParameters(self, paramVector : np.ndarray):
+    def devectorize_parameters(self, param_vector : np.ndarray):
         """
         Sets the parameters from a vector. Stored in self.params.
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
         """
         ctr = 0;
-        W = (paramVector[ctr:(ctr + self.dim_P)]).reshape((self.dim_P,1), order='F');
+        W = (param_vector[ctr:(ctr + self.dim_P)]).reshape((self.dim_P,1), order='F');
         ctr += W.size;
-        B = (paramVector[ctr:(ctr + self.dim_P*self._gmlmStructure.getNumLinearTerms() )]).reshape((self._gmlmStructure.getNumLinearTerms(), self.dim_P), order='F');
+        B = (param_vector[ctr:(ctr + self.dim_P*self._gmlm_structure.get_num_linear_terms() )]).reshape((self._gmlm_structure.get_num_linear_terms(), self.dim_P), order='F');
         ctr += B.size;
-        self.params.setLinearParams(W, B);
+        self.params.set_linear_params(W, B);
 
-        numGroups = self.gmlmStructure.getNumGroups()
-        for jj in range(numGroups):
-            grp_params = self.params.getGroupParams(jj);
-            grp_structure = self.gmlmStructure.getGroup(jj);
+        num_groups = self.GMLM_structure.get_num_groups()
+        for jj in range(num_groups):
+            grp_params = self.params.get_group_params(jj);
+            grp_structure = self.GMLM_structure.get_group(jj);
 
-            dim_R = grp_params.getRank();
+            dim_R = grp_params.get_rank();
             if(dim_R == 0):
                 continue;
 
-            V = (paramVector[ctr:(ctr + self.dim_P*dim_R )]).reshape((self.dim_P, dim_R), order='F');
-            grp_params.setV(V);
+            V = (param_vector[ctr:(ctr + self.dim_P*dim_R )]).reshape((self.dim_P, dim_R), order='F');
+            grp_params.set_V(V);
             ctr += V.size;
 
-            numModes = grp_structure.getNumModes();
-            for ss in range(numModes):
-                dim_T = grp_structure.getModeDim(ss);
-                T = (paramVector[ctr:(ctr + dim_T*dim_R )]).reshape((dim_T, dim_R), order='F');
-                grp_params.setT(ss, T);
+            num_modes = grp_structure.get_num_modes();
+            for ss in range(num_modes):
+                dim_T = grp_structure.get_mode_dim(ss);
+                T = (param_vector[ctr:(ctr + dim_T*dim_R )]).reshape((dim_T, dim_R), order='F');
+                grp_params.set_T(ss, T);
                 ctr += T.size;
 
-    def computeLogLikelihood(self) -> float:
+    def compute_log_likelihood(self) -> float:
         """
         Computes the log likelihood for the current parameters.
         
@@ -261,19 +263,19 @@ class gmlmHelper:
         Raises:
           RuntimeError: if the GMLM has not been sent to the GPU
         """
-        if(self._gmlm.isOnGPU()):
-            self._gmlm.setComputeGradient(False);
-            self._gmlm.computeLogLikelihood(self._params);
+        if(self._gmlm.is_on_GPU()):
+            self._gmlm.set_compute_gradient(False);
+            self._gmlm.compute_log_likelihood(self._params);
         else:
             raise RuntimeError("GMLM GPU code called before GMLM sent to GPU.");
-        return self._results.getTrialLL().sum();
+        return self._results.get_trial_LL().sum();
 
-    def computeGradientNegativeLogLikelihood_vectorized(self, paramVector : np.ndarray) -> np.ndarray:
+    def compute_gradient_negative_log_likelihood_vectorized(self, param_vector : np.ndarray) -> np.ndarray:
         """
         Computes the gradient of the negative log likelihood for a set of vectorized parameters.
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
           
         Returns:
           Flattened gradient in order: -dW, -dB, -Group[0].dV, -Group[0].dT[0], ..., -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], ...
@@ -281,20 +283,20 @@ class gmlmHelper:
         Raises:
           RuntimeError: if the GMLM has not been sent to the GPU
         """
-        self.devectorizeParameters(paramVector);
-        if(self._gmlm.isOnGPU()):
-            self._gmlm.setComputeGradient(True);
-            self._gmlm.computeLogLikelihood(self._params);
+        self.devectorize_parameters(param_vector);
+        if(self._gmlm.is_on_GPU()):
+            self._gmlm.set_compute_gradient(True);
+            self._gmlm.compute_log_likelihood(self._params);
         else:
             raise RuntimeError("GMLM GPU code called before GMLM sent to GPU.");
-        return  -self.vectorizeGradient();
+        return  -self.vectorize_gradient();
 
-    def computeGradientAndNegativeLogLikelihood_vectorized(self, paramVector : np.ndarray) -> tuple[float, np.ndarray]:
+    def compute_gradient_and_negative_log_likelihood_vectorized(self, param_vector : np.ndarray) -> tuple[float, np.ndarray]:
         """
         Computes the negative log likelihood and gradient for a set of vectorized parameters.
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
           
         Returns:
           A tuple (f,g)
@@ -306,20 +308,20 @@ class gmlmHelper:
         Raises:
           RuntimeError: if the GMLM has not been sent to the GPU
         """
-        self.devectorizeParameters(paramVector);
-        if(self._gmlm.isOnGPU()):
-            self._gmlm.setComputeGradient(True);
-            self._gmlm.computeLogLikelihood(self._params);
+        self.devectorize_parameters(param_vector);
+        if(self._gmlm.is_on_GPU()):
+            self._gmlm.set_compute_gradient(True);
+            self._gmlm.compute_log_likelihood(self._params);
         else:
             raise RuntimeError("GMLM GPU code called before GMLM sent to GPU.");
-        return (-self._results.getTrialLL().sum(), -self.vectorizeGradient());
+        return (-self._results.get_trial_LL().sum(), -self.vectorize_gradient());
 
-    def computeNegativeLogLikelihood_vectorized(self, paramVector : np.ndarray) -> float:
+    def compute_negative_log_likelihood_vectorized(self, param_vector : np.ndarray) -> float:
         """
         Computes the negative log likelihood for a set of vectorized parameters.
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
           
         Returns:
           Negative log likelihood.
@@ -327,16 +329,16 @@ class gmlmHelper:
         Raises:
           RuntimeError: if the GMLM has not been sent to the GPU
         """
-        self.devectorizeParameters(paramVector);
+        self.devectorize_parameters(param_vector);
 
-        if(self._gmlm.isOnGPU()):
-            self._gmlm.setComputeGradient(False);
-            self._gmlm.computeLogLikelihood(self._params);
+        if(self._gmlm.is_on_GPU()):
+            self._gmlm.set_compute_gradient(False);
+            self._gmlm.compute_log_likelihood(self._params);
         else:
             raise RuntimeError("GMLM GPU code called before GMLM sent to GPU.");
-        return -self._results.getTrialLL().sum();
+        return -self._results.get_trial_LL().sum();
 
-    def randomizeParameters(self, std : float = 1.0):
+    def randomize_parameters(self, std : float = 1.0):
         """
         Sets all the parameters to be i.i.d. normal with mean 0 and the given standard deviation.
 
@@ -344,43 +346,43 @@ class gmlmHelper:
           std (float): the standard deviation (defaults to 1 for standard normal).
         """
         W = np.random.randn(self.dim_P) * std;
-        B = np.random.randn(self.gmlmStructure.getNumLinearTerms() , self.dim_P) * std;
-        self._params.setLinearParams(W, B); 
+        B = np.random.randn(self.GMLM_structure.get_num_linear_terms() , self.dim_P) * std;
+        self._params.set_linear_params(W, B); 
 
-        for jj in range(self.gmlmStructure.getNumGroups()):
-            grp = self.params.getGroupParams(jj);
-            V = np.random.randn(self.dim_P, grp.getRank()) * std;
-            grp.setV(V);
-            for ss in range(grp.getDimS()):
-                T = np.random.randn(grp.getDimT(ss), grp.getRank()) * std;
-                grp.setT(ss, T);
+        for jj in range(self.GMLM_structure.get_num_groups()):
+            grp = self.params.get_group_params(jj);
+            V = np.random.randn(self.dim_P, grp.get_rank()) * std;
+            grp.set_V(V);
+            for ss in range(grp.get_dim_S()):
+                T = np.random.randn(grp.get_dim_T(ss), grp.get_rank()) * std;
+                grp.set_T(ss, T);
 
-    def _getF(self, factor : int, factorIdxs : list[int], dim_F : int, paramsGroup : pyGMLMcuda.kcGMLM_parameters_tensorGroup) -> np.ndarray:
+    def _get_F(self, factor : int, factor_idxs : list[int], dim_F : int, params_group : pyGMLMcuda.ParametersGroup) -> np.ndarray:
         """
         Computes the full coefficient for a factor using the Khatri-Rao product
         
         Args:
           factor: whether or not to compute the derivatives too.
-          factorIdxs: the factor numbers of each mode
+          factor_idxs: the factor numbers of each mode
           dim_F: the total size expected for this factor
-          paramsGroup: the tensor group's parameters object 
+          params_group: the tensor group's parameters object 
 
         Returns:
           The full factor coefficients.
         
         """
 
-        fis = np.where(np.equal(factorIdxs, factor))[0];
-        F = paramsGroup.getT(fis[0]);
+        fis = np.where(np.equal(factor_idxs, factor))[0];
+        F = params_group.get_T(fis[0]);
 
         for ss in range(1,len(fis)):
-            T = paramsGroup.getT(fis[ss]);
+            T = params_group.get_T(fis[ss]);
             F = khatri_rao(T, F);
             # F = np.vstack([np.kron(T[:, k], F[:, k]) for k in range(F.shape[1])]).T;
         return F;
 
 
-class gmlmHelper_cpu(gmlmHelper):
+class GMLMHelperCPU(GMLMHelper):
     def __init__(self, gmlm  : pyGMLMcuda.kcGMLM):
         """
         Puts all the trials together into one compact structure for computing the log likelihood
@@ -393,7 +395,7 @@ class gmlmHelper_cpu(gmlmHelper):
         Sorry for the inconvenience.
 
         Args:
-          gmlmHelper: The GMLM object
+          GMLMHelper: The GMLM object
 
         Raises:
           ValueError: if the trial setup doesn't work
@@ -403,79 +405,79 @@ class gmlmHelper_cpu(gmlmHelper):
 
         # gets the block and trial number for each trial
         NT = 0;
-        for bb in range(self._gmlm.getNumBlocks()):
-            NT += self._gmlm.getBlock(bb).getNumTrials();
+        for bb in range(self._gmlm.get_num_blocks()):
+            NT += self._gmlm.get_block(bb).get_num_trials();
 
-        self.trIdx = [(-1,-1,-1,-1)] * NT;
-        for bb in range(self._gmlm.getNumBlocks()): # for each block
-            block = self._gmlm.getBlock(bb);
+        self.tr_idx = [(-1,-1,-1,-1)] * NT;
+        for bb in range(self._gmlm.get_num_blocks()): # for each block
+            block = self._gmlm.get_block(bb);
             # for each trial
-            for tt in range(block.getNumTrials()):
+            for tt in range(block.get_num_trials()):
                 # for the trial
-                trial = block.getTrial(tt);
+                trial = block.get_trial(tt);
 
-                trNum = trial.getTrialNum();
-                neuronNum = trial.getNeuronNum();
-                if(trNum > NT or self.trIdx[trNum] != (-1,-1,-1,-1)):
+                tr_num = trial.get_trial_num();
+                neuron_num = trial.get_neuron_num();
+                if(tr_num > NT or self.tr_idx[tr_num] != (-1,-1,-1,-1)):
                     raise ValueError("Trial indices are not valid: needs to be 0,1,2,...,numTrials-1");
                 else:
-                    self.trIdx[trNum] = (bb, tt, trial.getDimN(), neuronNum);
+                    self.tr_idx[tr_num] = (bb, tt, trial.get_dim_N(), neuron_num);
 
-        trialLengths = [ii[2] for ii in self.trIdx];
-        if(not all(np.greater(trialLengths, 0))):
+        trial_lengths = [ii[2] for ii in self.tr_idx];
+        if(not all(np.greater(trial_lengths, 0))):
             raise ValueError("Complete set of trials not found!");
 
-        self.TT = np.sum(trialLengths);
-        self.dim_M = len(trialLengths);
-        self.trialRanges = np.concatenate(([0], np.cumsum(trialLengths)));
+        self.TT = np.sum(trial_lengths);
+        self.dim_M = len(trial_lengths);
+        self.trial_ranges = np.concatenate(([0], np.cumsum(trial_lengths)));
 
-        if(not self.isSimultaneousRecording):    
-            neuronNums = [ii[3] for ii in self.trIdx];
-            if(not all(np.greater_equal(neuronNums[1:], neuronNums[0:-1]))):
+        if(not self.is_simultaneous_recording):    
+            neuron_nums = [ii[3] for ii in self.tr_idx];
+            if(not all(np.greater_equal(neuron_nums[1:], neuron_nums[0:-1]))):
                 raise ValueError("Trials must be ordered by neuron number for easier computation!");
             
             neuronLengths = np.zeros(self.dim_P);
             for pp in range(self.dim_P):
-                neuronLengths = np.sum(trialLengths[neuronNums == pp]);
+                neuronLengths = np.sum(trial_lengths[neuron_nums == pp]);
             if(not all(np.greater(neuronLengths, 0))):
                 raise ValueError("Complete set of neuron indices not found!");
-            self.neuronRanges = np.concatenate(([0], np.cumsum(neuronLengths)));
+            self.neuron_ranges = np.concatenate(([0], np.cumsum(neuronLengths)));
 
         # sets up the observations
-        if(self.isSimultaneousRecording):
+        if(self.is_simultaneous_recording):
             self.Y = np.zeros((self.TT, self.dim_P));
-            self.Y_normConstants = np.zeros((self.dim_M, self.dim_P));
+            self.Y_norm_constants = np.zeros((self.dim_M, self.dim_P));
         else:
             self.Y = np.zeros((self.TT, 1));
-            self.Y_normConstants = np.zeros((self.dim_M, 1));
+            self.Y_norm_constants = np.zeros((self.dim_M, 1));
 
 
-        log_like_type = self._gmlmStructure.getLogLikeType();
-        for tt, idx in enumerate(self.trIdx):
-            Y_c = self._gmlm.getBlock(idx[0]).getTrial(idx[1]).getObservations();
-            self.Y[self.trialRanges[tt]:self.trialRanges[tt+1],:] = Y_c;
+        log_like_type = self._gmlm_structure.get_log_like_type();
+        for tt, idx in enumerate(self.tr_idx):
+            Y_c = self._gmlm.get_block(idx[0]).get_trial(idx[1]).get_observations();
+            self.Y[self.trial_ranges[tt]:self.trial_ranges[tt+1],:] = Y_c;
         
             # precomputes the normalizing constant for the trial
-            if(log_like_type == pyGMLMcuda.logLikeType.ll_poissExp):
-                nc = poissExpLL_nc(Y_c);
-            elif(log_like_type == pyGMLMcuda.logLikeType.ll_truncatedPoissExp):
-                nc = truncatedPoissExpLL_nc(Y_c);
-            elif(log_like_type == pyGMLMcuda.logLikeType.ll_poissSoftRec):
-                nc = poissSoftRecLL_nc(Y_c);
-            elif(log_like_type == pyGMLMcuda.logLikeType.ll_sqErr):
-                nc = sqErrLL_nc(Y_c);
+            if(log_like_type == pyGMLMcuda.logLikeType.ll_poiss_exp):
+                nc = LL_poiss_exp_nc(Y_c);
+            elif(log_like_type == pyGMLMcuda.logLikeType.ll_truncpoiss_exp):
+                nc = LL_truncpoiss_exp_nc(Y_c);
+            elif(log_like_type == pyGMLMcuda.logLikeType.ll_poiss_softplus):
+                nc = LL_poiss_softplus_nc(Y_c);
+            elif(log_like_type == pyGMLMcuda.logLikeType.ll_squared_error):
+                nc = LL_squared_error_nc(Y_c);
             else:
                 raise ValueError("Invalid log likelihood type.");
-            self.Y_normConstants[tt,:] = nc.sum(axis=0);
+            self.Y_norm_constants[tt,:] = nc.sum(axis=0);
         
 
         # sets ups the linear terms
         X_lin_size = 1;
-        self.dim_B = self._gmlmStructure.getNumLinearTerms();
+        self.dim_B = self._gmlm_structure.get_num_linear_terms();
         if(self.dim_B > 0):
-            if(self.isSimultaneousRecording):
-                for tt, idx in enumerate(self.trIdx):
-                    xx = self._gmlm.getBlock(idx[0]).getTrial(idx[1]).getLinearCoefficients();
+            if(self.is_simultaneous_recording):
+                for tt, idx in enumerate(self.tr_idx):
+                    xx = self._gmlm.get_block(idx[0]).get_trial(idx[1]).get_linear_coefficients();
                     if(xx.ndim > 2 and xx.shape[2] > 1):
                         X_lin_size = self.dim_P;
                         break;
@@ -484,29 +486,29 @@ class gmlmHelper_cpu(gmlmHelper):
             else:
                 self.X_lin = np.zeros((self.TT, self.dim_B, X_lin_size));
 
-            for tt, idx in enumerate(self.trIdx):
-                xx = self._gmlm.getBlock(idx[0]).getTrial(idx[1]).getLinearCoefficients();
+            for tt, idx in enumerate(self.tr_idx):
+                xx = self._gmlm.get_block(idx[0]).get_trial(idx[1]).get_linear_coefficients();
                 if(X_lin_size == 1):
                     if(xx.ndim == 2):
-                        self.X_lin[self.trialRanges[tt]:self.trialRanges[tt+1],:] = xx;
+                        self.X_lin[self.trial_ranges[tt]:self.trial_ranges[tt+1],:] = xx;
                     elif(xx.ndim > 2 and xx.shape[2] == 1):
-                        self.X_lin[self.trialRanges[tt]:self.trialRanges[tt+1],:] = xx[:,:,0];
+                        self.X_lin[self.trial_ranges[tt]:self.trial_ranges[tt+1],:] = xx[:,:,0];
                     else:
                         raise ValueError("Linear coefficient shape is bad.")
                 else:
                     if(xx.ndim > 2 and xx.shape[2] == X_lin_size):
-                        self.X_lin[self.trialRanges[tt]:self.trialRanges[tt+1],:,:] = xx;
+                        self.X_lin[self.trial_ranges[tt]:self.trial_ranges[tt+1],:,:] = xx;
                     elif(xx.ndim > 2 and xx.shape[2] == 1):
-                        self.X_lin[self.trialRanges[tt]:self.trialRanges[tt+1],:,:] = np.tile(xx,(1,1,X_lin_size));
+                        self.X_lin[self.trial_ranges[tt]:self.trial_ranges[tt+1],:,:] = np.tile(xx,(1,1,X_lin_size));
                     elif(xx.ndim == 2):
-                        self.X_lin[self.trialRanges[tt]:self.trialRanges[tt+1],:,:] = np.tile(np.expand_dims(xx,axis=2),(1,1,X_lin_size));
+                        self.X_lin[self.trial_ranges[tt]:self.trial_ranges[tt+1],:,:] = np.tile(np.expand_dims(xx,axis=2),(1,1,X_lin_size));
                     else:
                         raise ValueError("Linear coefficient shape is bad.")
         else:
             self.X_lin = np.empty(0);
 
         # for each group
-        self.dim_J = self._gmlmStructure.getNumGroups();
+        self.dim_J = self._gmlm_structure.get_num_groups();
         self.X_shared = [[]] * self.dim_J;
         self.X_local = [[]] * self.dim_J;
 
@@ -514,10 +516,10 @@ class gmlmHelper_cpu(gmlmHelper):
         self.dim_S = [0] * self.dim_J;
 
         for jj in range(self.dim_J):
-            group = self._gmlmStructure.getGroup(jj);
+            group = self._gmlm_structure.get_group(jj);
 
-            self.dim_D[jj] = group.getNumFactors();
-            self.dim_S[jj] = group.getNumModes();
+            self.dim_D[jj] = group.get_num_factors();
+            self.dim_S[jj] = group.get_num_modes();
 
             self.X_shared[jj] = [[]] * self.dim_D[jj];
             self.X_local[jj]  = [[]] * self.dim_D[jj];
@@ -525,11 +527,11 @@ class gmlmHelper_cpu(gmlmHelper):
             # for each factor
             for dd in range(self.dim_D[jj]):
               # if shared
-              if(group.isSharedRegressor(dd)):
-                  xx = group.getSharedRegressor(dd);
+              if(group.is_shared_regressor(dd)):
+                  xx = group.get_shared_regressor(dd);
 
-                  for tt, idx in enumerate(self.trIdx):
-                      iX_c = self._gmlm.getBlock(idx[0]).getTrial(idx[1]).getGroup(jj).getSharedIdxFactor(dd);
+                  for tt, idx in enumerate(self.tr_idx):
+                      iX_c = self._gmlm.get_block(idx[0]).get_trial(idx[1]).get_group(jj).get_shared_idx_factor(dd);
                       if(tt == 0):
                           if(iX_c.ndim == 1):
                               aa = 1;
@@ -538,7 +540,7 @@ class gmlmHelper_cpu(gmlmHelper):
 
                           iX = np.zeros((self.TT, aa), dtype=int);
 
-                      iX[self.trialRanges[tt]:self.trialRanges[tt+1],:] = iX_c;
+                      iX[self.trial_ranges[tt]:self.trial_ranges[tt+1],:] = iX_c;
 
                   iX = iX.flatten(order="F");
                   dims = (xx.shape[0], iX.size);
@@ -554,8 +556,8 @@ class gmlmHelper_cpu(gmlmHelper):
                   self.X_shared[jj][dd] = {"X" : xx, "nonzeros" : nz, "rows" : rows, "cols" : cols, "dims" : dims, "idx" : iX, "iX" : iX_sparse};
               # if local
               else:
-                  for tt, idx in enumerate(self.trIdx):
-                      X_c = self._gmlm.getBlock(idx[0]).getTrial(idx[1]).getGroup(jj).getLocalFactor(dd);
+                  for tt, idx in enumerate(self.tr_idx):
+                      X_c = self._gmlm.get_block(idx[0]).get_trial(idx[1]).get_group(jj).get_local_factor(dd);
                       if(X_c.ndim == 1):
                           X_c = X_c.reshape((X_c.size,1));
 
@@ -568,10 +570,10 @@ class gmlmHelper_cpu(gmlmHelper):
                           X = np.zeros((self.TT * aa, X_c.shape[1]));
 
                       if(X_c.ndim == 2):
-                          X[self.trialRanges[tt]:self.trialRanges[tt+1],:] = X_c;
+                          X[self.trial_ranges[tt]:self.trial_ranges[tt+1],:] = X_c;
                       else:
                           for daa in range(aa):
-                              X[(self.trialRanges[tt] + daa*self.TT):(self.trialRanges[tt+1] + daa*self.TT),:] = X_c[:,:,daa];
+                              X[(self.trial_ranges[tt] + daa*self.TT):(self.trial_ranges[tt+1] + daa*self.TT),:] = X_c[:,:,daa];
 
                       self.X_local[jj][dd] = X;
 
@@ -584,7 +586,7 @@ class gmlmHelper_cpu(gmlmHelper):
         raise TypeError("This wrapper is for CPU-only computations.");
 
         
-    def computeLogLikelihood_cpu(self, computeDerivatives : bool = False) -> float:
+    def compute_log_likelihood_cpu(self, computeDerivatives : bool = False) -> float:
         """
         Computes the log likelihood for the current parameters using the CPU.
         
@@ -597,108 +599,108 @@ class gmlmHelper_cpu(gmlmHelper):
         """
 
         # number of operations per bin
-        if(self.isSimultaneousRecording):
+        if(self.is_simultaneous_recording):
             P = self.dim_P;
         else:
             P = 1;
 
         # initializes the rate for each bin with the linear terms
         if(self.dim_B > 0):
-            if(self.isSimultaneousRecording and self.X_lin.ndim == 2):
+            if(self.is_simultaneous_recording and self.X_lin.ndim == 2):
                 # same X_lin for each neuron in simultanesouly recorded pop
-                log_rate = self.X_lin @ self._params.getB();
+                log_rate = self.X_lin @ self._params.get_B();
 
-            elif(self.isSimultaneousRecording):
+            elif(self.is_simultaneous_recording):
                 # different X_lin for each neuron in simultanesouly recorded pop
                 log_rate = np.zeros((self.TT, P), order="F");
                 for pp in range(P):
-                    # np.add.at(log_rate, np.s_[:,pp], self.X_lin[:, :, pp] @ self._params.getB()[:,pp])
-                    log_rate[:,pp] = self.X_lin[:, :, pp] @ self._params.getB()[:,pp];
+                    # np.add.at(log_rate, np.s_[:,pp], self.X_lin[:, :, pp] @ self._params.get_B()[:,pp])
+                    log_rate[:,pp] = self.X_lin[:, :, pp] @ self._params.get_B()[:,pp];
 
             else: 
                 # X_lin for each neuron in independently recorded pop
                 log_rate = np.zeros((self.TT, P), order="F");
                 for pp in range(P):
-                    #np.add.at(log_rate, np.s_[self.neuronRanges[pp]:self.neuronRanges[pp+1],0], self.X_lin[self.neuronRanges[pp]:self.neuronRanges[pp+1], :] @ self._params.getB()[:,pp])
-                    log_rate[self.neuronRanges[pp]:self.neuronRanges[pp+1],0] = self.X_lin[self.neuronRanges[pp]:self.neuronRanges[pp+1], :] @ self._params.getB()[:,pp];
+                    #np.add.at(log_rate, np.s_[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0], self.X_lin[self.neuron_ranges[pp]:self.neuron_ranges[pp+1], :] @ self._params.get_B()[:,pp])
+                    log_rate[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0] = self.X_lin[self.neuron_ranges[pp]:self.neuron_ranges[pp+1], :] @ self._params.get_B()[:,pp];
         else:
             log_rate = np.zeros((self.TT, P), order="F");
 
         # add constants
-        if(self.isSimultaneousRecording):
-            log_rate += self._params.getW().reshape((1, self.dim_P));
+        if(self.is_simultaneous_recording):
+            log_rate += self._params.get_W().reshape((1, self.dim_P));
         else:
             for pp in range(P):
-                # np.add.at(log_rate, np.s_[self.neuronRanges[pp]:self.neuronRanges[pp+1],0],  self._params.getW()[pp])
-                log_rate[self.neuronRanges[pp]:self.neuronRanges[pp+1],0] += self._params.getW()[pp];
+                # np.add.at(log_rate, np.s_[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0],  self._params.get_W()[pp])
+                log_rate[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0] += self._params.get_W()[pp];
 
         # add group terms
-        groupCalculations = [[]] * self.dim_J;
+        group_calculations = [[]] * self.dim_J;
         for jj in range(self.dim_J):
-            groupCalculations[jj] = {"c" : [], "a" : [], "m" : []};
+            group_calculations[jj] = {"c" : [], "a" : [], "m" : []};
 
-            aa = self.gmlmStructure.getGroup(jj).getDimA();
-            paramsGroup = self._params.getGroupParams(jj);
-            structureGroup = self._gmlmStructure.getGroup(jj);
-            factorIdxs = structureGroup.getModeParts();
+            aa = self.GMLM_structure.get_group(jj).get_dim_A();
+            params_group = self._params.get_group_params(jj);
+            structure_group = self._gmlm_structure.get_group(jj);
+            factor_idxs = structure_group.get_mode_parts();
 
-            R = paramsGroup.getRank();
-            self._results.getGroupResults(jj).setRank(R);
+            R = params_group.get_rank();
+            self._results.get_group_results(jj).set_rank(R);
 
             if(R > 0):
-                groupCalculations[jj]["c"] = np.zeros((self.TT * aa, R, self.dim_D[jj]), order="F");
+                group_calculations[jj]["c"] = np.zeros((self.TT * aa, R, self.dim_D[jj]), order="F");
 
                 # compute regressors * coef for each tensor part/mode
                 for dd in range(self.dim_D[jj]):
-                    F = self._getF(dd, factorIdxs, structureGroup.getFactorDim(dd), paramsGroup);
+                    F = self._get_F(dd, factor_idxs, structure_group.get_factor_dim(dd), params_group);
 
                     isShared = self.X_local[jj][dd] == [];
 
                     if(isShared):
                         XF = self.X_shared[jj][dd]["X"] @ F;
-                        groupCalculations[jj]["c"][self.X_shared[jj][dd]["cols"],:,dd]  = XF[self.X_shared[jj][dd]["rows"], :];
+                        group_calculations[jj]["c"][self.X_shared[jj][dd]["cols"],:,dd]  = XF[self.X_shared[jj][dd]["rows"], :];
                     elif(self.X_local[jj][dd].shape[0] == self.TT and aa > 1):
-                        groupCalculations[jj]["c"][:,:,dd] = np.tile(self.X_local[jj][dd] @ F, (aa,1));
+                        group_calculations[jj]["c"][:,:,dd] = np.tile(self.X_local[jj][dd] @ F, (aa,1));
                     else:
-                        groupCalculations[jj]["c"][:,:,dd] = self.X_local[jj][dd] @ F;
+                        group_calculations[jj]["c"][:,:,dd] = self.X_local[jj][dd] @ F;
             
                 # combine all the modes
-                groupCalculations[jj]["m"] = groupCalculations[jj]["c"].prod(axis=2);
-                groupCalculations[jj]["a"] = groupCalculations[jj]["m"].reshape((self.TT,aa,R), order="F").sum(axis=1).squeeze();
+                group_calculations[jj]["m"] = group_calculations[jj]["c"].prod(axis=2);
+                group_calculations[jj]["a"] = group_calculations[jj]["m"].reshape((self.TT,aa,R), order="F").sum(axis=1).squeeze();
 
                 # multiply in neuron coefficients and add to rate
-                if(self.isSimultaneousRecording):
-                    log_rate += groupCalculations[jj]["a"] @ paramsGroup.getV().T;
+                if(self.is_simultaneous_recording):
+                    log_rate += group_calculations[jj]["a"] @ params_group.get_V().T;
                 else:
                     for pp in range(P):
-                        log_rate[self.neuronRanges[pp]:self.neuronRanges[pp+1],0] += groupCalculations[jj]["a"] @ paramsGroup.getV()[:,pp];
+                        log_rate[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0] += group_calculations[jj]["a"] @ params_group.get_V()[:,pp];
             else:
-                groupCalculations[jj]["c"] = 0;
-                groupCalculations[jj]["a"] = 0;
-                groupCalculations[jj]["m"] = 0;
+                group_calculations[jj]["c"] = 0;
+                group_calculations[jj]["a"] = 0;
+                group_calculations[jj]["m"] = 0;
 
         # compute the log likelihood for each trial
         if(computeDerivatives):
-            (ll, dll) = self.logLikeFunD(log_rate, self.Y);
+            (ll, dll) = self.derivative_log_like_function(log_rate, self.Y);
         else:
-            ll = self.logLikeFun(log_rate, self.Y);
+            ll = self.log_like_function(log_rate, self.Y);
 
-        trialLL = self._results.getTrialLL();
-        trialLL[:,:] = np.add.reduceat(ll, self.trialRanges[0:-1],axis=0).reshape(trialLL.shape, order="F") + self.Y_normConstants;
+        trial_log_like = self._results.get_trial_LL();
+        trial_log_like[:,:] = np.add.reduceat(ll, self.trial_ranges[0:-1],axis=0).reshape(trial_log_like.shape, order="F") + self.Y_norm_constants;
 
         # compute the derivatives
         if(computeDerivatives):
             #dW
-            dW = self._results.getDW();
-            if(self.isSimultaneousRecording):
+            dW = self._results.get_DW();
+            if(self.is_simultaneous_recording):
                 dW[:] = dll.sum(axis=0);
             else:
-                dW[:] = np.add.reduceat(dll, self.neuronRanges[0:-1],axis=0).reshape(dW.shape, order="F");
+                dW[:] = np.add.reduceat(dll, self.neuron_ranges[0:-1],axis=0).reshape(dW.shape, order="F");
 
             #dB
-            if(self._gmlmStructure.getNumLinearTerms() > 0):
-                dB = self._results.getDB();
-                if(self.isSimultaneousRecording):
+            if(self._gmlm_structure.get_num_linear_terms() > 0):
+                dB = self._results.get_DB();
+                if(self.is_simultaneous_recording):
                     if(self.X_lin.ndim == 2):
                         dB[:,:] = self.X_lin.T @ dll;
                     else:
@@ -706,45 +708,45 @@ class gmlmHelper_cpu(gmlmHelper):
                             dB[:,pp] = self.X_lin[:,:,pp].T @ dll[:,pp];
                 else:
                     for pp in range(self.dim_P):
-                        dB[:,pp] = self.X_lin[self.neuronRanges[pp]:self.neuronRanges[pp+1],:].T @ dll[self.neuronRanges[pp]:self.neuronRanges[pp+1],0];
+                        dB[:,pp] = self.X_lin[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],:].T @ dll[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0];
 
             #for each group
             for jj in range(self.dim_J):
-                resultsGroup = self._results.getGroupResults(jj);
-                aa = self.gmlmStructure.getGroup(jj).getDimA();
-                paramsGroup = self._params.getGroupParams(jj);
-                structureGroup = self._gmlmStructure.getGroup(jj);
-                factorIdxs = structureGroup.getModeParts();
-                R = paramsGroup.getRank();
+                results_group = self._results.get_group_results(jj);
+                aa = self.GMLM_structure.get_group(jj).get_dim_A();
+                params_group = self._params.get_group_params(jj);
+                structure_group = self._gmlm_structure.get_group(jj);
+                factor_idxs = structure_group.get_mode_parts();
+                R = params_group.get_rank();
 
                 #dV
-                dV = resultsGroup.getDV();
-                if(self.isSimultaneousRecording):
-                    dV[:,:] = dll.T @ groupCalculations[jj]["a"];
+                dV = results_group.get_DV();
+                if(self.is_simultaneous_recording):
+                    dV[:,:] = dll.T @ group_calculations[jj]["a"];
                 else:
                     for pp in range(self.dim_P):
-                        dV[pp,:] = groupCalculations[jj]["a"][self.neuronRanges[pp]:self.neuronRanges[pp+1],:] @ dll[self.neuronRanges[pp]:self.neuronRanges[pp+1],0];
+                        dV[pp,:] = group_calculations[jj]["a"][self.neuron_ranges[pp]:self.neuron_ranges[pp+1],:] @ dll[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],0];
 
                 # for each factor
                 assigned_dllv = False;
                 for dd in range(self.dim_D[jj]):
-                    modeIdxs = np.where(np.equal(factorIdxs,dd))[0];
+                    mode_idxs = np.where(np.equal(factor_idxs,dd))[0];
 
                     if(not assigned_dllv):
                         # dll_v is a summary that can be used for each mode: computing in loop in case I add options to only compute specific derivatives
-                        if(self.isSimultaneousRecording):
-                            dll_v = np.tile(dll @ paramsGroup.getV(), (aa,1));
+                        if(self.is_simultaneous_recording):
+                            dll_v = np.tile(dll @ params_group.get_V(), (aa,1));
                         else:
                             dll_v = np.tile(dll, (1, R));
                             for pp in range(self.dim_P):
-                                dll_v[self.neuronRanges[pp]:self.neuronRanges[pp+1],:] = dll_v[self.neuronRanges[pp]:self.neuronRanges[pp+1],:] * paramsGroup.getV()[pp,:];
+                                dll_v[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],:] = dll_v[self.neuron_ranges[pp]:self.neuron_ranges[pp+1],:] * params_group.get_V()[pp,:];
                             if(aa > 1):
                                 dll_v = np.tile(dll_v, (aa,1));
                         assigned_dllv = True;
 
                     isShared = self.X_local[jj][dd] == [];
                     dds = np.arange(self.dim_D[jj]);
-                    dxx = np.prod(groupCalculations[jj]["c"][:,:,dds != dd], axis=2) * dll_v;
+                    dxx = np.prod(group_calculations[jj]["c"][:,:,dds != dd], axis=2) * dll_v;
 
                     if(isShared):
                         dF = self.X_shared[jj][dd]["X"].T @ (self.X_shared[jj][dd]["iX"] @ dxx)
@@ -756,27 +758,27 @@ class gmlmHelper_cpu(gmlmHelper):
                         dF = self.X_local[jj][dd].T @ dxx;
 
                     # for each mode in the factor
-                    if(len(modeIdxs) == 1):
-                        resultsGroup.getDT(modeIdxs[0])[:,:] = dF;
+                    if(len(mode_idxs) == 1):
+                        results_group.get_DT(mode_idxs[0])[:,:] = dF;
                     else:
-                        for ss in modeIdxs:
-                            dT = resultsGroup.getDT(ss);
-                            dFdT = self._getDfDT(ss, modeIdxs, structureGroup.getFactorDim(dd), paramsGroup);
+                        for ss in mode_idxs:
+                            dT = results_group.get_DT(ss);
+                            dFdT = self._get_DfDT(ss, mode_idxs, structure_group.get_factor_dim(dd), params_group);
                             for rr in range(R):
                                 dT[:,rr] = dFdT[:,:,rr].T @ dF[:,rr];
 
         # return the complete log likelihood
-        return trialLL.sum();
+        return trial_log_like.sum();
 
-    def _getDfDT(self, mode,  modeIdxs, dim_F, paramsGroup):
+    def _get_DfDT(self, mode,  mode_idxs, dim_F, params_group):
         """
         Helper function for building a structure for derivative computation.
         
         """
 
-        dim_R = paramsGroup.getRank();
-        dim_T = paramsGroup.getDimT(mode);
-        T = paramsGroup.getT(mode).copy();
+        dim_R = params_group.get_rank();
+        dim_T = params_group.get_dim_T(mode);
+        T = params_group.get_T(mode).copy();
 
         dFdT = np.zeros((dim_F, dim_T, dim_R), order="F");
         for rr in range(dim_R):
@@ -784,22 +786,22 @@ class gmlmHelper_cpu(gmlmHelper):
                 T[:,rr]  = 0;
                 T[tt,rr] = 1;
 
-                if(mode == modeIdxs[0]):
+                if(mode == mode_idxs[0]):
                     F_r = T[:,rr];
                 else:
-                    F_r = paramsGroup.getT(modeIdxs[0])[:,rr];
+                    F_r = params_group.get_T(mode_idxs[0])[:,rr];
 
-                for ss in range(1,len(modeIdxs)):
-                    if(mode == modeIdxs[ss]):
+                for ss in range(1,len(mode_idxs)):
+                    if(mode == mode_idxs[ss]):
                         T_r = T[:,rr];
                     else:
-                        T_r = paramsGroup.getT(modeIdxs[ss])[:,rr];
+                        T_r = params_group.get_T(mode_idxs[ss])[:,rr];
                     F_r = khatri_rao(T_r.reshape((len(T_r),1)), F_r.reshape((len(F_r),1)));
 
                 dFdT[:,tt,rr] = F_r.squeeze();
         return dFdT;
 
-    def logLikeFun(self, log_rate : np.ndarray, Y : np.ndarray) -> np.ndarray:
+    def log_like_function(self, log_rate : np.ndarray, Y : np.ndarray) -> np.ndarray:
         """
         Computes the log likelihood for each bin given the linear term and observed spike counts.
         
@@ -813,23 +815,23 @@ class gmlmHelper_cpu(gmlmHelper):
         """
         assert log_rate.shape == Y.shape or Y.size == 1, "log rate and spike counts do not match"
 
-        log_like_type = self._gmlmStructure.getLogLikeType();
-        dt = self._gmlmStructure.getBinSize();
+        log_like_type = self._gmlm_structure.get_log_like_type();
+        dt = self._gmlm_structure.get_bin_size_sec();
 
-        if(log_like_type == pyGMLMcuda.logLikeType.ll_poissExp):
-            log_like = poissExpLL(log_rate, Y, dt);
-        elif(log_like_type == pyGMLMcuda.logLikeType.ll_truncatedPoissExp):
-            log_like = truncatedPoissExpLL(log_rate, Y, dt);
-        elif(log_like_type == pyGMLMcuda.logLikeType.ll_poissSoftRec):
-            log_like = poissSoftRecLL(log_rate, Y, dt);
-        elif(log_like_type == pyGMLMcuda.logLikeType.ll_sqErr):
-            log_like = sqErrLL(log_rate, Y, dt);
+        if(log_like_type == pyGMLMcuda.logLikeType.ll_poiss_exp):
+            log_like = LL_poiss_exp(log_rate, Y, dt);
+        elif(log_like_type == pyGMLMcuda.logLikeType.ll_truncpoiss_exp):
+            log_like = LL_truncpoiss_exp(log_rate, Y, dt);
+        elif(log_like_type == pyGMLMcuda.logLikeType.ll_poiss_softplus):
+            log_like = LL_poiss_softplus(log_rate, Y, dt);
+        elif(log_like_type == pyGMLMcuda.logLikeType.ll_squared_error):
+            log_like = LL_squared_error(log_rate, Y, dt);
         else:
             raise ValueError("Invalid log likelihood type.");
 
         return log_like;
 
-    def logLikeFunD(self, log_rate : np.ndarray, Y : np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def derivative_log_like_function(self, log_rate : np.ndarray, Y : np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the log likelihood and derivative  for each bin given the linear term and observed spike counts.
         
@@ -843,23 +845,23 @@ class gmlmHelper_cpu(gmlmHelper):
         """
         assert log_rate.shape == Y.shape or Y.size == 1, "log rate and spike counts do not match"
 
-        log_like_type = self._gmlmStructure.getLogLikeType();
-        dt = self._gmlmStructure.getBinSize();
+        log_like_type = self._gmlm_structure.get_log_like_type();
+        dt = self._gmlm_structure.get_bin_size_sec();
 
-        if(log_like_type == pyGMLMcuda.logLikeType.ll_poissExp):
-            log_like = poissExpDLL(log_rate, Y, dt);
-        elif(log_like_type == pyGMLMcuda.logLikeType.ll_truncatedPoissExp):
-            log_like = truncatedPoissExpDLL(log_rate, Y, dt);
-        elif(log_like_type == pyGMLMcuda.logLikeType.ll_poissSoftRec):
-            log_like = poissSoftRecDLL(log_rate, Y, dt);
-        elif(log_like_type == pyGMLMcuda.logLikeType.ll_sqErr):
-            log_like = sqErrDLL(log_rate, Y, dt);
+        if(log_like_type == pyGMLMcuda.logLikeType.ll_poiss_exp):
+            log_like = DLL_poiss_exp(log_rate, Y, dt);
+        elif(log_like_type == pyGMLMcuda.logLikeType.ll_truncpoiss_exp):
+            log_like = DLL_truncpoiss_exp(log_rate, Y, dt);
+        elif(log_like_type == pyGMLMcuda.logLikeType.ll_poiss_softplus):
+            log_like = DLL_poiss_softplus(log_rate, Y, dt);
+        elif(log_like_type == pyGMLMcuda.logLikeType.ll_squared_error):
+            log_like = DLL_squared_error(log_rate, Y, dt);
         else:
             raise ValueError("Invalid log likelihood type.");
 
         return log_like;
 
-    def computeLogLikelihood(self) -> float:
+    def compute_log_likelihood(self) -> float:
         """
         Computes the log likelihood for the current parameters.
         Computations done on CPU;
@@ -867,31 +869,31 @@ class gmlmHelper_cpu(gmlmHelper):
         Returns:
           Log likelihood.
         """
-        return self.computeLogLikelihood_cpu(False);
+        return self.compute_log_likelihood_cpu(False);
 
-    def computeGradientNegativeLogLikelihood_vectorized(self, paramVector : np.ndarray) -> np.ndarray:
+    def compute_gradient_negative_log_likelihood_vectorized(self, param_vector : np.ndarray) -> np.ndarray:
         """
         Computes the gradient of the negative log likelihood for a set of vectorized parameters.
         Computations done on CPU;
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
           
         Returns:
           Flattened gradient in order: -dW, -dB, -Group[0].dV, -Group[0].dT[0], ..., -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], ...
         
         """
-        self.devectorizeParameters(paramVector);
-        self.computeLogLikelihood_cpu(True);
-        return  -self.vectorizeGradient();
+        self.devectorize_parameters(param_vector);
+        self.compute_log_likelihood_cpu(True);
+        return  -self.vectorize_gradient();
 
-    def computeGradientAndNegativeLogLikelihood_vectorized(self, paramVector : np.ndarray) -> tuple[float, np.ndarray]:
+    def compute_gradient_and_negative_log_likelihood_vectorized(self, param_vector : np.ndarray) -> tuple[float, np.ndarray]:
         """
         Computes the negative log likelihood and gradient for a set of vectorized parameters.
         Computations done on CPU;
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
           
         Returns:
           A tuple (f,g)
@@ -900,21 +902,21 @@ class gmlmHelper_cpu(gmlmHelper):
           
             g (np.ndarray): Flattened gradient in order: -dW, -dB, -Group[0].dV, -Group[0].dT[0], ..., -Group[0].dT[S_0-1], -Group[1].dV, -Group[1].dT[0], ...
         """
-        self.devectorizeParameters(paramVector);
-        self.computeLogLikelihood_cpu(True);
-        return (-self._results.getTrialLL().sum(), -self.vectorizeGradient());
+        self.devectorize_parameters(param_vector);
+        self.compute_log_likelihood_cpu(True);
+        return (-self._results.get_trial_LL().sum(), -self.vectorize_gradient());
 
-    def computeNegativeLogLikelihood_vectorized(self, paramVector : np.ndarray) -> float:
+    def compute_negative_log_likelihood_vectorized(self, param_vector : np.ndarray) -> float:
         """
         Computes the negative log likelihood for a set of vectorized parameters.
         Computations done on CPU;
 
         Args:
-          paramVector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
+          param_vector: Flattened parameters in order: W, B, Group[0].V, Group[0].T[0], ..., Group[0].T[S_0-1], Group[1].V, Group[1].T[0], ...
           
         Returns:
           Negative log likelihood.
         """
-        self.devectorizeParameters(paramVector);
-        self.computeLogLikelihood_cpu(False);
-        return -self._results.getTrialLL().sum();
+        self.devectorize_parameters(param_vector);
+        self.compute_log_likelihood_cpu(False);
+        return -self._results.get_trial_LL().sum();

@@ -7,5 +7,6 @@ pyGMLMhelper contains convenience wrappers for performing operations like maximu
 
 """
 from pyGMLM import pyGMLMcuda
-from pyGMLM.pyGMLMhelper import gmlmHelper
+from pyGMLM.pyGMLMhelper import GMLMHelper
+from pyGMLM.pyGMLMhelper import GMLMHelperCPU
 

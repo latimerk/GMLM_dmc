@@ -530,16 +530,24 @@ class GPUGMLM_params_python : public GPUGMLM_params<FPTYPE> {
 
         void setLinearParams(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> W_new,
                        py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> B_new) {
+            this->setW(W_new);
+            this->setB(B_new);
+        }
+        
+        void setW(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> W_new) {
             if(W_new.ndim() > 2 || W_new.shape(0) != this->W->getSize(0) || W_new.strides(0)/sizeof(FPTYPE) != 1) {
                 throw py::value_error("Baseline firing rate parameter invalid! Must be a vector of length dim_P.");
-            }
-            if(B_new.ndim() > 2 || B_new.shape(0) != this->B->getSize(0) || B_new.shape(1) != this->B->getSize(1) || W_new.strides(0)/sizeof(FPTYPE) != 1) {
-                throw py::value_error("Linear parameter invalid! Must be a matrix of size dim_B x dim_P.");
             }
 
             W_numpy = W_new;
             delete this->W;
             this->W = new GLData_numpy<FPTYPE>(W_numpy);
+        }
+        void setB(py::array_t<FPTYPE, py::array::f_style | py::array::forcecast> B_new) {
+            if(B_new.ndim() > 2 || B_new.shape(0) != this->B->getSize(0) || B_new.shape(1) != this->B->getSize(1) || B_new.strides(0)/sizeof(FPTYPE) != 1) {
+                throw py::value_error("Linear parameter invalid! Must be a matrix of size dim_B x dim_P.");
+            }
+
             B_numpy = B_new;
             delete this->B;
             this->B = new GLData_numpy<FPTYPE>(B_numpy);
