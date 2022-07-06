@@ -16,34 +16,14 @@ Tensor toolbox should be added to the MATLAB path.
 An example dataset and code is given for a macaque performing delayed-match-to-category (DMC) task.
 
 Code tested using:
-CUDA 11.3
-MATLAB R2020a
+CUDA 11.3-6
+MATLAB R2020/21a
 TensorToolbox 3.1
 
-# Python bindings (work in progress)
+# Python Version
 
-A basic library can be compiled using the cmake function and there are a couple Python scripts that setup the GMLM for GPUs.
-There is a bit of demo code for building a GMLM and fitting it in **`gmlmExample.py`**.
-
-The API requires **[pybind11](https://github.com/pybind/pybind11)**
-
-To compile the library and run the example:
-```console
-user@DESKTOP:~/PROJECTHOME$ mkdir build
-user@DESKTOP:~/PROJECTHOME/build$ cd build
-user@DESKTOP:~/PROJECTHOME/build$ cmake ..
-user@DESKTOP:~/PROJECTHOME/build$ make
-user@DESKTOP:~/PROJECTHOME/Python$ cd ../Python
-user@DESKTOP:~/PROJECTHOME/Python$ python gmlmExample.py
-```
-
-The Python code includes a CPU version with Numpy.
-However, this still requires compiling the C++ library to make sure that the same code handles organizing the GMLM and trial structures - Sorry, this is an annoying and less flexible design choice on my part to not make everything in Python.
-However, the library can be compiled without needing any cuda by passing in an option to cmake: <code>cmake -DWITH_GPU=Off ..</code>.
-
-The library can be compiled to use single-precision data (double is default) using the <code>-DWITH_DOUBLE_PRECISION=Off</code> cmake option.
-Given pybind11's limitations with templating, it was way easier to just require recompiling that supporting both simultaneously.
-If there's any real demand to include both, I could add better support for both precisions.
+A Python version of the GMLM code can be found in this related repository: **[https://github.com/latimerkw/pyNeuroGMLM](https://github.com/pybind/pybind11)**.
+The underlying CUDA/GPU code is the same.
 
 ## Citation (preprint)
 ```
