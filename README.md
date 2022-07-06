@@ -22,7 +22,7 @@ TensorToolbox 3.1
 
 # Python Version
 
-A Python version of the GMLM code can be found in this related repository: **[https://github.com/latimerkw/pyNeuroGMLM](https://github.com/latimerkw/pyNeuroGMLM)**.
+A Python version of the GMLM code can be found in this related repository: **[https://github.com/latimerk/pyNeuroGMLM](https://github.com/latimerk/pyNeuroGMLM)**.
 The underlying CUDA/GPU code is the same.
 
 ## Citation (preprint)
