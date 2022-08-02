@@ -25,6 +25,7 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLM_structure
     this->msg = msg_;
     this->dev  = block->dev_num;
     this->switchToDevice();
+    this->checkDeviceComputeCapability();
     dim_J = GMLMPopstructure->Groups.size();
 
     size_t dim_M = block->trials.size();
@@ -36,7 +37,7 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLM_structure
     //setup the streams
     this->checkCudaErrors(cudaStreamCreate(&(stream)), "GPUGMLMPop_computeBlock errors: failed initializing stream!");
     stream_Groups.resize(dim_J);
-    for(int jj = 0; jj < dim_J; jj++) {
+    for(unsigned int jj = 0; jj < dim_J; jj++) {
         this->checkCudaErrors(cudaStreamCreate(&(stream_Groups[jj])), "GPUGMLMPop_computeBlock errors: failed initializing group streams!");
     }
 
@@ -62,7 +63,7 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLM_structure
     cublasHandle_Groups.resize(dim_J);
     cublasWorkspaces.assign(dim_J, NULL);
     cublasWorkspaces_size.assign(dim_J, cublasWorkspace_size);
-    for(int jj = 0; jj < dim_J; jj++) {
+    for(unsigned int jj = 0; jj < dim_J; jj++) {
         this->checkCudaErrors(cublasCreate(&(cublasHandle_Groups[jj])), "GPUGMLMPop_computeBlock errors: CUBLAS groups initialization failed.");
         this->checkCudaErrors(cublasSetMathMode(cublasHandle_Groups[jj], mathMode), "GPUGMLMPop_computeBlock errors: set cublas group math mode failed.");
         this->checkCudaErrors(cublasSetPointerMode(cublasHandle_Groups[jj], CUBLAS_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cublas groups pointer mode failed.");
@@ -76,7 +77,7 @@ GPUGMLMPop_computeBlock<FPTYPE>::GPUGMLMPop_computeBlock(const GPUGMLM_structure
 
     //setup cusparse handle
     cusparseHandle_Groups.resize(dim_J);
-    for(int jj = 0; jj < dim_J; jj++) {
+    for(unsigned int jj = 0; jj < dim_J; jj++) {
         this->checkCudaErrors(cusparseCreate(       &(cusparseHandle_Groups[jj])), "GPUGMLMPop_computeBlock errors: cusparse groups initialization failed.");
         this->checkCudaErrors(cusparseSetPointerMode(cusparseHandle_Groups[jj], CUSPARSE_POINTER_MODE_HOST), "GPUGMLMPop_computeBlock errors: set cusparse groups pointer mode failed.");
         this->checkCudaErrors(cusparseSetStream(      cusparseHandle_Groups[jj], stream_Groups[jj]), "GPUGMLMPop_computeBlock errors: set cusparse groups stream failed.");
@@ -128,7 +129,7 @@ template <class FPTYPE>
 bool GPUGMLMPop_computeBlock<FPTYPE>::loadParams(const GPUGMLM_params<FPTYPE> * params_host, const GPUGMLM_computeOptions<FPTYPE> * opts) { 
     this->switchToDevice();
     params->copyToGPU(params_host, dataset, stream, stream_Groups, opts);
-    for(int jj = 0; jj < params->dim_J(); jj++) {
+    for(unsigned int jj = 0; jj < params->dim_J(); jj++) {
         this->checkCudaErrors(results->set_dim_R(jj, params->dim_R(jj), stream), "GPUGMLMPop_computeBlock::loadParams errors: could not set results dim_R");
     }
     bool isSparseRun = dataset->isSparseRun(params);
@@ -136,7 +137,7 @@ bool GPUGMLMPop_computeBlock<FPTYPE>::loadParams(const GPUGMLM_params<FPTYPE> * 
         results_set = true;
 
         //for each group, multiply coefficients by X*T -> XT
-        for(int jj = 0; jj < dim_J && jj < dataset->dim_J(); jj++) {
+        for(unsigned int jj = 0; jj < dim_J && jj < dataset->dim_J(); jj++) {
             dataset->Groups[jj]->multiplyCoefficients(isSparseRun, opts->update_weights, params->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], params->paramsLoaded_event);
         }
     }
@@ -154,7 +155,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeRateParts(const GPUGMLM_computeOpti
     this->switchToDevice();
 
     //for each group
-    for(int jj = 0; jj < dataset->dim_J(); jj++ ) {
+    for(unsigned int jj = 0; jj < dataset->dim_J(); jj++ ) {
         dataset->Groups[jj]->getGroupRate(isSparseRun,  params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj]);
     }
 }
@@ -566,7 +567,7 @@ void GPUGMLMPop_computeBlock<FPTYPE>::computeDerivatives(const GPUGMLM_computeOp
          //         or kernel to sum up dLL->dW and GEMV for dB?
          
     //for each Group
-    for(int jj = 0; jj < dim_J; jj++) {
+    for(unsigned int jj = 0; jj < dim_J; jj++) {
         dataset->Groups[jj]->computeDerivatives(results->Groups[jj], isSparseRun, opts->update_weights, params->Groups[jj], opts->Groups[jj], stream_Groups[jj], cublasHandle_Groups[jj], cusparseHandle_Groups[jj], LL_event);
     }   
     
@@ -642,7 +643,7 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::GPUGMLMPop_dataset_GPU(const GPUGMLM_structure_a
     this->checkCudaErrors(ce, "GPUGMLMPop_dataset_GPU errors: could not allocate normalizingConstants_trial on device!");
 
     size_t X_lin_depth;
-    for(int mm = 0; mm < dim_M(); mm++) {
+    for(unsigned int mm = 0; mm < dim_M(); mm++) {
         if(mm == 0) {
             X_lin_depth = block->trials[mm]->X_lin->getSize(2);
         }
@@ -674,9 +675,9 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::GPUGMLMPop_dataset_GPU(const GPUGMLM_structure_a
 
         isInDataset_trial[block->trials[mm]->trial_idx] = true;
 
-        for(int pp = 0; pp < GMLMPopstructure->dim_P; pp++) {
+        for(unsigned int pp = 0; pp < GMLMPopstructure->dim_P; pp++) {
             FPTYPE nc = 0; // normalizing constant
-            for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
+            for(unsigned int nn = 0; nn < (*dim_N)[mm]; nn++) {
                 if(GMLMPopstructure->logLikeSettings == ll_poissExp || GMLMPopstructure->logLikeSettings == ll_poissSoftRec) {
                     FPTYPE Y_c = (*(block->trials[mm]->Y))(nn, pp);
                     nc += (Y_c >= 0) ? -lgamma(floor(Y_c) + 1.0) : 0;
@@ -689,8 +690,8 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::GPUGMLMPop_dataset_GPU(const GPUGMLM_structure_a
     this->checkCudaErrors(ce, "GPUGMLMPop_dataset_GPU errors: could not allocate id_a_trialM on device!");
 
     size_t N_total_ctr = 0;
-    for(int mm = 0; mm < dim_M(); mm++) {
-        for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
+    for(unsigned int mm = 0; mm < dim_M(); mm++) {
+        for(unsigned int nn = 0; nn < (*dim_N)[mm]; nn++) {
             (*id_a_trialM)[N_total_ctr + nn] = mm;
         }
         N_total_ctr += (*dim_N)[mm];
@@ -706,7 +707,7 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::GPUGMLMPop_dataset_GPU(const GPUGMLM_structure_a
     this->checkCudaErrors(ce, "GPUGMLMPop_dataset_GPU errors: could not allocate X_lin on device!");
         
         //copy each trial to GPU
-    for(int mm = 0; mm < dim_M(); mm++) {
+    for(unsigned int mm = 0; mm < dim_M(); mm++) {
         // spike counts
         cudaPos copyOffset = make_cudaPos((*ridx_t_all)[mm], 0, 0);
         this->checkCudaErrors(Y->copyTo(stream, block->trials[mm]->Y, true, copyOffset), "GPUGMLMPop_dataset_GPU errors: could not copy Y to device!");
@@ -749,7 +750,7 @@ GPUGMLMPop_dataset_GPU<FPTYPE>::GPUGMLMPop_dataset_GPU(const GPUGMLM_structure_a
     this->checkCudaErrors(ce, "GPUGMLMPop_dataset_GPU errors: could not allocate dW_trial on device!");
 
     //setup the groups
-    for(int jj = 0; jj < dim_J(); jj++) {
+    for(unsigned int jj = 0; jj < dim_J(); jj++) {
         Groups[jj] = new GPUGMLMPop_dataset_Group_GPU<FPTYPE>(jj, GMLMPopstructure->Groups[jj], block->trials, this, stream, cusparseHandle_Groups[jj]);
     }
 }
@@ -779,7 +780,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     std::vector<size_t> dim_F_c;
     dim_F_c.assign(dim_D(), 1);
     size_t max_dim_F_dim_P = parent->dim_P();
-    for(int ss = 0; ss < GMLMPopGroupStructure->dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < GMLMPopGroupStructure->dim_S(); ss++) {
         dim_T_total *= GMLMPopGroupStructure->dim_T[ss];
         dim_F_c[GMLMPopGroupStructure->factor_idx[ss]] *= GMLMPopGroupStructure->dim_T[ss];
 
@@ -802,7 +803,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     //allocated space for regressors and copy to GPU
     size_t max_dim_X_shared = parent->dim_N_total();
 
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         (*isShared)[dd] = !(GMLMPopGroupStructure->X_shared[dd]->empty());
 
         if((*isShared)[dd]) {
@@ -824,7 +825,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             this->checkCudaErrors(X[dd]->copyTo(stream, GMLMPopGroupStructure->X_shared[dd], false), "GPUGMLMPop_dataset_Group_GPU errors: could not copy X[dd] shared to device!");
        
             // copy each trial's data to GPU
-            for(int mm = 0; mm < trials.size(); mm++) {
+            for(unsigned int mm = 0; mm < trials.size(); mm++) {
                 cudaPos copyOffset = make_cudaPos((*(parent->ridx_t_all))[mm], 0, 0); //get row for current trial
                 this->checkCudaErrors(iX[dd]->copyTo(stream, trials[mm]->Groups[groupNum]->iX[dd], true, copyOffset), "GPUGMLMPop_dataset_Group_GPU errors: could not copy iX[dd] shared to device!");
             }
@@ -832,8 +833,8 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             //check if X_shared is the identity matrix
             if(X[dd]->getSize(0) == X[dd]->getSize(1)) {
                 (*isSharedIdentity)[dd] = true;
-                for(int ii = 0; ii < X[dd]->getSize(0) && (*isSharedIdentity)[dd]; ii++) {
-                    for(int jj = 0; jj < X[dd]->getSize(1) && (*isSharedIdentity)[dd]; jj++) {
+                for(unsigned int ii = 0; ii < X[dd]->getSize(0) && (*isSharedIdentity)[dd]; ii++) {
+                    for(unsigned int jj = 0; jj < X[dd]->getSize(1) && (*isSharedIdentity)[dd]; jj++) {
                         if(ii == jj) {
                             (*isSharedIdentity)[dd] = 1 == (*(GMLMPopGroupStructure->X_shared[dd]))(ii,jj);
                         }
@@ -877,7 +878,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             iX[dd] = new GPUData<int   >(ce, GPUData_HOST_NONE, stream, 0, GMLMPopGroupStructure->dim_A);
 
             // copy each trial's data
-            for(int mm = 0; mm < trials.size(); mm++) {
+            for(unsigned int mm = 0; mm < trials.size(); mm++) {
                 cudaPos copyOffset = make_cudaPos((*(parent->ridx_t_all))[mm], 0, 0); //get row for current trial
                 this->checkCudaErrors(X[dd]->copyTo(stream, trials[mm]->Groups[groupNum]->X[dd], true, copyOffset), "GPUGMLMPop_dataset_Group_GPU errors: could not copy X[dd] local to device!");
             }
@@ -903,7 +904,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     // pitched memory for lambda_d: note arrangement is (dim_N_total*dim_A) x dim_R
     //                                this stacks the events to line up with X or S
     lambda_d.assign(dim_D(), NULL);
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         size_t depth = dim_A;
         if(!((*isShared)[dd]) && X[dd]->getSize(2) == 1) {
             depth = 1;
@@ -927,7 +928,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
     spi_buffer.assign(dim_D(), NULL);
     spi_buffer_size.assign(dim_D(), 0);
 
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         if((*isShared)[dd]) {
             //gets the rows and cols of the spm in the correct order
                 //shorter algorithm is too slow for my level of patience, so we do this in a couple steps
@@ -935,9 +936,9 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             size_t ctr = 0;
             std::vector<int> row_ctr;
             row_ctr.resize(dim_X(dd));
-            for(int mm = 0; mm < parent->dim_M(); mm++) { //for each trial
-                for(int aa = 0; aa < dim_A; aa++) { //for each event
-                    for(int nn = 0; nn < trials[mm]->dim_N(msg); nn++) { //for each observation
+            for(unsigned int mm = 0; mm < parent->dim_M(); mm++) { //for each trial
+                for(unsigned int aa = 0; aa < dim_A; aa++) { //for each event
+                    for(unsigned int nn = 0; nn < trials[mm]->dim_N(msg); nn++) { //for each observation
                         //gets the entry in the input data
                         int row = (*(trials[mm]->Groups[groupNum]->iX[dd]))(nn, aa);
                         if(row >= 0 && row < dim_X(dd)) { //if valid row (invalid indices are 0's)
@@ -952,7 +953,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             std::vector<int> row_idx;
             row_idx.resize(dim_X(dd));
             row_idx[0] = 0;
-            for(int xx = 1; xx < dim_X(dd); xx++) {
+            for(unsigned int xx = 1; xx < dim_X(dd); xx++) {
                 row_idx[xx] = row_ctr[xx-1] + row_idx[xx-1]; 
             }
                 //goes back through the indices and adds them on
@@ -962,9 +963,9 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::GPUGMLMPop_dataset_Group_GPU(const int gro
             this->checkCudaErrors(ce, "GPUGMLMPop_dataset_Group_GPU errors: could not allocate space for spi_cols[dd]!");
 
             row_ctr.assign(dim_X(dd), 0); //reset row counter
-            for(int mm = 0; mm < parent->dim_M(); mm++) { //for each trial
-                for(int aa = 0; aa < dim_A; aa++) { //for each event
-                    for(int nn = 0; nn < trials[mm]->dim_N(msg); nn++) { //for each observation
+            for(unsigned int mm = 0; mm < parent->dim_M(); mm++) { //for each trial
+                for(unsigned int aa = 0; aa < dim_A; aa++) { //for each event
+                    for(unsigned int nn = 0; nn < trials[mm]->dim_N(msg); nn++) { //for each observation
                         //gets the entry in the input data
                         int row = (*(trials[mm]->Groups[groupNum]->iX[dd]))(nn, aa);
                         if(row >= 0 && row < dim_X(dd)) { //if valid row
@@ -1098,7 +1099,7 @@ GPUGMLMPop_dataset_Group_GPU<FPTYPE>::~GPUGMLMPop_dataset_Group_GPU() {
     cudaSafeFreeVector(spi_data, "GPUGMLMPop_dataset_Group_GPU errors: could not free spi_data");
     cudaSafeFreeVector(spi_buffer, "GPUGMLMPop_dataset_Group_GPU errors: could not free spi_buffer");
     //destroy any cusparse handles
-    for(int dd = 0; dd < spi_S.size(); dd++) {
+    for(unsigned int dd = 0; dd < spi_S.size(); dd++) {
         if(spi_S[dd] != NULL) {
             this->checkCudaErrors(cusparseDestroySpMat(*spi_S[dd]), "GPUGMLMPop_dataset_Group_GPU errors: CUSPARSE failed to destroy spi_S descr.");
             delete spi_S[dd];
@@ -1170,7 +1171,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::multiplyCoefficients(const bool isSpa
     else if(update_weights) {
         this->checkCudaErrors(lambda_v->resize(stream, parent->lambda->getSize_max(0), -1, -1), "GPUGMLM_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
     }
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         GPUData<FPTYPE> * X_c = X[dd];
         if(isSparseRun && update_weights) {
             this->checkCudaErrors(X_temp[dd]->resize(  stream, parent->dim_N_temp, -1, -1), "GPUGMLMPop_dataset_Group_GPU::multiplyCoefficients errors: could not set size for sparse runs.");
@@ -1364,13 +1365,13 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, 
         grid_size.y  = dim_R() / block_size.y + ((dim_R() % block_size.x == 0)? 0:1);
 
         bool compute_dT_any = false;
-        for(int ss = 0; ss < params->dim_S(); ss++) {
+        for(unsigned int ss = 0; ss < params->dim_S(); ss++) {
             if(opts->compute_dT[ss]) {
                 compute_dT_any = true;
                 break;
             }
         }
-
+        
         switch( params->dim_S()) {
                 case 1:
                     kernel_getGroupRate_pop<FPTYPE,1><<<grid_size, block_size, 0, stream>>>( lambda_v->device(),  GPUData<FPTYPE>::assembleKernels(lambda_d), 
@@ -1436,9 +1437,9 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::getGroupRate(const bool isSparseRun, 
                                                                                         parent->ridx_a_all_c->device(), dim_A);
                     break;
                 default:
-                    this->checkCudaErrors(cudaErrorInvalidConfiguration, "GPUGMLMPop_dataset_Group_GPU::getGroupRate errors:  kernel_getGroupRate launch failed - invalid tensor order");
+                this->checkCudaErrors(cudaErrorInvalidConfiguration, "GPUGMLMPop_dataset_Group_GPU::getGroupRate_pop errors:  kernel_getGroupRate_pop launch failed - invalid tensor order");
         }
-        this->checkCudaErrors("GPUGMLMPop_dataset_Group_GPU::getGroupRate errors:  kernel_getGroupRate launch failed");
+        this->checkCudaErrors("GPUGMLMPop_dataset_Group_GPU::getGroupRate_pop errors:  kernel_getGroupRate_pop launch failed");
 
         // multiply lambda_v * V' -> lambda(:, :, groupNum)
         FPTYPE alpha = 1;
@@ -1548,13 +1549,13 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Gr
     //check if computing any derivatives first
     std::vector<bool> compute_dF;
     compute_dF.assign(dim_D(), false);
-    for(int ss = 0; ss < params->dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < params->dim_S(); ss++) {
         unsigned int dd = (*(params->factor_idx))[ss];
         compute_dF[dd] = compute_dF[dd] || opts->compute_dT[ss];
     }
 
     // compute lambda_v = dLL * V
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         if(compute_dF[dd]) {
             this->checkCudaErrors(parent->dLL->GEMM(lambda_v, params->V, cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  dLL*V -> lambda_v failed");
             break;
@@ -1562,7 +1563,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Gr
     }
 
     //for each factor
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         if(compute_dF[dd]) {
             // lambda_d init setup in the kernel call in computeRateParts 
             // two steps
@@ -1584,7 +1585,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Gr
 
                 FPTYPE alpha = 1;
                 FPTYPE beta  = 0;
-                for(int rr = 0; rr < params->dim_R(); rr++) {
+                for(unsigned int rr = 0; rr < params->dim_R(); rr++) {
                     kernel_set_spi_S_pop<<<grid_size, block_size, 0, stream>>>(spi_data[dd]->device(), lambda_v->device(),
                                                          spi_cols[dd]->device(), rr);
                     this->checkCudaErrors("GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors:  kernel_set_spi_S launch failed");
@@ -1698,7 +1699,7 @@ void GPUGMLMPop_dataset_Group_GPU<FPTYPE>::computeDerivatives(GPUGMLM_results_Gr
             
             // matrix mults to get dT
             if((*(params->N_per_factor))[dd] > 1) {
-                for(int ss = 0; ss < params->dim_S(); ss++) {
+                for(unsigned int ss = 0; ss < params->dim_S(); ss++) {
                     if((*(params->factor_idx))[ss] == dd && opts->compute_dT[ss]) {
                         this->checkCudaErrors(params->dF_dT[ss]->GEMVs(results->dT[ss], results->dF[dd], cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N), "GPUGMLMPop_dataset_Group_GPU::computeDerivatives errors: dF_dT'*dF -> dT");
                     }

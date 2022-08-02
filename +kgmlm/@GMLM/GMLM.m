@@ -1193,13 +1193,13 @@ classdef GMLM < handle
             
             J = obj.dim_J;
             params_0 = params;
-            if(isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams))
-                params = obj.GMLMstructure.scaleParams(params_0);
-            end
             for jj = 1:J
                 if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
                     params.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
                 end
+            end
+            if(isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.GMLMstructure.scaleParams))
+                params = obj.GMLMstructure.scaleParams(params);
             end
            
             for jj = 1:obj.dim_J
@@ -1313,6 +1313,7 @@ classdef GMLM < handle
                     
                     for pp = 1:size(obj.trials(mm).Y, 2)
                         rr = log_like_per_trial(mm).log_rate(:, pp) + log(obj.bin_size);
+                        
 
                         log_like_per_trial(mm).log_like_0(:, pp) = kgmlm.utils.truncatedPoiss(rr, obj.trials(mm).Y(:, pp) );
 
@@ -1889,37 +1890,20 @@ classdef GMLM < handle
             useAsync = true;
             params_0 = params;
 
-            scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
-            if(scaled_WB)
-                params = obj.GMLMstructure.scaleParams(params_0);
-
-                if(isfield(opts, "dH"))
-                    opts.dB = opts.dB | opts.dH;
-                    opts.dW = opts.dW | opts.dH;
-    
-                    if(nargin > 3)
-                        if(opts.dW &&  isempty(results.dW))
-                            error("Invalid results struct.");
-                        end
-                        if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
-                            error("Invalid results struct.");
-                        end
-                    end
-                end
-            end
             J = obj.dim_J;
             scaled_VT = false(J,1);
+            scaleP = cell(J,1);
             for jj = 1:J
                 if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
 
                     scaled_VT(jj) = true;
-                    params.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
+                    [params.Groups(jj), scaleP{jj}] = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
 
                     if(isfield(opts.Groups(jj), "dH"))
                         opts.Groups(jj).dV = opts.Groups(jj).dV | opts.Groups(jj).dH;
                         opts.Groups(jj).dT(:) = opts.Groups(jj).dT(:) | opts.Groups(jj).dH;
         
-                        if(nargin > 3)
+                        if(nargin > 3 && ~isempty(results))
                             if(opts.Groups(jj).dV && isempty(results.Groups(jj).dV))
                                 error("Invalid results struct.");
                             end
@@ -1928,6 +1912,24 @@ classdef GMLM < handle
                                     error("Invalid results struct.");
                                 end
                             end
+                        end
+                    end
+                end
+            end
+            scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.GMLMstructure.scaleParams);
+            if(scaled_WB)
+                [params, scaleP_WB] = obj.GMLMstructure.scaleParams(params);
+
+                if(isfield(opts, "dH"))
+                    opts.dB = opts.dB | opts.dH;
+                    opts.dW = opts.dW | opts.dH;
+    
+                    if(nargin > 3 && ~isempty(results))
+                        if(opts.dW &&  isempty(results.dW))
+                            error("Invalid results struct.");
+                        end
+                        if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
+                            error("Invalid results struct.");
                         end
                     end
                 end
@@ -1963,11 +1965,11 @@ classdef GMLM < handle
 
 
             if(scaled_WB)
-                results = obj.Groups(jj).scaleDerivatives(results, params_0, true);
+                results = obj.GMLMstructure.scaleDerivatives(results, params_0, true, scaleP_WB);
             end
             for jj = 1:J
                 if(scaled_VT(jj))
-                    results.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleDerivatives(results.Groups(jj), params_0.Groups(jj), false);
+                    results.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleDerivatives(results.Groups(jj), params_0.Groups(jj), false, scaleP{jj});
                 end
             end
             results.log_likelihood = sum(results.trialLL, 'all');
@@ -1984,38 +1986,21 @@ classdef GMLM < handle
             useAsync = true;
             params_0 = params;
 
-            scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
-            if(scaled_WB)
-                params = obj.GMLMstructure.scaleParams(params_0);
-
-                if(isfield(opts, "dH"))
-                    opts.dB = opts.dB | opts.dH;
-                    opts.dW = opts.dW | opts.dH;
-    
-                    if(nargin > 3)
-                        if(opts.dW && isempty(results.dW))
-                            error("Invalid results struct.");
-                        end
-                        if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
-                            error("Invalid results struct.");
-                        end
-                    end
-                end
-            end
 
             J = obj.dim_J;
             scaled_VT = false(J,1);
+            scaleP = cell(J,1);
             for jj = 1:J
                 if(isfield(obj.GMLMstructure.Groups(jj), "scaleParams") && ~isempty(obj.GMLMstructure.Groups(jj).scaleParams))
 
                     scaled_VT(jj) = true;
-                    params.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
+                    [params.Groups(jj), scaleP{jj}] = obj.GMLMstructure.Groups(jj).scaleParams(params_0.Groups(jj));
 
                     if(isfield(opts.Groups(jj), "dH"))
                         opts.Groups(jj).dV = opts.Groups(jj).dV | opts.Groups(jj).dH;
                         opts.Groups(jj).dT(:) = opts.Groups(jj).dT(:) | opts.Groups(jj).dH;
         
-                        if(nargin > 3)
+                        if(nargin > 3 && ~isempty(results))
                             if(opts.Groups(jj).dV && isempty(results.Groups(jj).dV))
                                 error("Invalid results struct.");
                             end
@@ -2024,6 +2009,24 @@ classdef GMLM < handle
                                     error("Invalid results struct.");
                                 end
                             end
+                        end
+                    end
+                end
+            end
+            scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.GMLMstructure.scaleParams);
+            if(scaled_WB)
+                [params, scaleP_WB] = obj.GMLMstructure.scaleParams(params);
+
+                if(isfield(opts, "dH"))
+                    opts.dB = opts.dB | opts.dH;
+                    opts.dW = opts.dW | opts.dH;
+    
+                    if(nargin > 3 && ~isempty(results))
+                        if(opts.dW && isempty(results.dW))
+                            error("Invalid results struct.");
+                        end
+                        if(opts.dB && isempty(results.dB) && obj.dim_B > 0)
+                            error("Invalid results struct.");
                         end
                     end
                 end
@@ -2063,11 +2066,11 @@ classdef GMLM < handle
             end
 
             if(scaled_WB)
-                results = obj.Groups(jj).scaleDerivatives(results, params_0, true);
+                results = obj.GMLMstructure.scaleDerivatives(results, params_0, true, scaleP_WB);
             end
             for jj = 1:J
                 if(scaled_VT(jj))
-                    results.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleDerivatives(results.Groups(jj), params_0.Groups(jj), true);
+                    results.Groups(jj) = obj.GMLMstructure.Groups(jj).scaleDerivatives(results.Groups(jj), params_0.Groups(jj), true, scaleP{jj});
                 end
             end
             
@@ -2173,10 +2176,13 @@ classdef GMLM < handle
         
         [samples, summary, HMC_settings, paramStruct, M] = runHMC_simple(obj, params_init, settings, varargin);
         [samples, samples_file_format, summary, HMC_settings, paramStruct, M] = runHMC_simpleLowerRAM(obj, params_init, settings, varargin);
+        [paramStruct2] = saveSampleToFile(obj, samples_file, paramStruct, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
+        [samples_file_format, totalParams] = getSampleFileFormat(obj, TotalSamples, dataType_samples, paramStruct, scaled_WB, scaled_VT, saveUnscaled)
         [HMC_settings]                                   = setupHMCparams(obj, nWarmup, nSamples, debugSettings);
 
 
         [results] = computeLogLikelihood_host_v2(obj, params, opts, results);
+        [log_rate, xx, R] = computeLogRate_host_v2(obj, params);
         [] = setupComputeStructuresHost(obj, reset, order);
     end
     

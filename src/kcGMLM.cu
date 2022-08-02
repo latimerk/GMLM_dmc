@@ -20,6 +20,31 @@
         
 namespace kCUDA {
     
+int getValidGPU() {
+
+    #ifdef USE_GPU
+        int nd = 0;
+        cudaError_t ce = cudaGetDeviceCount(&nd);
+        if(ce == cudaSuccess) {
+            for(int device = 0; device < nd; device++) {
+                cudaDeviceProp deviceProp;
+                ce = cudaGetDeviceProperties(&deviceProp, device);
+                if(ce == cudaSuccess) {
+                    if(610 <= deviceProp.major*100 + deviceProp.minor*10) {
+                        return device;
+                    }
+                }
+            }
+        }
+        return -1;
+    #else
+        return -2;
+    #endif
+}
+bool gpuAvailable() {
+    return getValidGPU() >= 0;
+}
+
 template <class FPTYPE>
 GPUGMLM<FPTYPE>::GPUGMLM(const GPUGMLM_structure_args <FPTYPE> * GMLMstructure, const std::vector<GPUGMLM_GPU_block_args<FPTYPE> *> blocks, std::shared_ptr<GPUGL_msg> msg_) : isSimultaneousPopulation_(GMLMstructure->isSimultaneousPopulation) {
     msg = msg_;
@@ -49,7 +74,7 @@ GPUGMLM<FPTYPE>::GPUGMLM(const GPUGMLM_structure_args <FPTYPE> * GMLMstructure, 
             
     //build each block
     gpu_blocks.resize(blocks.size());
-    for(int bb = 0; bb < blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < blocks.size(); bb++) {
         if(isSimultaneousPopulation()) {
             gpu_blocks[bb] = new GPUGMLMPop_computeBlock<FPTYPE>(GMLMstructure, blocks[bb], max_trials, msg);
         }
@@ -80,13 +105,13 @@ void GPUGMLM<FPTYPE>::computeLogLikelihood_async(std::shared_ptr<GPUGMLM_params<
     }
 
     //call bits of LL computation
-    for(int bb = 0; bb < gpu_blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < gpu_blocks.size(); bb++) {
         gpu_blocks[bb]->computeRateParts(opts.get(), isSparse[bb]);
     }
-    for(int bb = 0; bb < gpu_blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < gpu_blocks.size(); bb++) {
         gpu_blocks[bb]->computeLogLike(opts.get(), isSparse[bb]);
     }
-    for(int bb = 0; bb < gpu_blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < gpu_blocks.size(); bb++) {
         gpu_blocks[bb]->computeDerivatives(opts.get(),  isSparse[bb]);
     }
           

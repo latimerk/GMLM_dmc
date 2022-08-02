@@ -40,7 +40,7 @@ GPUGLM<FPTYPE>::GPUGLM(const GPUGLM_structure_args <FPTYPE> * GLMstructure, cons
     //build each block
     dim_K_ = GLMstructure->dim_K;
     gpu_blocks.resize(blocks.size());
-    for(int bb = 0; bb < blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < blocks.size(); bb++) {
         GPUGLM_computeBlock<FPTYPE> * block = new GPUGLM_computeBlock<FPTYPE>(GLMstructure, blocks[bb], max_trials, msg);
         gpu_blocks[bb] = block;
     }
@@ -64,11 +64,11 @@ void GPUGLM<FPTYPE>::computeLogLikelihood(const GPUGLM_params<FPTYPE> * params, 
     }
             
     //call bits of LL computation
-    for(int bb = 0; bb < gpu_blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < gpu_blocks.size(); bb++) {
         gpu_blocks[bb]->syncStreams();
         gpu_blocks[bb]->computeLogLike(opts, isSparse[bb]);
     }
-    for(int bb = 0; bb < gpu_blocks.size(); bb++) {
+    for(unsigned int bb = 0; bb < gpu_blocks.size(); bb++) {
         gpu_blocks[bb]->syncStreams();
         gpu_blocks[bb]->computeDerivatives(opts,  isSparse[bb]);
     }

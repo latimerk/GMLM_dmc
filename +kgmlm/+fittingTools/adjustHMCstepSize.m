@@ -19,7 +19,7 @@ if(~isempty(ww))
     ps.delta = ps.delta(min(numel(ps.delta), ww));
     
     tt = ss - sample_1 + 1;
-    [stepSizeState.x_t,stepSizeState.x_bar_t,stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_p_accept_new, stepSizeState.H_sum, stepSizeState.x_bar_t, tt);
+    [stepSizeState.x_t, stepSizeState.x_bar_t, stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_p_accept_new, stepSizeState.H_sum, stepSizeState.x_bar_t, tt, log(stepSizeSettings.max_step_size));
     stepSizeState.e_bar  = exp(stepSizeState.x_bar_t);
 
     if(ss == stepSizeSettings.schedule(ww,2))
@@ -32,8 +32,8 @@ elseif(ss >= max(stepSizeSettings.schedule,[],'all'))
 end
 
 
-stepSizeState.e     = min(stepSizeSettings.max_step_size, stepSizeState.e );
-stepSizeState.e_bar = min(stepSizeSettings.max_step_size, stepSizeState.e_bar );
+% stepSizeState.e     = min(stepSizeSettings.max_step_size, stepSizeState.e );
+% stepSizeState.e_bar = min(stepSizeSettings.max_step_size, stepSizeState.e_bar );
 
 HMC_state.stepSize = stepSizeState;
 
@@ -50,7 +50,7 @@ HMC_state.steps   = min(stepSizeSettings.maxSteps(ll),      ceil(stepSizeSetting
 end
 
 %%
-function [x_t, x_bar_t, H_sum] = dualAverageStepSizeUpdate_internal(ps, log_h, H_sum, x_bar_t, tt)
+function [x_t, x_bar_t, H_sum] = dualAverageStepSizeUpdate_internal(ps, log_h, H_sum, x_bar_t, tt, max_x)
     if(tt == 1 || isnan(x_bar_t) || isinf(x_bar_t))
         %reset estimation
         x_t     = x_bar_t;
@@ -72,6 +72,10 @@ function [x_t, x_bar_t, H_sum] = dualAverageStepSizeUpdate_internal(ps, log_h, H
     H_tt = ps.delta - a_tt;
     H_sum = aa_H * H_tt + (1 - aa_H) * H_sum;
     x_t   = ps.mu  - sqrt(tt)/ps.gamma * H_sum;
+    if(nargin >= 6)
+        x_t   = min(max_x, x_t);
+    end
+        
     aa_x =tt^(-ps.kappa);
     x_bar_t = aa_x * x_t + (1 - aa_x)*x_bar_t;
 end

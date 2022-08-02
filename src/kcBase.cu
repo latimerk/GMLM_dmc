@@ -573,7 +573,14 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
         algo = CUBLAS_GEMM_DEFAULT;
     }
     
-    #if __CUDA_ARCH__ >= 700
+    #if __CUDA_ARCH__ >= 800
+        if(sizeof(FPTYPE) <= 4) {
+            algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP; 
+        }
+        else {
+            algo = CUBLAS_GEMM_DEFAULT;
+        }
+    #elif __CUDA_ARCH__ >= 700
         if(sizeof(FPTYPE) <= 4) {
             algo = CUBLAS_GEMM_ALGO0_TENSOR_OP; 
             if((cols_op_A <= MAX_DEFAULT && rows_op_A <= MAX_DEFAULT && cols_op_B <= MAX_DEFAULT && rows_op_B <= MAX_DEFAULT) || cols_op_B > MAX_COLS_ALGO0) {
@@ -621,8 +628,28 @@ cublasStatus_t GPUData<FPTYPE>::GEMM(GPUData<FPTYPE> * C, const GPUData<FPTYPE> 
     else if(depth == 1 && (algo != CUBLAS_GEMM_DEFAULT_TENSOR_OP && algo != CUBLAS_GEMM_DEFAULT) && cols_op_B > MAX_COLS) {
         if(multType != NULL) {multType[0] = 3;}; //{multType[0] = algo;};
         //for largish size of C, call GEMM (single - run below)
+
+        size_t stridedRuns = cols_op_B / MAX_COLS;
+        if(stridedRuns > 1) {
+            ce = cublasGEMMEXStridedBatched(handle,
+                            op_A,
+                            op_B,
+                            rows_op_A, MAX_COLS, cols_op_A,
+                            &alpha,
+                            getData_gpu(), getLD_gpu(),
+                            0,
+                            B->getData_gpu(), B->getLD_gpu(),
+                            B->getLD_gpu() * MAX_COLS,
+                            &beta,
+                            C->getData_gpu(), C->getLD_gpu(),
+                            C->getLD_gpu() * MAX_COLS,
+                            stridedRuns, algo);
+        }
+        else {
+            stridedRuns = 0;
+        }
         
-        for(size_t cc = 0; cc < cols_op_B && ce == CUBLAS_STATUS_SUCCESS; cc += MAX_COLS) {
+        for(size_t cc = stridedRuns * MAX_COLS; cc < cols_op_B && ce == CUBLAS_STATUS_SUCCESS; cc += MAX_COLS) {
             size_t cols_op_B_c = (cols_op_B - cc > MAX_COLS) ? MAX_COLS : (cols_op_B - cc);
             ce = cublasGEMMEX(handle,
                             op_A,

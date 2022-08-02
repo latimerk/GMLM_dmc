@@ -25,6 +25,7 @@ GPUGLM_computeBlock<FPTYPE>::GPUGLM_computeBlock(const GPUGLM_structure_args<FPT
     msg = msg_;
     dev = block->dev_num;
     switchToDevice();
+    this->checkDeviceComputeCapability();
 
     size_t dim_M = block->trials.size();
     if(dim_M == 0) {

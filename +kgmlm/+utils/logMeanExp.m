@@ -4,10 +4,7 @@ if(nargin < 2)
 end
 
 
-if(strcmpi(dim, 'all'))
-    NE = numel(log_x);
-else
-    NE = size(log_x, dim);
-end
+NE = sum(~isnan(log_x), dim);
+NE(NE == 0) = nan;
 
 log_m = -log(NE) + kgmlm.utils.logSumExp(log_x,dim);

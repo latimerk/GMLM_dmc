@@ -39,6 +39,7 @@ function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_in
                 nlpost = inf; % divergent trajectory
                 break;
             end
+
             %% move positions
             [w, errs] = paramStep(w, p, M, HMC_state);
             if(errs)
@@ -48,7 +49,6 @@ function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_in
             
             [nlpost, ndW, ~, results] = nlpostFunction(w);
             
-
             %% move momentums
             [p, errs] = momentumStep(p, -ndW, HMC_state);
             if(errs)% divergent trajectory
@@ -56,6 +56,7 @@ function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_in
                 break;
             end
             
+            %% check current divergence
             lp_momentum = logProbMomentum(p, M);
             H_s = -nlpost + lp_momentum; 
 
@@ -73,21 +74,16 @@ function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_in
             error('HMC accept probability is nan!');
         end
     catch ee %#ok<NASGU>
-        %p_accept = 1e-14;
+        log_p_accept = nan;
+        w_new        = w_init;
+        results      = results_init;
+        accepted     = false;
+        divergent    = true;
         
-        log_p_accept    = nan;%log(p_accept);
-        w_new = w_init;
-        results = results_init;
-        accepted        = false;
-        divergent = true;
-        
-%         msgText = getReport(ee,'extended');
-%         fprintf('HMC reaching inf/nan values with step size %.4f: %s\n\tAuto-rejecting sample and setting p_accept = %e.\n\tError Message: %s\n',ees,errorMessageStr,p_accept,msgText);
-%         fprintf('>>end error message<<\n');
-
-%         fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
-        
-        
+        %msgText = getReport(ee,'extended');
+        %fprintf('HMC reaching inf/nan values with step size %.4f: %s\n\tAuto-rejecting sample and setting p_accept = %e.\n\tError Message: %s\n',ees,errorMessageStr,p_accept,msgText);
+        %fprintf('>>end error message<<\n');
+        %fprintf('\t\t>>>HMC sampler reaching numerically unstable values (infinite/nan): rejecting sample early<<<\n');
         return;
     end
     
@@ -108,15 +104,15 @@ function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_in
     end
 end
  
-
+%% gets initial momentum
 function [vv] = generateMomentum(M)
     vv = (randn(numel(M),1).*sqrt(M));
 end
+
 %% gets the probability of a momentum term
 function [lp] = logProbMomentum(mm,M) 
     lp = -1/2*sum(M.\mm.^2);
 end
-
 
 %% complete parameter step
 function [w,errs] = paramStep(w, p, M, HMC_state)

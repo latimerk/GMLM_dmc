@@ -428,6 +428,17 @@ class GPUGL_base  {
         inline bool switchToDevice(const bool printOnly = false) {
             return checkCudaErrors(cudaSetDevice(dev), "error switching to device", printOnly);
         }
+        bool checkDeviceComputeCapability(const bool printOnly = false) {
+            cudaDeviceProp deviceProp;
+            checkCudaErrors(cudaGetDeviceProperties(&deviceProp, dev), "Error getting CUDA device properties (checkDeviceComputeCapability)", printOnly);
+            if(610 <= deviceProp.major*100 + deviceProp.minor*10) {
+                return true;
+            }
+            else {
+                checkCudaErrors(cudaErrorInvalidDevice, "CUDA compute capability error (requires 6.1 or greater)", printOnly);
+                return false;
+            }
+        }
         
         
     public:

@@ -62,6 +62,7 @@ else
     mode = omega / (sqrt((1-lambda)^2 + omega^2) + 1-lambda);
 end
 end % gig_mode
+
 function X = ROU_shift(lambda, lambda_old, omega, alpha)
 %% Ratio-of-uniforms with shift by mode
 % shortcuts

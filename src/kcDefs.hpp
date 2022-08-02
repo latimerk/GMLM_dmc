@@ -28,9 +28,9 @@ namespace kCUDA {
 
 inline dim3 make_dim3(size_t x, size_t y = 1, size_t z = 1) {
     dim3 dims;
-    dims.x = x;
-    dims.y = y;
-    dims.z = z;
+    dims.x = static_cast<int>(x);
+    dims.y = static_cast<int>(y);
+    dims.z = static_cast<int>(z);
     return dims;
 }
     

@@ -38,7 +38,7 @@ GPUGMLM_parameters_GPU<FPTYPE>::GPUGMLM_parameters_GPU(const GPUGMLM_structure_a
     if(GMLMstructure->logLikeParams.size() > 0) {
         logLikeParams = new GPUData<FPTYPE>(ce, GPUData_HOST_STANDARD, stream, GMLMstructure->logLikeParams.size());
         checkCudaErrors(ce,  "GPUGMLM_parameters_GPU errors: could not allocate space for logLikeParams!" );
-        for(int ii = 0; ii < GMLMstructure->logLikeParams.size(); ii++) {
+        for(unsigned int ii = 0; ii < GMLMstructure->logLikeParams.size(); ii++) {
             (*logLikeParams)[ii] = GMLMstructure->logLikeParams[ii];
         }
         ce = logLikeParams->copyHostToGPU(stream);
@@ -74,7 +74,7 @@ GPUGMLM_parameters_GPU<FPTYPE>::GPUGMLM_parameters_GPU(const GPUGMLM_structure_a
 
     //setup each group
     Groups.resize(GMLMstructure->Groups.size());
-    for(int jj = 0; jj < GMLMstructure->Groups.size(); jj++) {
+    for(unsigned int jj = 0; jj < GMLMstructure->Groups.size(); jj++) {
         Groups[jj] = new GPUGMLM_parameters_Group_GPU<FPTYPE>(GMLMstructure->Groups[jj], this);
     }
 }
@@ -115,7 +115,7 @@ GPUGMLM_parameters_Group_GPU<FPTYPE>::GPUGMLM_parameters_Group_GPU(const GPUGMLM
     }
 
     dim_F_max   = 0;
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         if(GMLMGroupStructure->factor_idx[ss] >= dim_D()) {
             output_stream << "GPUGMLM_parameters_Group_GPU errors: invalid factor index!";
             msg->callErrMsgTxt(output_stream);
@@ -127,19 +127,19 @@ GPUGMLM_parameters_Group_GPU<FPTYPE>::GPUGMLM_parameters_Group_GPU(const GPUGMLM
         T[ss] = new GPUData<FPTYPE>(ce, GPUData_HOST_PAGELOCKED, stream, GMLMGroupStructure->dim_T[ss], GMLMGroupStructure->dim_R_max);
         checkCudaErrors(ce, "GPUGMLM_parameters_Group_GPU errors: could not allocate space for T[ss]!" );
     }
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         int dd = (*factor_idx)[ss];
         dF_dT[ss] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, GMLMGroupStructure->dim_T[ss], dim_F_c[dd], GMLMGroupStructure->dim_R_max);
         checkCudaErrors(ce, "GPUGMLM_parameters_Group_GPU errors: could not allocate space for dF_dT[ss]!" );
     }
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         if((*N_per_factor)[dd] > 1) {
             F[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, dim_F_c[dd], GMLMGroupStructure->dim_R_max);
             checkCudaErrors(ce, "GPUGMLM_parameters_Group_GPU errors: could not allocate space for F[dd]!" );
         }
         else if((*N_per_factor)[dd] == 1) {
             //find the T for this factor if is unique
-            for(int ss = 0; ss < dim_S(); ss++) {
+            for(unsigned int ss = 0; ss < dim_S(); ss++) {
                 if((*factor_idx)[ss] == dd) {
                     F[dd] = T[ss];
                     break;
@@ -180,14 +180,14 @@ GPUGMLM_parameters_GPU<FPTYPE>::~GPUGMLM_parameters_GPU() {
 
     cudaSafeFree(W, "GPUGMLM_parameters_GPU errors: could not free W");
     cudaSafeFree(B, "GPUGMLM_parameters_GPU errors: could not free B");
-    for(int jj = 0; jj < Groups.size(); jj++) {
+    for(unsigned int jj = 0; jj < Groups.size(); jj++) {
         delete Groups[jj];
     }
 }
 template <class FPTYPE>
 GPUGMLM_parameters_Group_GPU<FPTYPE>::~GPUGMLM_parameters_Group_GPU() {
     switchToDevice();
-    for(int dd = 0; dd < N_per_factor->size(); dd++) {
+    for(unsigned int dd = 0; dd < N_per_factor->size(); dd++) {
         if((*N_per_factor)[dd] > 1) {
             cudaSafeFree(F[dd], "GPUGMLM_parameters_Group_GPU errors: could not free F");
         }
@@ -217,7 +217,7 @@ __global__ void kernel_ParamsSparseRunSetup(GPUData_kernel<unsigned int> ridx_sa
         unsigned int mm = trial_included[tr];
         unsigned int start_all = ridx_t_all[mm];
         unsigned int start_sp  = ridx_st_sall[tr];
-        for(int nn = 0; nn < dim_N[mm]; nn++) {
+        for(unsigned int nn = 0; nn < dim_N[mm]; nn++) {
             ridx_sa_all[nn + start_sp] = start_all + nn;
         }
     }
@@ -364,7 +364,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         checkCudaErrors(B->copyTo(stream, gmlm_params->B, false), "GPUGMLM_parameters_GPU errors: could not copy B to device!");
         
         //for each group
-        for(int jj = 0; jj < dim_J(); jj++) {
+        for(unsigned int jj = 0; jj < dim_J(); jj++) {
             Groups[jj]->copyToGPU(gmlm_params->Groups[jj], stream_Groups[jj], opts->Groups[jj]);
         }
     }
@@ -399,7 +399,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
                 included = (*trial_weights_temp)[mm] != 0;
             }
             else {
-                for(int pp = 0; pp < dim_P(); pp++) {
+                for(unsigned int pp = 0; pp < dim_P(); pp++) {
                     (*trial_weights_temp)(mm, pp) = (*(opts->trial_weights))((*(dataset->id_t_trial))[mm], pp);
                     included = included || (*trial_weights_temp)(mm,pp) != 0;
                 }
@@ -504,7 +504,7 @@ void GPUGMLM_parameters_GPU<FPTYPE>::copyToGPU(const GPUGMLM_params<FPTYPE> * gm
         checkCudaErrors(B->copyTo(stream, gmlm_params->B, false), "GPUGMLMPop_parameters_GPU errors: could not copy B to device!");
         
         //for each group
-        for(int jj = 0; jj < dim_J(); jj++) {
+        for(unsigned int jj = 0; jj < dim_J(); jj++) {
             Groups[jj]->copyToGPU(gmlm_params->Groups[jj], stream_Groups[jj], opts->Groups[jj]);
         }
     }
@@ -524,7 +524,7 @@ void GPUGMLM_parameters_Group_GPU<FPTYPE>::copyToGPU(const GPUGMLM_group_params<
         output_stream << "GPUGMLM_parameters_Group_GPU errors: Invalid tensor coefficient group order. received dim_S = " << gmlm_group_params->dim_S() << ", expected dim_S = " << dim_S() << std::endl;
         msg->callErrMsgTxt(output_stream);
     }
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         if(gmlm_group_params->dim_T(ss, msg) != dim_T(ss)) {
             output_stream << "GPUGMLM_parameters_Group_GPU errors: Invalid tensor coefficient size. Received dim_T = " << gmlm_group_params->dim_T(ss, msg) << ", expected dim_T = " << dim_T(ss) << std::endl;
             msg->callErrMsgTxt(output_stream);
@@ -537,7 +537,7 @@ void GPUGMLM_parameters_Group_GPU<FPTYPE>::copyToGPU(const GPUGMLM_group_params<
         msg->callErrMsgTxt(output_stream);
     }
     compute_dF->assign(false);
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         (*compute_dT)[ss] = opts->compute_dT[ss];
         (*compute_dF)[(*factor_idx)[ss]] = (*compute_dF)[(*factor_idx)[ss]] || opts->compute_dT[ss];
     }
@@ -548,7 +548,7 @@ void GPUGMLM_parameters_Group_GPU<FPTYPE>::copyToGPU(const GPUGMLM_group_params<
     checkCudaErrors(V->copyTo(stream, gmlm_group_params->V, false), "GPUGMLM_parameters_Group_GPU errors: could not copy V to device!");
 
     //copy each T
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         checkCudaErrors(T[ss]->copyTo(stream, gmlm_group_params->T[ss], false), "GPUGMLM_parameters_Group_GPU errors: could not copy T to device!");
     }
 
@@ -573,17 +573,17 @@ __global__ void kernel_assembleFactorFilter(GPUData_array_kernel<FPTYPE, MAX_DIM
         const size_t dim_F = F[factor].x;
         
         if(row < dim_F) {
-            for(int rr = 0; rr < F[factor].y; rr++) {
-                for(int ss_c = 0; ss_c < dim_S; ss_c++) {
+            for(unsigned int rr = 0; rr < F[factor].y; rr++) {
+                for(unsigned int ss_c = 0; ss_c < dim_S; ss_c++) {
                     if(factor_idx[ss_c] == factor && compute_dT[ss_c]) {
-                        for(int tt = 0; tt < dF_dT[ss_c].x; tt++) {
+                        for(unsigned int tt = 0; tt < dF_dT[ss_c].x; tt++) {
                             dF_dT[ss_c](tt, row, rr) = 0;
                         }
                     }
                 }
 
                 size_t T_ctr = 1;
-                for(int ss = 0; ss < dim_S; ss++) {
+                for(unsigned int ss = 0; ss < dim_S; ss++) {
                     if(factor_idx[ss] == factor) {
                         size_t tt = (row/T_ctr) % T[ss].x;
                         if(T_ctr == 1) {
@@ -600,15 +600,15 @@ __global__ void kernel_assembleFactorFilter(GPUData_array_kernel<FPTYPE, MAX_DIM
                     }
                 }
                 
-                for(int ss_c = 0; ss_c < dim_S; ss_c++) {
+                for(unsigned int ss_c = 0; ss_c < dim_S; ss_c++) {
                     if(factor_idx[ss_c] == factor && compute_dT[ss_c]) {
 
                         size_t T_ctr = 1;
-                        for(int ss = 0; ss < dim_S; ss++) {
+                        for(unsigned int ss = 0; ss < dim_S; ss++) {
                             if(factor_idx[ss] == factor) {
                                 size_t tt = (row/T_ctr) % T[ss].x;
                                 if(ss != ss_c) {
-                                    for(int tt_0 = 0; tt_0 < dF_dT[ss_c].x; tt_0++) {
+                                    for(unsigned int tt_0 = 0; tt_0 < dF_dT[ss_c].x; tt_0++) {
                                         dF_dT[ss_c](tt_0, row, rr) *= T[ss](tt, rr);
                                     }
                                 }
@@ -667,7 +667,7 @@ GPUGMLM_results_GPU<FPTYPE>::GPUGMLM_results_GPU(const GPUGMLM_structure_args <F
 
     //setup each group
     Groups.resize(GMLMstructure->Groups.size());
-    for(int jj = 0; jj < dim_J(); jj++) {
+    for(unsigned int jj = 0; jj < dim_J(); jj++) {
         Groups[jj] = new GPUGMLM_results_Group_GPU<FPTYPE>(GMLMstructure->Groups[jj], this);
     }
 }
@@ -685,7 +685,7 @@ GPUGMLM_results_Group_GPU<FPTYPE>::GPUGMLM_results_Group_GPU(const GPUGMLM_struc
     checkCudaErrors(ce, "GPUGMLM_results_Group_GPU errors: could not allocate space for dV!" );
 
     dT.resize(GMLMGroupStructure->dim_T.size());
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         dT[ss] = new GPUData<FPTYPE>(ce, GPUData_HOST_PAGELOCKED, stream, GMLMGroupStructure->dim_T[ss], GMLMGroupStructure->dim_R_max);
         checkCudaErrors(ce, "GPUGMLM_results_Group_GPU errors: could not allocate space for T[ss]!" );
     }
@@ -699,12 +699,12 @@ GPUGMLM_results_Group_GPU<FPTYPE>::GPUGMLM_results_Group_GPU(const GPUGMLM_struc
     dim_F_c.assign(dim_D(), 1);
     NF.assign(dim_D(), 0);
 
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         NF[GMLMGroupStructure->factor_idx[ss]]++;
         dim_F_c[GMLMGroupStructure->factor_idx[ss]] *= GMLMGroupStructure->dim_T[ss];
     }
     
-    for(int dd = 0; dd < dim_D(); dd++) {
+    for(unsigned int dd = 0; dd < dim_D(); dd++) {
         if(NF[dd] > 1) {
             dF[dd] = new GPUData<FPTYPE>(ce, GPUData_HOST_NONE, stream, dim_F_c[dd], GMLMGroupStructure->dim_R_max);
             checkCudaErrors(ce, "GPUGMLM_results_Group_GPU errors: could not allocate space for dF[dd]!" );
@@ -712,7 +712,7 @@ GPUGMLM_results_Group_GPU<FPTYPE>::GPUGMLM_results_Group_GPU(const GPUGMLM_struc
         }
         else {
             dF_assigned[dd] = false;
-            for(int ss = 0; ss < dim_S(); ss++) {
+            for(unsigned int ss = 0; ss < dim_S(); ss++) {
                 if(GMLMGroupStructure->factor_idx[ss] == dd) {
                     dF[dd] = dT[ss];
                     break;
@@ -730,7 +730,7 @@ GPUGMLM_results_GPU<FPTYPE>::~GPUGMLM_results_GPU() {
 
     cudaSafeFree(dW, "GPUGMLM_results_GPU errors: could not free W");
     cudaSafeFree(dB, "GPUGMLM_results_GPU errors: could not free B");
-    for(int jj = 0; jj < Groups.size(); jj++) {
+    for(unsigned int jj = 0; jj < Groups.size(); jj++) {
         delete Groups[jj];
     }
 }
@@ -738,7 +738,7 @@ template <class FPTYPE>
 GPUGMLM_results_Group_GPU<FPTYPE>::~GPUGMLM_results_Group_GPU() {
     switchToDevice();
     cudaSafeFreeVector(dT, "GPUGMLM_results_Group_GPU errors: could not free dT");
-    for(int dd = 0; dd < dF.size(); dd++) {
+    for(unsigned int dd = 0; dd < dF.size(); dd++) {
         if(dF_assigned[dd]) {
             cudaSafeFree(dF[dd], "GPUGMLM_results_Group_GPU errors: could not free dF");
         }
@@ -773,7 +773,7 @@ void GPUGMLM_results_GPU<FPTYPE>::gatherResults(const GPUGMLM_parameters_GPU<FPT
         output_stream << "GPUGMLM_Group_GPU::gatherResults errors: invalid options!";
         msg->callErrMsgTxt(output_stream);
     }
-    for(int jj = 0; jj < Groups.size(); jj++) {
+    for(unsigned int jj = 0; jj < Groups.size(); jj++) {
         Groups[jj]->gatherResults(params->Groups[jj], opts->Groups[jj], stream_Groups[jj]);
     }
 }
@@ -793,7 +793,7 @@ void GPUGMLM_results_Group_GPU<FPTYPE>::gatherResults(const GPUGMLM_parameters_G
     }
 
     //copy dT
-    for(int ss = 0; ss < dT.size(); ss++) {
+    for(unsigned int ss = 0; ss < dT.size(); ss++) {
         if(opts->compute_dT[ss]) {
             checkCudaErrors(dT[ss]->copyGPUToHost(stream),"GPUGMLM_results_Group_GPU::gatherResults errors: could not copy dT to host!"); 
         }
@@ -842,16 +842,16 @@ void GPUGMLM_results_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_GPU<FPTYPE>
     //adds local results to dest
 
     if(opts->compute_dW) {
-        for(int pp = 0; pp < dim_P(); pp++) {
+        for(unsigned int pp = 0; pp < dim_P(); pp++) {
             if(isSimultaneousPopulation || (*dim_N_neuron_temp)[pp] > 0) {
                 (*(results_dest->dW))[pp] += (*dW)[pp];
             }
         }
     }
     if(opts->compute_dB && dim_B() > 0) {
-        for(int pp = 0; pp < dim_P(); pp++) {
+        for(unsigned int pp = 0; pp < dim_P(); pp++) {
             if(isSimultaneousPopulation || (*dim_N_neuron_temp)[pp] > 0) {
-                for(int bb = 0; bb < dim_B(); bb++) {
+                for(unsigned int bb = 0; bb < dim_B(); bb++) {
                     (*(results_dest->dB))(bb, pp) += (*dB)(bb, pp);
                 }
             }
@@ -860,10 +860,10 @@ void GPUGMLM_results_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_GPU<FPTYPE>
 
     //adds local results to dest
     if(opts->compute_trialLL) {
-        for(int mm = 0; mm < max_trials(); mm++) {
+        for(unsigned int mm = 0; mm < max_trials(); mm++) {
             if((*isInDataset_trial)[mm]) {
                 int cols = isSimultaneousPopulation ? dim_P() : 1;
-                for(int pp = 0; pp < cols; pp++) {
+                for(unsigned int pp = 0; pp < cols; pp++) {
                     FPTYPE weight = 1;
                     if(!opts->trial_weights->empty()) {
                         if(!isSimultaneousPopulation || opts->trial_weights->getSize(1) == 1) {
@@ -881,7 +881,7 @@ void GPUGMLM_results_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_GPU<FPTYPE>
         }
     }
 
-    for(int jj = 0; jj < dim_J(); jj++) {
+    for(unsigned int jj = 0; jj < dim_J(); jj++) {
         Groups[jj]->addToHost(params->Groups[jj], results_dest->Groups[jj], opts->Groups[jj], dim_N_neuron_temp, isSimultaneousPopulation, reset);
     }
 }
@@ -904,7 +904,7 @@ void GPUGMLM_results_Group_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_Group
             output_stream << "GPUGMLM_results_Group_GPU::addResults errors: results struct is the incorrect size!";
             msg->callErrMsgTxt(output_stream);
         }
-        for(int ss = 0; ss < dim_S(); ss++) {
+        for(unsigned int ss = 0; ss < dim_S(); ss++) {
             if(opts->compute_dT[ss]) {
                 if(!(dT[ss]->isEqualSize(results_dest->dT[ss]))) {
                     output_stream << "GPUGMLM_results_Group_GPU::addResults errors: results struct is the incorrect size!";
@@ -918,19 +918,19 @@ void GPUGMLM_results_Group_GPU<FPTYPE>::addToHost(const GPUGMLM_parameters_Group
     //adds on results
     //individual model
     if(opts->compute_dV) {
-        for(int pp = 0; pp < parent->dim_P(); pp++) {
+        for(unsigned int pp = 0; pp < parent->dim_P(); pp++) {
             if(isSimultaneousPopulation || (*dim_N_neuron_temp)[pp] > 0) { //if there is anything to add for this neuron
-            	for(int rr = 0; rr < dim_R(); rr++) {
+            	for(unsigned int rr = 0; rr < dim_R(); rr++) {
                     (*(results_dest->dV))(pp, rr) += (*dV)(pp, rr);
                 }
             }
         }
     }
 
-    for(int ss = 0; ss < dim_S(); ss++) {
+    for(unsigned int ss = 0; ss < dim_S(); ss++) {
         if(opts->compute_dT[ss]) {
-            for(int tt = 0; tt < dim_T(ss); tt++) {
-                for(int rr = 0; rr < dim_R(); rr++) {
+            for(unsigned int tt = 0; tt < dim_T(ss); tt++) {
+                for(unsigned int rr = 0; rr < dim_R(); rr++) {
                     (*(results_dest->dT[ss]))(tt, rr) += (*(dT[ss]))(tt, rr);
                 }
             }

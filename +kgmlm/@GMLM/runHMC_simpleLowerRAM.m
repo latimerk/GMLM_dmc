@@ -139,7 +139,7 @@ if(~partialFileFound)
         end
     end
     
-    scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
+    scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.GMLMstructure.scaleParams);
     
     scaled_VT = false(J,1);
     for jj = 1:J
@@ -153,131 +153,92 @@ if(~partialFileFound)
     samples_block.samplesBlockSize = min(HMC_settings.samplesBlockSize, TotalSamples);
     samples_block.idx     = nan(samples_block.samplesBlockSize, 1);
     samples_block.trialLL = nan([samples_block.samplesBlockSize DT(1) DT(2)], dataType);
+
+    s_type = zeros(1,1,dataType);
+    LL_space_bytes = TotalSamples * DT(1) * DT(2) * whos("s_type").bytes;
+    allocateFile = true;
     
     if(exist(HMC_settings.trialLLfile, "file"))
         if(isfield(HMC_settings, "delete_temp_file"))
-            continue_opt = HMC_settings.delete_temp_file;
+            end_opt = HMC_settings.delete_temp_file;
         else
-            continue_opt = input(sprintf("Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ", HMC_settings.trialLLfile), "s");
-            continue_opt = startsWith(continue_opt, "y", "IgnoreCase", true);
+            end_opt = input(sprintf("Temporary storage file already found (%s)! Overwrite and continue? (y/n)\n ", HMC_settings.trialLLfile), "s");
+            end_opt = startsWith(end_opt, "y", "IgnoreCase", true);
         end
-        if(continue_opt)
-            fprintf("Deleting temporary storage file and continuing...\n");
+        if(end_opt)
+            fileSize = dir(HMC_settings.trialLLfile).bytes;
+
+            if(fileSize < LL_space_bytes)
+                fprintf("Deleting temporary storage file and continuing...\n");
+                delete(HMC_settings.trialLLfile);
+            else
+                fprintf("Overwriting temporary storage file and continuing...\n");
+                allocateFile = false;
+            end
         else
             error("Temporary file for storing trial log likelihood samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s", HMC_settings.trialLLfile);
         end
     end
     
-    if(exist(HMC_settings.samplesFile, "file"))
-        if(isfield(HMC_settings, "delete_samples_file"))
-            continue_opt = HMC_settings.delete_samples_file;
-        else
-            continue_opt = input(sprintf("Samples storage file already found (%s)! Overwrite and continue? (y/n)\n ", HMC_settings.samplesFile), "s");
-            continue_opt = startsWith(continue_opt, "y", "IgnoreCase", true);
-        end
-        if(continue_opt)
-            fprintf("Deleting samples storage file and continuing...\n");
-        else
-            error("Temporary file for storing samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s", HMC_settings.samplesFile);
-        end
-    end
     
     %makes space for trialLL without ever making the full matrix in RAM: this is a cludge around the compression that mafile puts in automatically
-    Z = zeros(TotalSamples,1,dataType);
-    fprintf("Preallocating HD space to store LLs for each trial (~%.3f gb)...\n", whos("Z").bytes * DT(1) * DT(2) / 1e9);
-    
-    obj.temp_storage_file = HMC_settings.trialLLfile;
-    fileID = fopen(HMC_settings.trialLLfile, "w");
-    for ii = 1:DT(1)
-        for jj = 1:DT(2)
-            fwrite(fileID, Z, dataType);
+    if(allocateFile)
+        Z = zeros(TotalSamples,1,dataType);
+        fprintf("Preallocating HD space to store LLs for each trial (~%.3f gb)...\n", LL_space_bytes/1e9);
+        
+        obj.temp_storage_file = HMC_settings.trialLLfile;
+        fileID = fopen(HMC_settings.trialLLfile, "w");
+        for ii = 1:DT(1)
+            for jj = 1:DT(2)
+                fwrite(fileID, Z, dataType);
+            end
         end
+        clear Z;
+        fclose(fileID);
     end
-    clear Z;
-    fclose(fileID);
     
     trialLL_file = memmapfile(HMC_settings.trialLLfile,...
                    "Format",{dataType,[TotalSamples DT(1) DT(2)],"trialLL"}, ...
                    "Writable", true);
     
-    samples_file_format = cell(0, 3);
-    ctr = 1;
-    totalParams = 0;
-    
-    samples_file_format{ctr, 1} = dataType_samples;
-    samples_file_format{ctr, 2} = [numel(paramStruct.W) TotalSamples];
-    samples_file_format{ctr, 3} = "W"; totalParams = totalParams + numel(paramStruct.W);
-    ctr = ctr + 1;
-    samples_file_format{ctr, 1} = dataType_samples;
-    samples_file_format{ctr, 2} = [size(paramStruct.B) TotalSamples];
-    samples_file_format{ctr, 3} = "B"; totalParams = totalParams + numel(paramStruct.B);
-    ctr = ctr + 1;
-    
-    if(saveUnscaled && scaled_WB)
-        samples_file_format{ctr, 1} = dataType_samples;
-        samples_file_format{ctr, 2} = [numel(paramStruct.W) TotalSamples];
-        samples_file_format{ctr, 3} = "W_scaled"; totalParams = totalParams + numel(paramStruct.W);
-        ctr = ctr + 1;
-        samples_file_format{ctr, 1} = dataType_samples;
-        samples_file_format{ctr, 2} = [size(paramStruct.B) TotalSamples];
-        samples_file_format{ctr, 3} = "B_scaled"; totalParams = totalParams + numel(paramStruct.B);
-        ctr = ctr + 1;
-    end
-    samples_file_format{ctr, 1} = dataType_samples;
-    samples_file_format{ctr, 2} = [numel(paramStruct.H) TotalSamples];
-    samples_file_format{ctr, 3} = "H"; totalParams = totalParams + numel(paramStruct.H);
-    ctr = ctr + 1;
-    samples_file_format{ctr, 1} = dataType_samples;
-    samples_file_format{ctr, 2} = [numel(paramStruct.H_gibbs) TotalSamples];
-    samples_file_format{ctr, 3} = "H_gibbs"; totalParams = totalParams + numel(paramStruct.H_gibbs);
-    ctr = ctr + 1;
-    
-    for jj = 1:J
-        
-        samples_file_format{ctr, 1} = dataType_samples;
-        samples_file_format{ctr, 2} = [size(paramStruct.Groups(jj).V) TotalSamples];
-        samples_file_format{ctr, 3} = sprintf("G%d_V", jj);
-        ctr = ctr + 1; totalParams = totalParams + numel(paramStruct.Groups(jj).V);
-    
-        for ss = 1:S(jj) 
-            samples_file_format{ctr, 1} = dataType_samples;
-            samples_file_format{ctr, 2} = [size(paramStruct.Groups(jj).T{ss}) TotalSamples];
-            samples_file_format{ctr, 3} = sprintf("G%d_T_%d", jj, ss);
-            ctr = ctr + 1; totalParams = totalParams + numel(paramStruct.Groups(jj).T{ss});
+    [samples_file_format, totalParams] = getSampleFileFormat(obj, TotalSamples, dataType_samples, paramStruct, scaled_WB, scaled_VT, saveUnscaled);
+
+
+    s_type = zeros(1,1,dataType_samples);
+    params_space_bytes = TotalSamples * totalParams * whos("s_type").bytes;
+    allocateFile = true;
+    if(exist(HMC_settings.samplesFile, "file"))
+        if(isfield(HMC_settings, "delete_samples_file"))
+            end_opt = HMC_settings.delete_samples_file;
+        else
+            end_opt = input(sprintf("Samples storage file already found (%s)! Overwrite and continue? (y/n)\n ", HMC_settings.samplesFile), "s");
+            end_opt = startsWith(end_opt, "y", "IgnoreCase", true);
         end
-    
-        if(saveUnscaled && scaled_VT(jj))
-            samples_file_format{ctr, 1} = dataType_samples;
-            samples_file_format{ctr, 2} = [size(paramStruct.Groups(jj).V) TotalSamples];
-            samples_file_format{ctr, 3} = sprintf("G%d_V_scaled", jj);
-            ctr = ctr + 1; totalParams = totalParams + numel(paramStruct.Groups(jj).V);
-        
-            for ss = 1:S(jj) 
-                samples_file_format{ctr, 1} = dataType_samples;
-                samples_file_format{ctr, 2} = [size(paramStruct.Groups(jj).T{ss}) TotalSamples];
-                samples_file_format{ctr, 3} = sprintf("G%d_T_%d_scaled", jj, ss);
-                ctr = ctr + 1; totalParams = totalParams + numel(paramStruct.Groups(jj).T{ss});
+        if(end_opt)
+            fileSize = dir(HMC_settings.samplesFile).bytes;
+
+            if(fileSize < params_space_bytes)
+                fprintf("Deleting samples storage file and continuing...\n");
+                delete(HMC_settings.samplesFile);
+            else
+                fprintf("Overwriting samples storage file and continuing...\n");
+                allocateFile = false;
             end
+        else
+            error("Temporary file for storing samples already exists!\nSpecify another filename or delete if not in use.\n\tfile: %s", HMC_settings.samplesFile);
         end
-    
-        samples_file_format{ctr, 1} = dataType_samples;
-        samples_file_format{ctr, 2} = [numel(paramStruct.Groups(jj).H) TotalSamples];
-        samples_file_format{ctr, 3} = sprintf("G%d_H", jj);
-        ctr = ctr + 1; totalParams = totalParams + numel(paramStruct.Groups(jj).H);
-        samples_file_format{ctr, 1} = dataType_samples;
-        samples_file_format{ctr, 2} = [numel(paramStruct.Groups(jj).H_gibbs) TotalSamples];
-        samples_file_format{ctr, 3} = sprintf("G%d_H_gibbs", jj);
-        ctr = ctr + 1; totalParams = totalParams + numel(paramStruct.Groups(jj).H_gibbs);
     end
     
-    Z = zeros(TotalSamples, 1,dataType_samples);
-    fprintf("Preallocating HD space to store samples (~%.3f gb)...\n", whos("Z").bytes * totalParams / 1e9);
-    fileID = fopen(HMC_settings.samplesFile, "w");
-    for ii = 1:totalParams
-        fwrite(fileID, Z, dataType_samples);
+    if(allocateFile)
+        Z = zeros(TotalSamples, 1,dataType_samples);
+        fprintf("Preallocating HD space to store samples (~%.3f gb)...\n", params_space_bytes / 1e9);
+        fileID = fopen(HMC_settings.samplesFile, "w");
+        for ii = 1:totalParams
+            fwrite(fileID, Z, dataType_samples);
+        end
+        clear Z;
+        fclose(fileID);
     end
-    clear Z;
-    fclose(fileID);
     
     samples_file = memmapfile(HMC_settings.samplesFile,...
                    "Format",samples_file_format, ...
@@ -285,8 +246,8 @@ if(~partialFileFound)
     fprintf("Done.\n")
     
     %% initialize HMC state
-    HMC_state.stepSize.e       = HMC_settings.stepSize.e_0;
-    HMC_state.stepSize.e_bar   = HMC_settings.stepSize.e_0;
+    HMC_state.stepSize.e       = HMC_settings.stepSize.e_init;
+    HMC_state.stepSize.e_bar   = HMC_settings.stepSize.e_init;
     HMC_state.stepSize.x_bar_t = 0;
     HMC_state.stepSize.x_t     = 0;
     HMC_state.stepSize.H_sum   = 0;
@@ -295,66 +256,7 @@ if(~partialFileFound)
     %% adds the initial point to the samples
     resultStruct = obj.computeLogPosterior(paramStruct, optStruct);
     sample_idx = 1;
-    paramStruct2 = paramStruct;
-    if(scaled_WB)
-        params_0 = obj.GMLMstructure.scaleParams(paramStruct);
-    
-        samples_file.Data.W(:,  sample_idx) = params_0.W(:);
-        if(save_H.B)
-            samples_file.Data.B(:,:,sample_idx) = params_0.B(:,:);
-        end
-        paramStruct2.W(:) = params_0.W(:);
-        paramStruct2.B(:) = params_0.B(:);
-    
-        if(saveUnscaled)
-            samples_file.Data.W_scaled(:,  sample_idx) = paramStruct.W(:);
-            if(save_H.B)
-                samples_file.Data.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
-            end
-        end
-    else
-        samples_file.Data.W(:,  sample_idx) = paramStruct.W(:);
-        if(save_H.B)
-            samples_file.Data.B(:,:,sample_idx) = paramStruct.B(:,:);
-        end
-    end
-    if(save_H.H)
-        samples_file.Data.H(:,1)   = paramStruct.H(:);
-    end
-    if(save_H.H_gibbs)
-        samples_file.Data.H_gibbs(:,1)   = paramStruct.H_gibbs(:);
-    end
-    
-    for jj = 1:J
-        if(save_H.Groups(jj).H)
-            samples_file.Data.(sprintf("G%d_H", jj))(:,1) = paramStruct.Groups(jj).H;
-        end
-        if(save_H.Groups(jj).H_gibbs)
-            samples_file.Data.(sprintf("G%d_H_gibbs", jj))(:,1) = paramStruct.Groups(jj).H_gibbs;
-        end
-        if(scaled_VT(jj))
-            params_0 = obj.GMLMstructure.Groups(jj).scaleParams(paramStruct.Groups(jj));
-    
-            samples_file.Data.(sprintf("G%d_V", jj))(:,:,sample_idx) = params_0.V;
-            paramStruct2.Groups(jj).V(:) = params_0.V(:);
-
-            if(saveUnscaled)
-                samples_file.Data.(sprintf("G%d_V_scaled", jj))(:,:,sample_idx) = paramStruct.Groups(jj).V;
-            end
-            for ss = 1:S(jj)
-                samples_file.Data.(sprintf("G%d_T_%d", jj, ss))(:,:,sample_idx) = params_0.T{ss};
-                paramStruct2.Groups(jj).T{ss}(:) = params_0.T{ss}(:);
-                if(saveUnscaled)
-                    samples_file.Data.(sprintf("G%d_T_%d_scaled", jj, ss))(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
-                end
-            end
-        else
-            samples_file.Data.(sprintf("G%d_V", jj))(:,:,sample_idx) = paramStruct.Groups(jj).V;
-            for ss = 1:S(jj)
-                samples_file.Data.(sprintf("G%d_T_%d", jj, ss))(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
-            end
-        end
-    end
+    paramStruct2 = obj.saveSampleToFile(samples_file, paramStruct, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
     
     samples_block.idx(1) = 1;
     samples_block.trialLL(1, :, :) = resultStruct.trialLL;
@@ -400,10 +302,13 @@ if(~isempty(HMC_settings.M_est.samples))
 end
 
 %% run sampler
+err_ctr = 0;
+lastSavePoint = nan;
 for sample_idx = start_idx:TotalSamples
     %% save partial progress if requested
     if(isfield(HMC_settings, "savePartialProgressN") && HMC_settings.savePartialProgressN > 0 && mod(sample_idx, HMC_settings.savePartialProgressN) == 0 && sample_idx > start_idx)
         obj.destroy_temp_storage_file = false;
+        lastSavePoint = sample_idx;
 
         randomNumberState = rng();
         save(HMC_settings.savePartialProgressFile, "-v7.3", "randomNumberState", "HMC_settings", "paramStruct2", "HMC_state", "paramStruct", "resultStruct", "samples_file_format", "samples_block", "samples", "scaled_WB", "scaled_VT", "sample_idx", "modelInfo");
@@ -447,76 +352,36 @@ for sample_idx = start_idx:TotalSamples
     % adjust step size: during warmup
     if(~samples.errors(sample_idx))
         lpa = samples.log_p_accept(sample_idx);
+        err_ctr = 0;
     else
         lpa = nan;
+        err_ctr = err_ctr + 1;
     end
     HMC_state = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state, HMC_settings.stepSize, lpa);
     samples.e(:,sample_idx) = [HMC_state.stepSize.e; HMC_state.stepSize.e_bar];
+
+    %% check for too many errors in a row: stop running to not waste GPU power
+    if(isfield(HMC_settings, "max_errors") && err_ctr >= HMC_settings.max_errors)
+        end_opt = input(sprintf("Many HMC errors or diveragences have occured in a row (%d)! End now? (y/n)\n ", err_ctr), "s");
+        end_opt = startsWith(end_opt, "y", "IgnoreCase", true);
+        if(end_opt)
+            fprintf("Ending HMC run at sample %d.\n", sample_idx);
+            if(~isnan(lastSavePoint))
+                fprintf("Progress last saved at sample %d.\n", lastSavePoint);
+            else
+                fprintf("No progresss saved!\n");
+            end
+            error("HMC encountered errors: M or step size not configured well.");
+        else
+            fprintf("Continuing anyway: will stop if errors persist.\n");
+            err_ctr = 0;
+        end
+    end
     
     
     %% store samples
-    paramStruct2 = paramStruct;
-    if(scaled_WB)
-        params_0 = obj.GMLMstructure.scaleParams(paramStruct);
-
-        samples_file.Data.W(:,  sample_idx) = params_0.W(:);
-        if(save_H.B)
-            samples_file.Data.B(:,:,sample_idx) = params_0.B(:,:);
-        end
-        paramStruct2.W(:) = params_0.W(:);
-        paramStruct2.B(:) = params_0.B(:);
-
-        if(saveUnscaled)
-            samples_file.Data.W_scaled(:,  sample_idx) = paramStruct.W(:);
-            if(save_H.B)
-                samples_file.Data.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
-            end
-        end
-    else
-        samples_file.Data.W(:,  sample_idx) = paramStruct.W(:);
-        if(save_H.B)
-            samples_file.Data.B(:,:,sample_idx) = paramStruct.B(:,:);
-        end
-    end
-
-    if(save_H.H)
-        samples_file.Data.H(:,  sample_idx) = paramStruct.H(:);
-    end
-    if(save_H.H_gibbs)
-        samples_file.Data.H_gibbs(:,  sample_idx) = paramStruct.H_gibbs(:);
-    end
-
-    for jj = 1:J
-        if(save_H.Groups(jj).H)
-            samples_file.Data.(sprintf("G%d_H", jj))(:,sample_idx) = paramStruct.Groups(jj).H;
-        end
-        if(save_H.Groups(jj).H_gibbs)
-            samples_file.Data.(sprintf("G%d_H_gibbs", jj))(:,sample_idx) = paramStruct.Groups(jj).H_gibbs;
-        end
-
-        if(scaled_VT(jj))
-            params_0 = obj.GMLMstructure.Groups(jj).scaleParams(paramStruct.Groups(jj));
-
-            samples_file.Data.(sprintf("G%d_V", jj))(:,:,sample_idx) = params_0.V;
-            paramStruct2.Groups(jj).V(:) = params_0.V(:);
-
-            if(saveUnscaled)
-                samples_file.Data.(sprintf("G%d_V_scaled", jj))(:,:,sample_idx) = paramStruct.Groups(jj).V;
-            end
-            for ss = 1:S(jj)
-                samples_file.Data.(sprintf("G%d_T_%d", jj, ss))(:,:,sample_idx) = params_0.T{ss};
-                paramStruct2.Groups(jj).T{ss}(:) = params_0.T{ss}(:);
-                if(saveUnscaled)
-                    samples_file.Data.(sprintf("G%d_T_%d_scaled", jj, ss))(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
-                end
-            end
-        else
-            samples.Groups(jj).V(:,:,sample_idx) = paramStruct.Groups(jj).V;
-            for ss = 1:S(jj)
-                samples.Groups(jj).T{ss}(:,:,sample_idx) = paramStruct.Groups(jj).T{ss};
-            end
-        end
-    end
+    
+    paramStruct2 = obj.saveSampleToFile(samples_file, paramStruct, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
     samples.log_post(sample_idx)   = resultStruct.log_post;
     samples.log_like(sample_idx)   = resultStruct.log_likelihood;
     
@@ -535,7 +400,7 @@ for sample_idx = start_idx:TotalSamples
     end
     
     %% print any updates
-    if(sample_idx <= 50 || (sample_idx <= 500 && mod(sample_idx,20) == 0) ||  mod(sample_idx,50) == 0 || sample_idx == TotalSamples || (HMC_settings.verbose && mod(sample_idx,20) == 0))
+    if(sample_idx <= 500 || (sample_idx <= 1000 && mod(sample_idx,20) == 0) ||  mod(sample_idx,50) == 0 || sample_idx == TotalSamples || (HMC_settings.verbose && mod(sample_idx,20) == 0))
         if(sample_idx == TotalSamples)
             ww = (HMC_settings.nWarmup+1):sample_idx;
         else
@@ -578,6 +443,7 @@ for sample_idx = start_idx:TotalSamples
             clear vectorizedSamples;
         end
     end
+
 end
 
 %% finish sampler
@@ -644,6 +510,8 @@ summary.earlyRejects = sum(samples.errors(ss_all));
 summary.earlyReject_prc = mean(samples.errors(ss_all));
 summary.HMC_state            = HMC_state;
 summary.acceptRate   = mean(samples.accepted(ss_all));
+
+summary.HMC_state.M = M;
 
 fprintf("done.\n");   
 

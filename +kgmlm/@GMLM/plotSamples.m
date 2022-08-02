@@ -107,7 +107,7 @@ for jj = 1:length(samples.Groups)
         V_c = V_c ./ sqrt(sum(V_c.^2,1));
     end
     plot(1:sample,V_c')
-    title(sprintf('%s, rank = %d',paramStruct.Groups(jj).name,  size(paramStruct.Groups(jj).T{1},2)));
+    title(sprintf('%s, rank = %d',paramStruct.Groups(jj).name,  size(paramStruct.Groups(jj).T{1},2)), "interpreter", "none");
     set(gca,'tickdir','out','box','off');
     
     for ss = 1:min(3, numel(samples.Groups(jj).T))
@@ -118,7 +118,7 @@ for jj = 1:length(samples.Groups)
         end
         plot(1:sample,T_c');
         set(gca,'tickdir','out','box','off');
-        title(sprintf('dim = %s',paramStruct.Groups(jj).dim_names(ss)));
+        title(sprintf('dim = %s',paramStruct.Groups(jj).dim_names(ss)), "interpreter", "none");
     end   
         
     if(numel(samples.Groups(jj).T) == 1 && size(paramStruct.Groups(jj).T{1},2) > 1 && jj >= N_main)
@@ -139,7 +139,7 @@ for jj = 1:length(samples.Groups)
         end
         plot(1:sample,T_c')
         set(gca,'tickdir','out','box','off');
-        title(sprintf('dim = %s, second component', paramStruct.Groups(jj).dim_names(1)));
+        title(sprintf('dim = %s, second component', paramStruct.Groups(jj).dim_names(1)), "interpreter", "none");
     end
     
 %     if(numel(samples.Groups(jj).T) >= 2 || (numel(samples.Groups(jj).T) == 1 && jj >= N_main))

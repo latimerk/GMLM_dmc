@@ -104,7 +104,7 @@ for ii = 1:size(HMC_settings.stepSize.scaleRanges,1)
     end
 end
 
-scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.scaleParams);
+scaled_WB = isfield(obj.GMLMstructure, "scaleParams") && ~isempty(obj.GMLMstructure.scaleParams);
 
 scaled_VT = false(J,1);
 for jj = 1:J
@@ -210,8 +210,8 @@ trialLL_file = memmapfile(HMC_settings.trialLLfile,...
 fprintf("Done.\n")
 
 %% initialize HMC state
-HMC_state.stepSize.e       = HMC_settings.stepSize.e_0;
-HMC_state.stepSize.e_bar   = HMC_settings.stepSize.e_0;
+HMC_state.stepSize.e       = HMC_settings.stepSize.e_init;
+HMC_state.stepSize.e_bar   = HMC_settings.stepSize.e_init;
 HMC_state.stepSize.x_bar_t = 0;
 HMC_state.stepSize.x_t     = 0;
 HMC_state.stepSize.H_sum   = 0;
@@ -221,23 +221,6 @@ HMC_state.steps            = min(HMC_settings.stepSize.maxSteps, ceil(HMC_settin
 resultStruct_empty = obj.getEmptyResultsStruct(optStruct_empty);
 resultStruct = obj.computeLogPosterior(paramStruct, optStruct);
 sample_idx = 1;
-if(scaled_WB)
-
-    params_0 = obj.GMLMstructure.scaleParams(paramStruct);
-
-    samples.W(:,  sample_idx) = params_0.W(:);
-    samples.B(:,:,sample_idx) = params_0.B(:,:);
-
-    if(saveUnscaled)
-        samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
-        samples.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
-    end
-else
-    samples.W(:,  sample_idx) = paramStruct.W(:);
-    samples.B(:,:,sample_idx) = paramStruct.B(:,:);
-end
-samples.H(:,1)   = paramStruct.H(:);
-samples.H_gibbs(:,1)   = paramStruct.H_gibbs(:);
 
 for jj = 1:J
     
@@ -270,6 +253,23 @@ for jj = 1:J
     end
     metrics.Groups(jj).N(:, 1) = sqrt(metrics.Groups(jj).N(:, 1));
 end
+if(scaled_WB)
+
+    params_0 = obj.GMLMstructure.scaleParams(paramStruct);
+
+    samples.W(:,  sample_idx) = params_0.W(:);
+    samples.B(:,:,sample_idx) = params_0.B(:,:);
+
+    if(saveUnscaled)
+        samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
+        samples.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
+    end
+else
+    samples.W(:,  sample_idx) = paramStruct.W(:);
+    samples.B(:,:,sample_idx) = paramStruct.B(:,:);
+end
+samples.H(:,1)   = paramStruct.H(:);
+samples.H_gibbs(:,1)   = paramStruct.H_gibbs(:);
 
 samples_block.idx(1) = 1;
 samples_block.trialLL(1, :, :) = resultStruct.trialLL;
@@ -330,6 +330,7 @@ for sample_idx = start_idx:TotalSamples
     nlpostFunction = @(ww) obj.vectorizedNLPost_func(ww, paramStruct, optStruct, resultStruct);
     try
         HMC_state.e_scale = samples.e_scale(sample_idx);
+        %HMC_state.stepSize.e = 5e-3;
         [samples.accepted(sample_idx), samples.errors(sample_idx), w_new, samples.log_p_accept(sample_idx), resultStruct] = kgmlm.fittingTools.HMCstep_diag(w_init,  M, nlpostFunction, HMC_state);
         if(samples.accepted(sample_idx))
             paramStruct = obj.devectorizeParams(w_new, paramStruct, optStruct);
@@ -349,26 +350,6 @@ for sample_idx = start_idx:TotalSamples
     
     %% store samples
     paramStruct2 = paramStruct;
-    if(scaled_WB)
-        params_0 = obj.GMLMstructure.scaleParams(paramStruct);
-
-        samples.W(:,  sample_idx) = params_0.W(:);
-        samples.B(:,:,sample_idx) = params_0.B(:,:);
-
-        paramStruct2.W(:) = params_0.W(:);
-        paramStruct2.B(:) = params_0.B(:);
-
-        if(saveUnscaled)
-            samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
-            samples.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
-        end
-    else
-        samples.W(:,  sample_idx) = paramStruct.W(:);
-        samples.B(:,:,sample_idx) = paramStruct.B(:,:);
-    end
-
-    samples.H(:,  sample_idx) = paramStruct.H(:);
-    samples.H_gibbs(:,  sample_idx) = paramStruct.H_gibbs(:);
     
     for jj = 1:J
         samples.Groups(jj).H(:,sample_idx) = paramStruct.Groups(jj).H;
@@ -404,6 +385,26 @@ for sample_idx = start_idx:TotalSamples
 
         metrics.Groups(jj).N(:, sample_idx) = sqrt(metrics.Groups(jj).N(:, sample_idx));
     end
+    if(scaled_WB)
+        params_0 = obj.GMLMstructure.scaleParams(paramStruct2);
+
+        samples.W(:,  sample_idx) = params_0.W(:);
+        samples.B(:,:,sample_idx) = params_0.B(:,:);
+
+        paramStruct2.W(:) = params_0.W(:);
+        paramStruct2.B(:) = params_0.B(:);
+
+        if(saveUnscaled)
+            samples.W_scaled(:,  sample_idx) = paramStruct.W(:);
+            samples.B_scaled(:,:,sample_idx) = paramStruct.B(:,:);
+        end
+    else
+        samples.W(:,  sample_idx) = paramStruct.W(:);
+        samples.B(:,:,sample_idx) = paramStruct.B(:,:);
+    end
+
+    samples.H(:,  sample_idx) = paramStruct.H(:);
+    samples.H_gibbs(:,  sample_idx) = paramStruct.H_gibbs(:);
     samples.log_post(sample_idx)   = resultStruct.log_post;
     samples.log_like(sample_idx)   = resultStruct.log_likelihood;
     
@@ -423,7 +424,7 @@ for sample_idx = start_idx:TotalSamples
     
     
     %% print any updates
-    if(sample_idx <= 50 || (sample_idx <= 500 && mod(sample_idx,20) == 0) ||  mod(sample_idx,50) == 0 || sample_idx == TotalSamples || (HMC_settings.verbose && mod(sample_idx,20) == 0))
+    if(sample_idx <= 500 || (sample_idx <= 1000 && mod(sample_idx,20) == 0) ||  mod(sample_idx,50) == 0 || sample_idx == TotalSamples || (HMC_settings.verbose && mod(sample_idx,20) == 0))
         if(sample_idx == TotalSamples)
             ww = (HMC_settings.nWarmup+1):sample_idx;
         else
@@ -531,6 +532,8 @@ summary.earlyRejects = sum(samples.errors(ss_all));
 summary.earlyReject_prc = mean(samples.errors(ss_all));
 summary.HMC_state            = HMC_state;
 summary.acceptRate   = mean(samples.accepted(ss_all));
+
+summary.HMC_state.M = M;
 
 fprintf("done.\n");   
 

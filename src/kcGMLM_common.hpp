@@ -30,7 +30,7 @@ public:
     
     inline size_t dim_R(std::shared_ptr<GPUGL_msg> msg) const {
         size_t dim_R_c = V->getSize(1);
-        for(int ss = 0; ss < T.size(); ss++) {
+        for(unsigned int ss = 0; ss < T.size(); ss++) {
             if(T[ss]->getSize(1) != dim_R_c) {
                 std::ostringstream output_stream;
                 output_stream << "GPUGMLM_group_params errors: inconsistent ranks!";
@@ -41,7 +41,7 @@ public:
     }
     inline int dim_R() const {
         int dim_R_c = V->getSize(1);
-        for(int ss = 0; ss < T.size(); ss++) {
+        for(unsigned int ss = 0; ss < T.size(); ss++) {
             if(T[ss]->getSize(1) != dim_R_c) {
                 return -1;
             }
@@ -102,7 +102,7 @@ public:
         return B->getSize(0);
     }
     inline unsigned int dim_J() const {
-        return Groups.size();
+        return static_cast<unsigned int>(Groups.size());
     }
 };
 
@@ -183,7 +183,7 @@ public:
             output_stream << "GPUGMLM_group_results errors: inconsistent ranks!";
             msg->callErrMsgTxt(output_stream);
         }
-        for(int ss = 0; ss < dT.size(); ss++) {
+        for(unsigned int ss = 0; ss < dT.size(); ss++) {
             if( dT[ss] == NULL  || dT[ss]->getSize(1) != dim_R) {
                 std::ostringstream output_stream;
                 output_stream << "GPUGMLM_group_results errors: inconsistent ranks!";
@@ -307,7 +307,7 @@ class GPUGMLM_trial_Group_args {
             }
 
             size_t dim_N_c = 0;
-            for(int ii = 0; ii < X.size(); ii++) {
+            for(unsigned int ii = 0; ii < X.size(); ii++) {
                 if(X[ii] != NULL && !(X[ii]->empty()) && iX[ii] != NULL && !(iX[ii]->empty())) {
                     std::ostringstream output_stream;
                     output_stream << "GPUGMLM_trial_Group_args errors: mode " << ii << " has both local and shared regressors.";
@@ -345,7 +345,7 @@ class GPUGMLM_trial_Group_args {
             }
 
             size_t dim_N_c = 0;
-            for(int ii = 0; ii < X.size(); ii++) {
+            for(unsigned int ii = 0; ii < X.size(); ii++) {
                 if(X[ii] != NULL && !(X[ii]->empty()) && iX[ii] != NULL && !(iX[ii]->empty())) {
                     return 0;
                 }
@@ -411,7 +411,7 @@ class GPUGMLM_trial_Group_args {
             return -1;
         }
         inline bool validDimA(unsigned int dim_A_check) const {
-            for(int mode = 0; mode < dim_D(); mode++) {
+            for(unsigned int mode = 0; mode < dim_D(); mode++) {
                 if(X[mode] != NULL && !(X[mode]->empty()) && iX[mode] != NULL && !(iX[mode]->empty())) {
                     return false; // bad setup: both local and global regressors
                 }
@@ -474,7 +474,7 @@ class GPUGMLM_trial_args {
             if(X_lin != NULL && !(X_lin->empty()) && X_lin->getSize(0) != dim_N_c) {
                 dim_N_c = 0;
             }
-            for(int jj = 0; jj < Groups.size(); jj++) {
+            for(unsigned int jj = 0; jj < Groups.size(); jj++) {
                 if(Groups[jj] == NULL || Groups[jj]->dim_N() != dim_N_c) {
                     return 0;
                 }
@@ -538,9 +538,9 @@ class GPUGMLM_structure_Group_args {
     
         inline size_t dim_D() const {
             size_t max_factor = X_shared.size();
-            for(int dd = 0; dd < max_factor; dd++) {
+            for(unsigned int dd = 0; dd < max_factor; dd++) {
                 bool found = false;
-                for(int ss = 0; ss < factor_idx.size() && !found; ss++) {
+                for(unsigned int ss = 0; ss < factor_idx.size() && !found; ss++) {
                     if(factor_idx[ss] == dd) {
                         found = true;
                     }
@@ -579,9 +579,9 @@ class GPUGMLM_structure_Group_args {
                 msg->callErrMsgTxt(output_stream);
             }
             //search for each factor
-            for(int dd = 0; dd < max_factor; dd++) {
+            for(unsigned int dd = 0; dd < max_factor; dd++) {
                 bool found = false;
-                for(int ss = 0; ss < factor_idx.size() && !found; ss++) {
+                for(unsigned int ss = 0; ss < factor_idx.size() && !found; ss++) {
                     if(factor_idx[ss] == dd) {
                         found = true;
                     }
@@ -604,7 +604,7 @@ class GPUGMLM_structure_Group_args {
             size_t ff = 0;
             if(factor < dim_D(msg)) {
                 ff = 1;
-                for(int ss = 0; ss < factor_idx.size(); ss++) {
+                for(unsigned int ss = 0; ss < factor_idx.size(); ss++) {
                     if(factor_idx[ss] == factor) {
                         ff *= dim_T[ss];
                     }
@@ -621,7 +621,7 @@ class GPUGMLM_structure_Group_args {
             size_t ff = 0;
             if(factor < dim_D()) {
                 ff = 1;
-                for(int ss = 0; ss < factor_idx.size(); ss++) {
+                for(unsigned int ss = 0; ss < factor_idx.size(); ss++) {
                     if(factor_idx[ss] == factor) {
                         ff *= dim_T[ss];
                     }
@@ -648,7 +648,7 @@ class GPUGMLM_structure_Group_args {
             if(trial->dim_N() != dim_N_target || dim_N_target == 0) {
                 return -3;
             }
-            if(!(trial->validDimA(dim_A))) {
+            if(!(trial->validDimA(static_cast<unsigned int>(dim_A)))) {
                 return -4;
             }
             
@@ -705,7 +705,7 @@ class GPUGMLM_structure_args {
                 return -100003;
             }
             
-            for(int jj = 0; jj < Groups.size(); jj++) {
+            for(unsigned int jj = 0; jj < Groups.size(); jj++) {
                 int vd = Groups[jj]->validateTrialStructure(trial->Groups[jj], trial->dim_N());
                 if(vd != 1) {
                     return vd - jj*100; // group structure was invalid 
@@ -715,7 +715,7 @@ class GPUGMLM_structure_args {
             return 1; //passed basic tests (seg faults may still exist if the pointers are bad!)
         }
         int validateTrialStructure(const GPUGMLM_GPU_block_args <FPTYPE> * block) const {
-            for(int mm = 0; mm < block->trials.size(); mm++) {
+            for(unsigned int mm = 0; mm < block->trials.size(); mm++) {
                 //checks each trial on a block
                 int vd = validateTrialStructure(block->trials[mm]);
                 if(vd != 1) {
@@ -725,7 +725,7 @@ class GPUGMLM_structure_args {
             return 1;
         }                           
         int validateTrialStructure(const std::vector<GPUGMLM_GPU_block_args <FPTYPE> *> blocks) const {
-            for(int bb = 0; bb < blocks.size(); bb++) {
+            for(unsigned int bb = 0; bb < blocks.size(); bb++) {
                 //checks each block
                 int vd = validateTrialStructure(blocks[bb]);
                 if(vd != 1) {
@@ -735,7 +735,7 @@ class GPUGMLM_structure_args {
             return 1;
         }
         unsigned int dim_J() {
-            return Groups.size();
+            return static_cast<unsigned int>(Groups.size());
         }
 };
 

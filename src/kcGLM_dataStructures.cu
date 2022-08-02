@@ -37,7 +37,7 @@ GPUGLM_parameters_GPU<FPTYPE>::GPUGLM_parameters_GPU(const GPUGLM_structure_args
     if(GLMstructure->logLikeParams.size() > 0) {
         logLikeParams = new GPUData<FPTYPE>(ce, GPUData_HOST_STANDARD, stream, GLMstructure->logLikeParams.size());
         checkCudaErrors(ce,  "GPUGLM_parameters_GPU errors: could not allocate space for logLikeParams!" );
-        for(int ii = 0; ii < GLMstructure->logLikeParams.size(); ii++) {
+        for(unsigned int ii = 0; ii < GLMstructure->logLikeParams.size(); ii++) {
             (*logLikeParams)[ii] = GLMstructure->logLikeParams[ii];
         }
         ce = logLikeParams->copyHostToGPU(stream);
@@ -97,7 +97,7 @@ __global__ void kernel_ParamsSparseRunSetup_GLM(GPUData_kernel<unsigned int> rid
         unsigned int mm = trial_included[tr];
         unsigned int start_all = ridx_t_all[mm];
         unsigned int start_sp  = ridx_st_sall[tr];
-        for(int nn = 0; nn < dim_N[mm]; nn++) {
+        for(unsigned int nn = 0; nn < dim_N[mm]; nn++) {
             ridx_sa_all[nn + start_sp] = start_all + nn;
         }
     }
@@ -291,7 +291,7 @@ void GPUGLM_results_GPU<FPTYPE>::addToHost(const GPUGLM_parameters_GPU<FPTYPE> *
 
     //adds local results to dest
     if(opts->compute_trialLL) {
-        for(int mm = 0; mm < max_trials(); mm++) {
+        for(unsigned int mm = 0; mm < max_trials(); mm++) {
             if(dataset->isInDataset_trial[mm] && (opts->trial_weights.empty() || opts->trial_weights[mm] != 0)) {
                 (*(results_dest->trialLL))[mm] += (*trialLL)[mm];
             }
@@ -299,13 +299,13 @@ void GPUGLM_results_GPU<FPTYPE>::addToHost(const GPUGLM_parameters_GPU<FPTYPE> *
     }
 
     if(opts->compute_dK) {
-        for(int kk = 0; kk < dim_K(); kk++) {
+        for(unsigned int kk = 0; kk < dim_K(); kk++) {
             (*(results_dest->dK))[kk] += (*dK)[kk];
         }
     }
     if(opts->compute_d2K) {
-        for(int kk = 0; kk < dim_K(); kk++) {
-            for(int bb = kk; bb < dim_K(); bb++) {
+        for(unsigned int kk = 0; kk < dim_K(); kk++) {
+            for(unsigned int bb = kk; bb < dim_K(); bb++) {
                 (*(results_dest->d2K))(kk, bb) += (*d2K)(kk, bb);
                 //for symmetric matrices
                 if(bb != kk) {
@@ -360,7 +360,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
     checkCudaErrors(ce, "GPUGLM_dataset_GPU errors: could not allocate normalizingConstants_trial on device!");
 
     size_t dim_N_c = 0;
-    for(int mm = 0; mm < dim_M(); mm++) {
+    for(unsigned int mm = 0; mm < dim_M(); mm++) {
         //save trial indices
         (*ridx_t_all)[mm] = dim_N_total_c;
 
@@ -386,7 +386,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
 
         FPTYPE nc = 0; // normalizing constant
         if(GLMstructure->logLikeSettings == ll_poissExp || GLMstructure->logLikeSettings == ll_poissSoftRec) {
-            for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
+            for(unsigned int nn = 0; nn < (*dim_N)[mm]; nn++) {
                 FPTYPE Y_c = (*(block->trials[mm]->Y))[nn];
                 nc += (Y_c >= 0) ? -lgamma(floor(Y_c) + 1.0) : 0;
             }
@@ -398,8 +398,8 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
     checkCudaErrors(ce, "GPUGLM_dataset_GPU errors: could not allocate id_a_trialM on device!");
 
     size_t N_total_ctr = 0;
-    for(int mm = 0; mm < dim_M(); mm++) {
-        for(int nn = 0; nn < (*dim_N)[mm]; nn++) {
+    for(unsigned int mm = 0; mm < dim_M(); mm++) {
+        for(unsigned int nn = 0; nn < (*dim_N)[mm]; nn++) {
             (*id_a_trialM)[N_total_ctr + nn] = mm;
         }
         N_total_ctr += (*dim_N)[mm];
@@ -416,7 +416,7 @@ GPUGLM_dataset_GPU<FPTYPE>::GPUGLM_dataset_GPU(const GPUGLM_structure_args<FPTYP
 
         //copy each trial to GPU
     
-    for(int mm = 0; mm < dim_M(); mm++) {
+    for(unsigned int mm = 0; mm < dim_M(); mm++) {
         // spike counts
         cudaPos copyOffset = make_cudaPos((*ridx_t_all)[mm], 0, 0);
 
