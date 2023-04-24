@@ -20,13 +20,19 @@ for ii = 1:numel(fNames)
     
     %% gets CUDA architecture for compiling: auto-detects using first available CUDA device
     if(gpuDeviceCount() > 0)
-        d = gpuDevice(1);
-        computeLevel = round(str2double(d.ComputeCapability)*10);
-        %arch_flag = sprintf('--gpu-architecture sm_%d',computeLevel');
-        
-        arch_flag = sprintf('-gencode arch=compute_%d,code=sm_%d', computeLevel, computeLevel);
-        
-        fprintf('Using architecture detected on first GPU: %s\n',arch_flag);
+        computeLevel = nan(gpuDeviceCount(),1);
+        for gpuNum = 1:gpuDeviceCount()
+            d = gpuDevice(gpuNum);
+            computeLevel(gpuNum) = round(str2double(d.ComputeCapability)*10);
+        end
+        computeLevel = unique(computeLevel);
+        arch_flag = '';
+        for compLevelNum = 1:numel(computeLevel)
+            
+    %         arch_flag = sprintf('-gencode arch=compute_%d,code=sm_%d', computeLevel, computeLevel);
+            arch_flag = append(arch_flag,sprintf(' -gencode arch=compute_%d,code=sm_%d', computeLevel(compLevelNum), computeLevel(compLevelNum)));
+        end
+        fprintf('Using architectures detected: %s\n',arch_flag);
     else
         arch_flag = '';
         fprintf('No GPUs detected: using default architecture\n');
