@@ -154,7 +154,7 @@ figure(1);
 clf;
 plotDerivativeComparison(results_all, results_est, ll_host, use_posterior);
 pauseMessage(pauseAtParts, sprintf("Done with main LL...\n"));
-%return;
+return;
 
 %% run derivative check with weights
 
@@ -232,7 +232,14 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host, use_po
 
     if(use_posterior && isfield(results_all, "dH"))
         subplot(NR, NC, 5);
-        plot([results_all.dH(:) results_est.dH(:)])
+        if(numel(results_all.dH) == 1)
+            hold on
+            plot(results_all.dH(:) ,'o')
+            plot(results_est.dH(:),'o')
+            hold off
+        else
+            plot([results_all.dH(:) results_est.dH(:)])
+        end
         title('dH');
     end
 
@@ -254,7 +261,14 @@ function [] = plotDerivativeComparison(results_all, results_est, ll_host, use_po
 
         if(use_posterior && isfield(results_all.Groups(jj), "dH"))
             subplot(NR, NC, 1 + S + 1 + jj*NC);
-            plot([results_all.Groups(jj).dH(:) results_est.Groups(jj).dH(:)])
+            if(numel(results_all.Groups(jj).dH) == 1)
+                hold on
+                plot(results_all.Groups(jj).dH(:) ,'o')
+                plot(results_est.Groups(jj).dH(:),'o')
+                hold off
+            else
+                plot([results_all.Groups(jj).dH(:) results_est.Groups(jj).dH(:)])
+            end
             title('dH');
         end
     end

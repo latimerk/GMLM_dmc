@@ -6,7 +6,7 @@
 % Takes in a negative log posterior function (return [nlpost, dnlpost] given vector of parameters)
 %   The negative is so that this function uses the same function as optimizers
 function [accepted, divergent, w_new, log_p_accept, results] = HMCstep_diag(w_init, M, nlpostFunction, HMC_state, p_init)
-    if(isfield(HMC_state, "e_scale") || ~isempty(HMC_state.e_scale))
+    if(isfield(HMC_state, "e_scale") && ~isempty(HMC_state.e_scale))
         HMC_state.stepSize.e = HMC_state.stepSize.e * HMC_state.e_scale;
     end
     

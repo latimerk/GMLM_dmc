@@ -36,7 +36,7 @@ HMC_settings       = p.Results.settings;
 trial_weights      = p.Results.trial_weights;
 modelInfo      = p.Results.modelInfo;
 sampleHyperparameters = p.Results.sampleHyperparameters;
-figNum = p.Results.figure;
+% figNum = p.Results.figure;
 printFunc      = p.Results.printFunc;
 saveUnscaled      = p.Results.saveUnscaled;
 saveSinglePrecision      = p.Results.saveSinglePrecision;
@@ -47,6 +47,10 @@ end
 
 J = obj.dim_J;
 S = obj.dim_S;
+
+if(~isfield(HMC_settings, "savePartialProgressN") || HMC_settings.savePartialProgressN < 1)
+    error("Progress saving settings invalid.")
+end
 %% sets up the hmc momentum cov matrices
 if(isempty(optStruct))
     optStruct = obj.getComputeOptionsStruct(true, "trial_weights", ~isempty(trial_weights), "includeHyperparameters", sampleHyperparameters);
@@ -112,12 +116,25 @@ else
 end
 
 %% check for partial output files
-if(isfield(HMC_settings, "savePartialProgressFile") && exist(HMC_settings.savePartialProgressFile, "file") ...
+partialFileFound = false;
+if(isfield(HMC_settings, "savePartialProgressFile") ...
         && isfield(HMC_settings, "savePartialProgressValid") && HMC_settings.savePartialProgressValid ...
         && exist(HMC_settings.trialLLfile, "file") && exist(HMC_settings.samplesFile, "file"))
-    partialFileFound = true;
-else
-    partialFileFound = false;
+    ss = -1;
+    for ff = 1:numel(HMC_settings.savePartialProgressFile)
+        if(exist(HMC_settings.savePartialProgressFile(ff), "file"))
+            try
+                ppf = load(HMC_settings.savePartialProgressFile(ff), "sample_idx");
+                if(ppf.sample_idx > ss)
+                    ss = ppf.sample_idx;
+                    savePartialProgressFileName_idx = ff;
+                    partialFileFound = true;
+                end
+            catch
+                fprintf("Corrupt partial results file found: %s\b", HMC_settings.savePartialProgressFile(ff));
+            end
+        end
+    end
 end
 
 %% initialize space for samples
@@ -150,11 +167,11 @@ if(~partialFileFound)
     
     %save trial log likelihoods to harddrive in a piece-wise manner (otherwise, I'd fill up RAM)
     DT = [obj.dim_trialLL(1) obj.dim_trialLL(2)];
-    samples_block.samplesBlockSize = min(HMC_settings.samplesBlockSize, TotalSamples);
+    samples_block.samplesBlockSize = min(HMC_settings.savePartialProgressN, TotalSamples);
     samples_block.idx     = nan(samples_block.samplesBlockSize, 1);
     samples_block.trialLL = nan([samples_block.samplesBlockSize DT(1) DT(2)], dataType);
 
-    s_type = zeros(1,1,dataType);
+    s_type = zeros(1,1,dataType); %#ok<PREALL> 
     LL_space_bytes = TotalSamples * DT(1) * DT(2) * whos("s_type").bytes;
     allocateFile = true;
     
@@ -204,7 +221,7 @@ if(~partialFileFound)
     [samples_file_format, totalParams] = getSampleFileFormat(obj, TotalSamples, dataType_samples, paramStruct, scaled_WB, scaled_VT, saveUnscaled);
 
 
-    s_type = zeros(1,1,dataType_samples);
+    s_type = zeros(1,1,dataType_samples); %#ok<NASGU> 
     params_space_bytes = TotalSamples * totalParams * whos("s_type").bytes;
     allocateFile = true;
     if(exist(HMC_settings.samplesFile, "file"))
@@ -256,7 +273,8 @@ if(~partialFileFound)
     %% adds the initial point to the samples
     resultStruct = obj.computeLogPosterior(paramStruct, optStruct);
     sample_idx = 1;
-    paramStruct2 = obj.saveSampleToFile(samples_file, paramStruct, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
+    paramStruct2 = obj.rescaleParamStruct(paramStruct, scaled_WB, scaled_VT);
+    obj.saveSampleToFile(samples_file, paramStruct, paramStruct2, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
     
     samples_block.idx(1) = 1;
     samples_block.trialLL(1, :, :) = resultStruct.trialLL;
@@ -266,8 +284,10 @@ if(~partialFileFound)
     samples.e(:,1)      = HMC_state.stepSize.e;
     samples.log_p_accept(1) = log(1);
     start_idx = 2;
+
+    savePartialProgressFileName_idx = 1;
 else
-    load(HMC_settings.savePartialProgressFile, "HMC_settings", "HMC_state", "paramStruct", "resultStruct", "paramStruct2", "samples_file_format", "samples_block", "samples", "scaled_WB", "scaled_VT", "sample_idx", "randomNumberState");
+    load(HMC_settings.savePartialProgressFile(savePartialProgressFileName_idx), "HMC_settings", "HMC_state", "paramStruct", "resultStruct", "paramStruct2", "samples_file_format", "samples_block", "samples", "scaled_WB", "scaled_VT", "sample_idx", "randomNumberState");
     TotalSamples = HMC_settings.nWarmup + HMC_settings.nSamples;
     DT = [obj.dim_trialLL(1) obj.dim_trialLL(2)];
     trialLL_file = memmapfile(HMC_settings.trialLLfile,...
@@ -276,9 +296,12 @@ else
     samples_file = memmapfile(HMC_settings.samplesFile,...
                    "Format",samples_file_format, ...
                    "Writable", true);
-    start_idx = sample_idx;
+    start_idx = sample_idx + 1;
     rng(randomNumberState);
     fprintf("Loading partial progress file at sample %d...\n", start_idx);
+
+
+    savePartialProgressFileName_idx = mod(savePartialProgressFileName_idx, numel(HMC_settings.savePartialProgressFile)) + 1;
 end
 
 
@@ -293,6 +316,9 @@ end
 %     drawnow;
 % end
 
+samples_unscaled = repmat(paramStruct,  samples_block.samplesBlockSize, 1);
+samples_scaled   = repmat(paramStruct2, samples_block.samplesBlockSize, 1);
+
 %%
 if(~isempty(HMC_settings.M_est.samples))
     vectorizedSamples             = nan(TotalParameters, HMC_settings.M_est.samples(end), dataType);
@@ -305,14 +331,6 @@ end
 err_ctr = 0;
 lastSavePoint = nan;
 for sample_idx = start_idx:TotalSamples
-    %% save partial progress if requested
-    if(isfield(HMC_settings, "savePartialProgressN") && HMC_settings.savePartialProgressN > 0 && mod(sample_idx, HMC_settings.savePartialProgressN) == 0 && sample_idx > start_idx)
-        obj.destroy_temp_storage_file = false;
-        lastSavePoint = sample_idx;
-
-        randomNumberState = rng();
-        save(HMC_settings.savePartialProgressFile, "-v7.3", "randomNumberState", "HMC_settings", "paramStruct2", "HMC_state", "paramStruct", "resultStruct", "samples_file_format", "samples_block", "samples", "scaled_WB", "scaled_VT", "sample_idx", "modelInfo");
-    end
 
     %% set paramStruct to MAP estimate (should only be done early in warmup if at all)
     
@@ -381,7 +399,6 @@ for sample_idx = start_idx:TotalSamples
     
     %% store samples
     
-    paramStruct2 = obj.saveSampleToFile(samples_file, paramStruct, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
     samples.log_post(sample_idx)   = resultStruct.log_post;
     samples.log_like(sample_idx)   = resultStruct.log_likelihood;
     
@@ -393,14 +410,34 @@ for sample_idx = start_idx:TotalSamples
     idx_c = mod(sample_idx-1, samples_block.samplesBlockSize) + 1;
     samples_block.idx(       idx_c) = sample_idx;
     samples_block.trialLL(idx_c, :, :) = resultStruct.trialLL;
-    if(mod(sample_idx, samples_block.samplesBlockSize) == 0 || sample_idx == TotalSamples)
-        %save to file
+
+    paramStruct2   = obj.rescaleParamStruct(paramStruct, scaled_WB, scaled_VT);
+    samples_unscaled(idx_c) = paramStruct;
+    samples_scaled(idx_c)   = paramStruct2;
+
+    if((mod(sample_idx, samples_block.samplesBlockSize) == 0 || sample_idx == TotalSamples) && sample_idx > start_idx)
+        fprintf("Saving progress to drive... ");
+        %save LLs to file
         xx = ~isnan(samples_block.idx);
         trialLL_file.Data.trialLL(samples_block.idx(xx),:,:)  = samples_block.trialLL;
+    
+        %save samples to file
+        obj.saveSampleToFile(samples_file, samples_unscaled, samples_scaled, samples_block.idx(xx), scaled_WB, scaled_VT, save_H, saveUnscaled);
+
+        samples_block.idx(:) = nan;
+
+        %save state to file
+        randomNumberState = rng();
+        save(HMC_settings.savePartialProgressFile(savePartialProgressFileName_idx), "-v7.3", "randomNumberState", "HMC_settings", "paramStruct2", "HMC_state", "paramStruct", "resultStruct", "samples_file_format", "samples_block", "samples", "scaled_WB", "scaled_VT", "sample_idx", "modelInfo");
+        savePartialProgressFileName_idx = mod(savePartialProgressFileName_idx, numel(HMC_settings.savePartialProgressFile)) + 1;
+
+        obj.destroy_temp_storage_file = false;
+        lastSavePoint = sample_idx;
+        fprintf("done.\n");
     end
     
     %% print any updates
-    if(sample_idx <= 500 || (sample_idx <= 1000 && mod(sample_idx,20) == 0) ||  mod(sample_idx,50) == 0 || sample_idx == TotalSamples || (HMC_settings.verbose && mod(sample_idx,20) == 0))
+    if(sample_idx < start_idx + 10 || sample_idx <= 500 || (sample_idx <= 1000 && mod(sample_idx,20) == 0) ||  mod(sample_idx,50) == 0 || sample_idx == TotalSamples || (HMC_settings.verbose && mod(sample_idx,20) == 0))
         if(sample_idx == TotalSamples)
             ww = (HMC_settings.nWarmup+1):sample_idx;
         else

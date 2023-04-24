@@ -6,7 +6,7 @@ end
 params_group = params.Groups(groupNum);
 results_group = results.Groups(groupNum);
 
-if(numel(params_group.H) ~= 1)
+if(numel(params_group.H) > 1)
     error('Incorrect number of hyperparameters')
 end
 

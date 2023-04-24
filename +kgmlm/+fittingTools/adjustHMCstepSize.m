@@ -6,8 +6,11 @@
 %       setupSizeSettings - settings for algorithm, including update schedule (see setupHMCparams)
 %       log_p_accept_new  - the log probability of the MH accept step for sample ss
 function [HMC_state] = adjustHMCstepSize(ss, HMC_state, stepSizeSettings, log_p_accept_new)
-ww = find(ss >= stepSizeSettings.schedule(:,1) & ss <= stepSizeSettings.schedule(:, 2),1,'first'); %get current estimation block (if exists)
-
+if(numel(stepSizeSettings.schedule) >= 2)
+    ww = find(ss >= stepSizeSettings.schedule(:,1) & ss <= stepSizeSettings.schedule(:, 2),1,'first'); %get current estimation block (if exists)
+else
+    ww = [];
+end
 stepSizeState = HMC_state.stepSize;
 
 if(~isempty(ww))
@@ -19,7 +22,7 @@ if(~isempty(ww))
     ps.delta = ps.delta(min(numel(ps.delta), ww));
     
     tt = ss - sample_1 + 1;
-    [stepSizeState.x_t, stepSizeState.x_bar_t, stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_p_accept_new, stepSizeState.H_sum, stepSizeState.x_bar_t, tt, log(stepSizeSettings.max_step_size));
+    [stepSizeState.x_t, stepSizeState.x_bar_t, stepSizeState.H_sum] = dualAverageStepSizeUpdate_internal(ps, log_p_accept_new, stepSizeState.H_sum, stepSizeState.x_bar_t, tt, log(stepSizeSettings.max_step_size(min(ww, numel(stepSizeSettings.max_step_size)))));
     stepSizeState.e_bar  = exp(stepSizeState.x_bar_t);
 
     if(ss == stepSizeSettings.schedule(ww,2))
@@ -38,13 +41,13 @@ end
 HMC_state.stepSize = stepSizeState;
 
 ll = [];
-if(isfield(stepSizeSettings,"maxSteps_trial"))
+if(isfield(stepSizeSettings, "maxSteps_trial"))
     ll = find(ss <= stepSizeSettings.maxSteps_trial, 1, "last");
 end
-
 if(isempty(ll))
     ll = numel(stepSizeSettings.maxSteps);
 end
+
 HMC_state.steps   = min(stepSizeSettings.maxSteps(ll),      ceil(stepSizeSettings.stepL/HMC_state.stepSize.e));
 
 end

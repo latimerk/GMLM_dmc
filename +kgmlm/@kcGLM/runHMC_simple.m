@@ -145,7 +145,7 @@ for sample_idx = start_idx:TotalSamples
         
         
         fprintf('HMC step %d / %d (accept per. = %.1f in last %d steps, curr log post = %e, (log like = %e)\n', sample_idx, TotalSamples, mean(samples.accepted(ww))*100, numel(ww), samples.log_post(sample_idx), samples.log_like(sample_idx));
-        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC early rejects = %d\n', HMC_state.stepSize.e, HMC_state.steps, nansum(samples.errors));
+        fprintf('\tcurrent step size = %e, HMC steps = %d, num HMC divergences = %d\n', HMC_state.stepSize.e, HMC_state.steps, nansum(samples.errors));
         clear ww;
         
         if(~isnan(figNum) && ~isinf(figNum))
@@ -156,7 +156,12 @@ for sample_idx = start_idx:TotalSamples
     end
     
     %% adjust step size
-    HMC_state = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state, HMC_settings.stepSize, samples.log_p_accept(sample_idx));
+    if(~samples.errors(sample_idx))
+        lpa = samples.log_p_accept(sample_idx);
+    else
+        lpa = nan;
+    end
+    HMC_state = kgmlm.fittingTools.adjustHMCstepSize(sample_idx, HMC_state, HMC_settings.stepSize, lpa);
     samples.e(:,sample_idx) = [HMC_state.stepSize.e; HMC_state.stepSize.e_bar];
     
     %% updates the covariance matrix of the hyperparameters

@@ -191,6 +191,7 @@ classdef GMLM < handle
                     error("GMLM constructor: GMLMstructure.Groups().name must be a non-empty string");
                 end
                 
+
                 %check X_shared
                 if(dim_D == 1 && ismatrix(GMLMstructure.Groups(jj).X_shared) && ~iscell(GMLMstructure.Groups(jj).X_shared))
                     GMLMstructure.Groups(jj).X_shared = {GMLMstructure.Groups(jj).X_shared};
@@ -215,6 +216,8 @@ classdef GMLM < handle
                     end
                 end
                 GMLMstructure.Groups(jj).X_shared = X_shared;
+
+
                 
                 %if contains a prior, should be empty or a function
                 if(isfield(GMLMstructure.Groups, "prior"))
@@ -1202,14 +1205,14 @@ classdef GMLM < handle
                 params = obj.GMLMstructure.scaleParams(params);
             end
            
-            for jj = 1:obj.dim_J
+            for jj = 1:obj.dim_J       
                 shared_regressors(jj).F  = obj.getF(params, jj);
                 shared_regressors(jj).XF = cell(obj.dim_S(jj), 1);
                 for ff = 1:obj.dim_D(jj)
                     if(obj.isSharedRegressor(jj, ff))
                         shared_regressors(jj).XF{ff} = obj.GMLMstructure.Groups(jj).X_shared{ff} * shared_regressors(jj).F{ff};
                     end
-                end
+                end   
             end
             
             %for each trial
@@ -1243,6 +1246,8 @@ classdef GMLM < handle
                 
                 %add each group
                 for jj = 1:obj.dim_J
+
+                   
                     
                     G = ones(dim_N, obj.dim_R(jj), obj.dim_A(jj));
                     %for each event
@@ -1406,7 +1411,7 @@ classdef GMLM < handle
             % set the desired and optional input arguments
             addOptional(p, 'enableAll', true, @islogical);
             addParameter(p, 'includeHyperparameters', true, @islogical);
-            addParameter(p, 'trial_weights', false, @(aa)(islogical(aa) || isempty(aa) || numel(aa) == obj.dim_M));
+            addParameter(p, 'trial_weights', [], @(aa)(islogical(aa) || isempty(aa) || numel(aa) == obj.dim_M));
             parse(p,varargin{:});
             
             enableAll = p.Results.enableAll;
@@ -1427,7 +1432,7 @@ classdef GMLM < handle
             end
             
             opts.trial_weights = [];
-            if(~isempty(trial_weights))
+            if(~isempty(trial_weights) && ~(isscalar(trial_weights) && islogical(trial_weights) && ~trial_weights))
                 if(numel(trial_weights) == obj.dim_M)
                     opts.trial_weights = trial_weights(:);
                 elseif(obj.isSimultaneousPopulation && size(trial_weights,1) == obj.dim_M && size(trial_weights,2) == obj.dim_P())
@@ -2176,7 +2181,8 @@ classdef GMLM < handle
         
         [samples, summary, HMC_settings, paramStruct, M] = runHMC_simple(obj, params_init, settings, varargin);
         [samples, samples_file_format, summary, HMC_settings, paramStruct, M] = runHMC_simpleLowerRAM(obj, params_init, settings, varargin);
-        [paramStruct2] = saveSampleToFile(obj, samples_file, paramStruct, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
+        [] = saveSampleToFile(obj, samples_file, paramStruct, paramStruct_rescales, sample_idx, scaled_WB, scaled_VT, save_H, saveUnscaled);
+        [paramStruct_rescaled] = rescaleParamStruct(obj, paramStruct, scaled_WB, scaled_VT);
         [samples_file_format, totalParams] = getSampleFileFormat(obj, TotalSamples, dataType_samples, paramStruct, scaled_WB, scaled_VT, saveUnscaled)
         [HMC_settings]                                   = setupHMCparams(obj, nWarmup, nSamples, debugSettings);
 

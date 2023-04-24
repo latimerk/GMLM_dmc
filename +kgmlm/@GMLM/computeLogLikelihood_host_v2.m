@@ -39,7 +39,7 @@ end
 
 if(~isempty(opts.trial_weights) && compute_dll)
     for mm = 1:M
-        dll(dim_N_ranges(mm):(dim_N_ranges(mm)-1),:) = dll(dim_N_ranges(mm):(dim_N_ranges(mm+1)-1),:) .* opts.trial_weights(mm,:);
+        dll(dim_N_ranges(mm):(dim_N_ranges(mm+1)-1),:) = dll(dim_N_ranges(mm):(dim_N_ranges(mm+1)-1),:) .* opts.trial_weights(mm,:);
     end
 end
 

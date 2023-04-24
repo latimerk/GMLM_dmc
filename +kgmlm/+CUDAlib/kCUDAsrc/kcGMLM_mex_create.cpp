@@ -122,6 +122,7 @@ private:
             std::vector<bool> factor_exists;
             factor_exists.assign(dim_D, false);
             dim_Fs[jj].assign(dim_D, 1);
+            
             for(int ss = 0; ss < dim_S; ss++) {
                 //gets factor idx for each dim and multiplies that dim's size to the factor size
                 GMLMstructure->Groups[jj]->dim_T[ss]      = dim_T[ss];
@@ -243,8 +244,8 @@ private:
                     
                     size_t dim_D = dim_Fs[jj].size();
 
-                    gpuBlocks[bb]->trials[mm]->Groups[jj]->X.resize(dim_D);
-                    gpuBlocks[bb]->trials[mm]->Groups[jj]->iX.resize(dim_D);
+                    gpuBlocks[bb]->trials[mm]->Groups[jj]->X.resize(dim_D, NULL);
+                    gpuBlocks[bb]->trials[mm]->Groups[jj]->iX.resize(dim_D, NULL);
 
                     for(int ff = 0; ff < dim_D; ff++) {
                         size_t dim_F = dim_Fs[jj][ff];

@@ -39,8 +39,11 @@ else
 end
 
 results_all =  lfun(params, opts_all);
-[~,lls_host] = gmlm.computeLogLikelihoodHost(params, opts_empty);
 
+% results_host = gmlm.computeLogLikelihood(params, opts_empty, [], true);
+% ll_host = results_host.trialLL(:);
+% ll_host = ll_host(:);
+[~,lls_host] = gmlm.computeLogLikelihoodHost(params, opts_empty);
 ll_host = cell2mat({lls_host(:).log_like}');
 ll_host = ll_host(:);
 

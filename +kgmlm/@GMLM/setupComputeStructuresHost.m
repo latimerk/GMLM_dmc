@@ -92,6 +92,9 @@ for jj = 1:obj.dim_J
     obj.X_groups(jj).isShared = obj.isSharedRegressor(jj);
     obj.X_groups(jj).X_local   = cell(obj.dim_D(jj), 1); 
     obj.X_groups(jj).iX_sparse = struct("nonzeros", cell(obj.dim_D(jj), 1), "rows", [], "cols", [],  "elements", [], "iX", [], "idx", [],  "dims", []); 
+    if(isfield(obj.GMLMstructure.Groups(jj),"factor_is_spk_coupling") && any(obj.GMLMstructure.Groups(jj).factor_is_spk_coupling))
+        error("NOT IMPLEMENTED: Spike coupling factor on host");
+    end
     for dd = 1:obj.X_groups(jj).dim_D 
         if(obj.X_groups(jj).isShared(dd))
             X_s = obj.GMLMstructure.Groups(jj).X_shared{dd};
