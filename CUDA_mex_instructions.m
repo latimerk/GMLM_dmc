@@ -1,5 +1,5 @@
 % compilation instructions for the CUDA code
-% requires CUDA version 11.0
+% requires CUDA version 11.6
 
 % on Ubuntu or Windows (Linux commands may work similarly on MAC, but never attempted)
 % first, check paths in +kgmlm/+CUDAlib/myCUDAPaths.m
