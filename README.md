@@ -48,6 +48,9 @@ Additionally, the touch-bar release occurs at different times on different trial
 We therefore used a model-based dimensionality reduction approach so that we could describe LIP encoding using shared response features across the population.
 Moreover, the sample and test stimulus ought to share similar bottom-up stimulus drive, but category-related activiy could differ in these peroids because of the different requirements placed on the two simulus presentation.
 
+Here we give an example of the types of questions that can be approached using our model: from encoding of visual stimuli in neural populations to single-trial dynamics reflecting working memory.
+This repository uses specialized CUDA code to cope with the specific requirements for modeling trial-based, neural population data at the millisecond timescale.
+
 ## Analyzing many neurons recorded in an experiment
 
 Classic approaches to analyzing neural data often involve taking the average firing rate of neurons across relative to a specific variable.
